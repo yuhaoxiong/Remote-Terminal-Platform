@@ -31,6 +31,8 @@ export interface DeviceRead {
   ssh_port: number | null;
   vnc_port: number | null;
   ssh_user: string;
+  ssh_auth_type: string;
+  ssh_credential_configured: boolean;
   local_ip: string | null;
   os_version: string | null;
   description: string | null;
@@ -53,6 +55,9 @@ export interface DeviceCreateRequest {
   project_id: string;
   location?: string;
   tags?: string[];
+  ssh_user?: string;
+  ssh_auth_type?: string;
+  ssh_password?: string;
 }
 
 export interface GroupRead {
@@ -151,6 +156,7 @@ export interface FrpsImportRequest {
   vnc_port_end: number;
   project_id: string;
   location?: string;
+  overwrite_project_location?: boolean;
 }
 
 export interface FrpsDiscoveredDevice {
@@ -164,12 +170,15 @@ export interface FrpsDiscoveredDevice {
   status: string;
   import_status: string;
   detail: string | null;
+  existing_device_id: number | null;
 }
 
 export interface FrpsImportResponse {
   total: number;
   created: number;
   skipped: number;
+  synced: number;
+  conflicts: number;
   items: FrpsDiscoveredDevice[];
 }
 

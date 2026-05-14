@@ -35,6 +35,11 @@ def test_device_crud_allocates_ports_and_releases_them(client, initialized_setti
     assert created_body["device_sn"] == "edge-sn-001"
     assert created_body["ssh_port"] == 10000
     assert created_body["vnc_port"] == 10500
+    assert created_body["ssh_user"] == "root"
+    assert created_body["ssh_auth_type"] == "password"
+    assert created_body["ssh_credential_configured"] is True
+    assert "ssh_password" not in created_body
+    assert "ssh_password_encrypted" not in created_body
     assert created_body["status"] == "unknown"
 
     duplicate = client.post("/api/devices", headers=headers, json=_device_payload())
@@ -52,11 +57,13 @@ def test_device_crud_allocates_ports_and_releases_them(client, initialized_setti
     updated = client.put(
         f"/api/devices/{created_body['id']}",
         headers=headers,
-        json={"name": "Updated edge box", "status": "online", "tags": ["vision"]},
+        json={"name": "Updated edge box", "status": "online", "tags": ["vision"], "ssh_password": "new-pass"},
     )
     assert updated.status_code == 200
     assert updated.json()["name"] == "Updated edge box"
     assert updated.json()["status"] == "online"
+    assert updated.json()["ssh_credential_configured"] is True
+    assert "new-pass" not in str(updated.json())
 
     sync_response = client.post(f"/api/devices/{created_body['id']}/sync-config", headers=headers)
     assert sync_response.status_code == 200
@@ -87,4 +94,3 @@ def test_device_endpoints_require_authentication(client) -> None:
     response = client.get("/api/devices")
 
     assert response.status_code == 403
-

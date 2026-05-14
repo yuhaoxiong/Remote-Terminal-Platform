@@ -34,6 +34,7 @@ import {
   setAuthTokens,
   type DeviceCreateRequest,
   type DeviceRead,
+  type FrpsDiscoveredDevice,
   type FrpsImportRequest,
   type GroupRead,
   type MonitoringOverviewResponse,
@@ -58,6 +59,9 @@ interface Device {
   status: DeviceStatus;
   ssh_port: number | null;
   vnc_port: number | null;
+  ssh_user: string;
+  ssh_auth_type: string;
+  ssh_credential_configured: boolean;
   cpu: number;
   memory: number;
 }
@@ -127,6 +131,9 @@ const deviceForm = reactive({
   group: "",
   location: "",
   tags: "",
+  ssh_user: "ztl",
+  ssh_auth_type: "password",
+  ssh_password: "123456",
 });
 
 const updateForm = reactive({
@@ -144,12 +151,15 @@ const frpsForm = reactive({
   vnc_port_start: 17001,
   vnc_port_end: 22000,
   project_id: "frps-import",
+  location: "frps",
+  overwrite_project_location: false,
 });
 
 const devices = ref<Device[]>([]);
 const groups = ref<Group[]>([]);
 const updateTasks = ref<UpdateTask[]>([]);
 const auditLogs = ref<AuditLog[]>([]);
+const frpsImportItems = ref<FrpsDiscoveredDevice[]>([]);
 const serverOverview = ref<MonitoringOverviewResponse | null>(null);
 const remoteSessions = reactive<Record<string, RemoteSessionUi>>({});
 const sshSockets = new Map<number, WebSocket>();
@@ -264,6 +274,9 @@ function mapDevice(device: DeviceRead, sourceGroups = groups.value): Device {
     status: normalizeDeviceStatus(device.status),
     ssh_port: device.ssh_port,
     vnc_port: device.vnc_port,
+    ssh_user: device.ssh_user,
+    ssh_auth_type: device.ssh_auth_type,
+    ssh_credential_configured: device.ssh_credential_configured,
     cpu: 0,
     memory: 0,
   };
@@ -424,6 +437,11 @@ function isAuthFailure(error: unknown): boolean {
   return status === 401 || status === 403;
 }
 
+function isGatewayFailure(error: unknown): boolean {
+  const status = (error as { response?: { status?: number } }).response?.status;
+  return status === 502 || status === 503 || status === 504;
+}
+
 async function loadPlatformData() {
   loading.value = true;
   operationError.value = "";
@@ -448,7 +466,7 @@ async function loadPlatformData() {
       authenticated.value = false;
       return;
     }
-    operationError.value = "无法从后端加载平台数据，请确认后端服务已启动。";
+    operationError.value = isGatewayFailure(error) ? "后端服务不可达或代理配置错误，请检查 Nginx /api 反向代理和后端进程。" : "无法从后端加载平台数据，请确认后端服务已启动。";
   } finally {
     loading.value = false;
   }
@@ -501,6 +519,9 @@ function openDeviceCreate() {
     group: groups.value[0]?.name ?? "",
     location: "",
     tags: "",
+    ssh_user: "ztl",
+    ssh_auth_type: "password",
+    ssh_password: "123456",
   });
   deviceCreateOpen.value = true;
 }
@@ -516,6 +537,9 @@ async function saveDevice() {
     project_id: deviceForm.project_id,
     location: deviceForm.location || undefined,
     tags: parseTags(deviceForm.tags),
+    ssh_user: deviceForm.ssh_user || "ztl",
+    ssh_auth_type: deviceForm.ssh_auth_type || "password",
+    ssh_password: deviceForm.ssh_password || "123456",
   };
   try {
     const created = await createDevice(payload);
@@ -531,6 +555,7 @@ async function saveDevice() {
 async function importFromFrps() {
   frpsImporting.value = true;
   frpsImportResult.value = "";
+  frpsImportItems.value = [];
   const payload: FrpsImportRequest = {
     dashboard_url: frpsForm.dashboard_url,
     username: frpsForm.username,
@@ -540,11 +565,13 @@ async function importFromFrps() {
     vnc_port_start: Number(frpsForm.vnc_port_start),
     vnc_port_end: Number(frpsForm.vnc_port_end),
     project_id: frpsForm.project_id,
-    location: "frps",
+    location: frpsForm.location || "frps",
+    overwrite_project_location: frpsForm.overwrite_project_location,
   };
   try {
     const result = await importFrpsDevices(payload);
-    frpsImportResult.value = `发现 ${result.total} 台，导入 ${result.created} 台，跳过 ${result.skipped} 台`;
+    frpsImportItems.value = result.items;
+    frpsImportResult.value = `发现 ${result.total} 台，新增 ${result.created} 台，同步 ${result.synced} 台，跳过 ${result.skipped} 台，冲突 ${result.conflicts} 台`;
     await loadPlatformData();
   } catch (error) {
     frpsImportResult.value = "frps 导入失败，请检查 Dashboard 地址、账号密码和后端网络";
@@ -758,12 +785,21 @@ onMounted(() => {
               <div data-testid="frps-username" class="input-wrap"><el-input v-model="frpsForm.username" placeholder="用户名" /></div>
               <div data-testid="frps-password" class="input-wrap"><el-input v-model="frpsForm.password" type="password" show-password placeholder="密码" /></div>
               <div data-testid="frps-project" class="input-wrap"><el-input v-model="frpsForm.project_id" placeholder="导入项目号" /></div>
+              <div data-testid="frps-location" class="input-wrap"><el-input v-model="frpsForm.location" placeholder="部署位置" /></div>
+              <el-checkbox data-testid="frps-overwrite" v-model="frpsForm.overwrite_project_location">覆盖项目号和位置</el-checkbox>
               <el-input-number v-model="frpsForm.ssh_port_start" :min="1" controls-position="right" />
               <el-input-number v-model="frpsForm.ssh_port_end" :min="1" controls-position="right" />
               <el-input-number v-model="frpsForm.vnc_port_start" :min="1" controls-position="right" />
               <el-input-number v-model="frpsForm.vnc_port_end" :min="1" controls-position="right" />
             </div>
             <p v-if="frpsImportResult" class="muted">{{ frpsImportResult }}</p>
+            <el-table v-if="frpsImportItems.length" :data="frpsImportItems" size="small" row-key="device_sn" empty-text="暂无导入结果">
+              <el-table-column prop="device_sn" label="设备 SN" min-width="130" />
+              <el-table-column prop="ssh_port" label="SSH" width="90" />
+              <el-table-column prop="vnc_port" label="VNC" width="90" />
+              <el-table-column prop="import_status" label="结果" width="120" />
+              <el-table-column prop="detail" label="详情" min-width="180" />
+            </el-table>
             <div class="form-actions">
               <el-button data-testid="import-frps" type="primary" :loading="frpsImporting" @click="importFromFrps">开始导入</el-button>
             </div>
@@ -806,6 +842,9 @@ onMounted(() => {
               <el-input v-model="deviceForm.group" placeholder="分组（当前仅用于显示）" />
               <el-input v-model="deviceForm.location" placeholder="位置" />
               <div data-testid="device-tags" class="input-wrap"><el-input v-model="deviceForm.tags" placeholder="标签，用逗号分隔" /></div>
+              <div data-testid="device-ssh-user" class="input-wrap"><el-input v-model="deviceForm.ssh_user" placeholder="SSH 用户" /></div>
+              <div data-testid="device-ssh-auth-type" class="input-wrap"><el-input v-model="deviceForm.ssh_auth_type" placeholder="凭据类型" /></div>
+              <div data-testid="device-ssh-password" class="input-wrap"><el-input v-model="deviceForm.ssh_password" type="password" show-password placeholder="SSH 密码" /></div>
             </div>
             <div class="form-actions">
               <el-button data-testid="save-device" type="primary" :loading="loading" @click="saveDevice">保存设备</el-button>

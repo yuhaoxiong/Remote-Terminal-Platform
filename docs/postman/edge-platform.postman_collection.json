@@ -1,0 +1,229 @@
+{
+  "info": {
+    "name": "Edge Platform API",
+    "description": "远程终端平台 API 验收集合。先运行“登录”，Tests 脚本会自动保存 access_token 和 refresh_token；后续接口继承集合级 Bearer Token。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1",
+      "type": "string"
+    },
+    {
+      "key": "username",
+      "value": "admin",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "admin",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "最小回归",
+      "item": [
+        {
+          "name": "健康检查",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/health"
+          },
+          "response": []
+        },
+        {
+          "name": "登录",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"登录成功\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) {",
+                  "  pm.collectionVariables.set(\"access_token\", json.access_token);",
+                  "  pm.environment.set(\"access_token\", json.access_token);",
+                  "}",
+                  "if (json.refresh_token) {",
+                  "  pm.collectionVariables.set(\"refresh_token\", json.refresh_token);",
+                  "  pm.environment.set(\"refresh_token\", json.refresh_token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/auth/login"
+          },
+          "response": []
+        },
+        {
+          "name": "刷新 Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"刷新成功\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) {",
+                  "  pm.collectionVariables.set(\"access_token\", json.access_token);",
+                  "  pm.environment.set(\"access_token\", json.access_token);",
+                  "}",
+                  "if (json.refresh_token) {",
+                  "  pm.collectionVariables.set(\"refresh_token\", json.refresh_token);",
+                  "  pm.environment.set(\"refresh_token\", json.refresh_token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/auth/refresh"
+          },
+          "response": []
+        },
+        {
+          "name": "当前用户",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/auth/me"
+          },
+          "response": []
+        },
+        {
+          "name": "设备列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/devices"
+          },
+          "response": []
+        },
+        {
+          "name": "诊断配置",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/diagnostics/config"
+          },
+          "response": []
+        },
+        {
+          "name": "frps 预览",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dashboard_url\": \"124.70.177.226:7500\",\n  \"username\": \"admin\",\n  \"password\": \"admin\",\n  \"ssh_port_start\": 12001,\n  \"ssh_port_end\": 17000,\n  \"vnc_port_start\": 17001,\n  \"vnc_port_end\": 22000,\n  \"project_id\": \"frps-import\",\n  \"location\": \"frps\",\n  \"overwrite_project_location\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/frps/discover"
+          },
+          "response": []
+        },
+        {
+          "name": "监控概览",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/monitoring/overview"
+          },
+          "response": []
+        },
+        {
+          "name": "日志列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/logs"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

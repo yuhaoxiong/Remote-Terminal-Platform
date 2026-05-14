@@ -1163,3 +1163,97 @@ POST /api/frps/import
 ```
 
 导入接口会创建设备记录，并在端口池中预留对应 SSH/VNC 端口。若设备序列号或端口已存在，则跳过，不覆盖已有设备。
+## Wave 9 诊断、凭据与 frps 同步补充
+
+### 健康检查
+
+```http
+GET /api/health
+```
+
+响应新增 `database` 字段：
+
+```json
+{
+  "status": "ok",
+  "service": "edge-platform",
+  "version": "0.1.0",
+  "database": "ok"
+}
+```
+
+### 诊断配置
+
+```http
+GET /api/diagnostics/config
+```
+
+认证：需要 Bearer Token。
+
+该接口只返回非敏感配置摘要，例如 API 前缀、数据库摘要、文件后端、远程网关主机、VNC 网关主机、SSH/VNC 超时时间和默认设备 SSH 用户。接口不得返回密码、Token、私钥内容或 passphrase。
+
+### 设备级 SSH 凭据
+
+设备创建和更新请求支持：
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `ssh_user` | string | `ztl` | 设备 SSH 用户 |
+| `ssh_auth_type` | string | `password` | 本轮默认密码模式 |
+| `ssh_password` | string/null | `123456` | 写入用字段；本轮直接保存到数据库 |
+
+设备读取响应不返回 `ssh_password`，只返回：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `ssh_user` | string | 当前 SSH 用户 |
+| `ssh_auth_type` | string | 凭据类型 |
+| `ssh_credential_configured` | boolean | 是否已配置 SSH 密码或密钥 |
+
+### frps 同步扩展
+
+`POST /api/frps/discover` 和 `POST /api/frps/import` 请求体新增：
+
+```json
+{
+  "overwrite_project_location": false
+}
+```
+
+结果项 `import_status` 支持：
+
+| 状态 | 说明 |
+| --- | --- |
+| `new` | 平台尚无该设备，可导入 |
+| `existing` | 已有同 `device_sn` 的设备 |
+| `created` | 导入时新建设备成功 |
+| `synced` | 导入时同步已有设备成功 |
+| `conflict` | SSH/VNC 端口被其他设备占用 |
+| `missing_vnc` | 发现 SSH 代理但未发现对应 VNC 代理 |
+| `offline` | frps Dashboard 返回代理非 online |
+| `skipped` | 跳过处理 |
+
+响应新增统计字段：
+
+```json
+{
+  "total": 2,
+  "created": 1,
+  "synced": 1,
+  "skipped": 0,
+  "conflicts": 0,
+  "items": []
+}
+```
+
+导入新设备时默认 `ssh_user=ztl`、默认 SSH 密码为 `123456`。同步已有设备时不会覆盖凭据；只有 `overwrite_project_location=true` 时才覆盖项目号和部署位置。
+
+### Postman Collection
+
+仓库内提供：
+
+```text
+docs/postman/edge-platform.postman_collection.json
+```
+
+使用顺序：健康检查、登录、当前用户、设备列表、frps 预览、监控概览、日志列表。登录和刷新 Token 请求的保存脚本必须放在 Tests 中，不要放在 Pre-request Script 中。

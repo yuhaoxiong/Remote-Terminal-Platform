@@ -1,8 +1,10 @@
 from fastapi import FastAPI
+from sqlalchemy import text
 
 from app.config import Settings, get_settings
-from app.database import init_db
+from app.database import get_engine, init_db
 from app.routers.auth import router as auth_router
+from app.routers.diagnostics import router as diagnostics_router
 from app.routers.devices import router as devices_router
 from app.routers.frps import router as frps_router
 from app.routers.groups import router as groups_router
@@ -22,13 +24,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get(f"{settings.api_prefix}/health", tags=["system"])
     def health_check() -> dict[str, str]:
+        database_status = "ok"
+        try:
+            with get_engine(settings).connect() as connection:
+                connection.execute(text("SELECT 1"))
+        except Exception:
+            database_status = "error"
         return {
             "status": "ok",
             "service": settings.service_name,
             "version": settings.version,
+            "database": database_status,
         }
 
     app.include_router(auth_router, prefix=settings.api_prefix)
+    app.include_router(diagnostics_router, prefix=settings.api_prefix)
     app.include_router(devices_router, prefix=settings.api_prefix)
     app.include_router(frps_router, prefix=settings.api_prefix)
     app.include_router(groups_router, prefix=settings.api_prefix)

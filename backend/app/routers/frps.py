@@ -18,10 +18,11 @@ def discover_frps_devices(
 ) -> FrpsImportResponse:
     settings = get_app_settings(request)
     service = FrpsImportService(settings, dashboard_client=getattr(request.app.state, "frps_dashboard_client", None))
-    try:
-        return service.discover(payload)
-    except FrpsDashboardError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    with session_scope(settings) as session:
+        try:
+            return service.discover(session, payload)
+        except FrpsDashboardError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 @router.post("/import", response_model=FrpsImportResponse)
@@ -44,6 +45,6 @@ def import_frps_devices(
             target_type="frps",
             target_id=None,
             status="success",
-            detail=f"created={result.created}, skipped={result.skipped}",
+            detail=f"created={result.created}, synced={result.synced}, skipped={result.skipped}, conflicts={result.conflicts}",
         )
         return result

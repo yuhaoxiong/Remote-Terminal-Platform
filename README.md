@@ -263,3 +263,22 @@ npm.cmd run build
 - Wave 7 联调：后端 `127.0.0.1:8010`、前端 `127.0.0.1:5179`，通过前端代理完成登录、更新任务列表、监控总览、设备创建、设备列表和设备删除验收。
 - Wave 8 自动化：通过 SSH/VNC WebSocket 鉴权与转发、SFTP 后端、远程页面会话入口测试；真实设备 SSH/VNC/SFTP 手工联调仍需要提供可访问的测试设备和凭据。
 - frps 导入：通过 Dashboard TCP 代理预览、导入、重复导入跳过、端口池预留和前端导入入口测试。
+## Wave 9 补充说明
+
+- 新增 `GET /api/diagnostics/config`，用于查看非敏感运行配置摘要。该接口需要登录鉴权，不返回密码、Token 或私钥内容。
+- `GET /api/health` 现在包含数据库连接状态，可用于服务器 502 排查。
+- 设备级 SSH 凭据支持默认用户 `ztl` 和默认密码 `123456`。本轮按需求直接保存到数据库，后续应改为加密保存；API 响应不会返回明文密码。
+- frps 导入支持重复同步、端口冲突诊断、缺失 VNC 标记和离线代理标记；只有勾选“覆盖项目号和位置”时才更新已有设备的项目号和部署位置。
+- 服务器正式测试建议使用 Nginx 单域名反向代理：前端静态文件、`/api`、`/api/ws` 均走同一个域名。
+
+## Postman 验收
+
+仓库内提供 Postman Collection：
+
+```text
+docs/postman/edge-platform.postman_collection.json
+```
+
+导入后先运行“登录”请求，Tests 脚本会自动保存 `access_token` 和 `refresh_token`；其他接口继承集合级 Bearer Token `{{access_token}}`。
+
+常见错误：如果出现 `Cannot read property 'json' of undefined`，说明脚本被放到了 Pre-request Script。保存 Token 的脚本必须放在登录请求的 Tests 中。

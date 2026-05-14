@@ -28,15 +28,22 @@ class Settings(BaseModel):
     ssh_key_filename: str | None = None
     ssh_key_passphrase: str | None = None
     file_backend: str = "local"
+    default_device_ssh_user: str = "ztl"
+    default_device_ssh_password: str = "123456"
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings(
+        jwt_secret_key=os.getenv("JWT_SECRET_KEY", "change-me-in-production"),
+        default_admin_username=os.getenv("DEFAULT_ADMIN_USERNAME", "admin"),
+        default_admin_password=os.getenv("DEFAULT_ADMIN_PASSWORD", "admin"),
         remote_gateway_host=os.getenv("REMOTE_GATEWAY_HOST", "127.0.0.1"),
         vnc_gateway_host=os.getenv("VNC_GATEWAY_HOST"),
         ssh_password=os.getenv("SSH_PASSWORD"),
         ssh_key_filename=os.getenv("SSH_KEY_FILENAME"),
         ssh_key_passphrase=os.getenv("SSH_KEY_PASSPHRASE"),
         file_backend=os.getenv("FILE_BACKEND", "local"),
+        default_device_ssh_user=os.getenv("DEFAULT_DEVICE_SSH_USER", "ztl"),
+        default_device_ssh_password=os.getenv("DEFAULT_DEVICE_SSH_PASSWORD", "123456"),
     )

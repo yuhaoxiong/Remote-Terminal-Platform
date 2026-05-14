@@ -62,17 +62,29 @@ def _ensure_sqlite_schema(settings: Settings) -> None:
     engine = get_engine(settings)
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
-    if "update_tasks" not in table_names:
-        return
-
-    update_task_columns = {column["name"] for column in inspector.get_columns("update_tasks")}
     with engine.begin() as connection:
-        if "failure_strategy" not in update_task_columns:
-            connection.execute(
-                text("ALTER TABLE update_tasks ADD COLUMN failure_strategy VARCHAR(32) NOT NULL DEFAULT 'continue'")
-            )
-        if "concurrency_limit" not in update_task_columns:
-            connection.execute(text("ALTER TABLE update_tasks ADD COLUMN concurrency_limit INTEGER NOT NULL DEFAULT 5"))
+        if "update_tasks" in table_names:
+            update_task_columns = {column["name"] for column in inspector.get_columns("update_tasks")}
+            if "failure_strategy" not in update_task_columns:
+                connection.execute(
+                    text("ALTER TABLE update_tasks ADD COLUMN failure_strategy VARCHAR(32) NOT NULL DEFAULT 'continue'")
+                )
+            if "concurrency_limit" not in update_task_columns:
+                connection.execute(text("ALTER TABLE update_tasks ADD COLUMN concurrency_limit INTEGER NOT NULL DEFAULT 5"))
+
+        if "devices" in table_names:
+            device_columns = {column["name"] for column in inspector.get_columns("devices")}
+            if "ssh_user" not in device_columns:
+                connection.execute(text("ALTER TABLE devices ADD COLUMN ssh_user VARCHAR(64) NOT NULL DEFAULT 'ztl'"))
+            else:
+                connection.execute(text("UPDATE devices SET ssh_user = 'ztl' WHERE ssh_user IS NULL OR ssh_user = ''"))
+            if "ssh_auth_type" not in device_columns:
+                connection.execute(text("ALTER TABLE devices ADD COLUMN ssh_auth_type VARCHAR(32) NOT NULL DEFAULT 'password'"))
+            if "ssh_password_encrypted" not in device_columns:
+                connection.execute(text("ALTER TABLE devices ADD COLUMN ssh_password_encrypted TEXT"))
+            if "ssh_key_encrypted" not in device_columns:
+                connection.execute(text("ALTER TABLE devices ADD COLUMN ssh_key_encrypted TEXT"))
+            connection.execute(text("UPDATE devices SET ssh_password_encrypted = '123456' WHERE ssh_password_encrypted IS NULL OR ssh_password_encrypted = ''"))
 
 
 def init_db(settings: Settings | None = None) -> None:

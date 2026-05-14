@@ -13,4 +13,5 @@ def test_health_check_reports_service_ready() -> None:
         "status": "ok",
         "service": "edge-platform",
         "version": "0.1.0",
+        "database": "ok",
     }

@@ -11,6 +11,7 @@ class FrpsImportRequest(BaseModel):
     vnc_port_end: int = 22000
     project_id: str = "frps-import"
     location: str | None = "frps"
+    overwrite_project_location: bool = False
 
 
 class FrpsDiscoveredDevice(BaseModel):
@@ -24,10 +25,13 @@ class FrpsDiscoveredDevice(BaseModel):
     status: str
     import_status: str = "pending"
     detail: str | None = None
+    existing_device_id: int | None = None
 
 
 class FrpsImportResponse(BaseModel):
     total: int
     created: int
     skipped: int
+    synced: int = 0
+    conflicts: int = 0
     items: list[FrpsDiscoveredDevice]

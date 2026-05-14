@@ -17,7 +17,8 @@ class Device(Base):
     hardware_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     ssh_port: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
     vnc_port: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
-    ssh_user: Mapped[str] = mapped_column(String(64), default="root")
+    ssh_user: Mapped[str] = mapped_column(String(64), default="ztl")
+    ssh_auth_type: Mapped[str] = mapped_column(String(32), default="password")
     ssh_password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     ssh_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     local_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -33,3 +34,7 @@ class Device(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+    @property
+    def ssh_credential_configured(self) -> bool:
+        return bool(self.ssh_password_encrypted or self.ssh_key_encrypted)

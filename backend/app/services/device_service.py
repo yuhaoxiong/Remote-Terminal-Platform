@@ -25,7 +25,11 @@ class DeviceService:
         if existing_id is not None:
             raise DeviceDuplicateError(f"Device SN already exists: {payload.device_sn}")
 
-        device = Device(**payload.model_dump())
+        values = payload.model_dump()
+        ssh_password = values.pop("ssh_password", None)
+        device = Device(**values)
+        if ssh_password:
+            device.ssh_password_encrypted = ssh_password
         session.add(device)
         session.flush()
         device.ssh_port = self.port_pool.allocate(session, "ssh", device.id)
@@ -78,6 +82,10 @@ class DeviceService:
     def update(self, session: Session, device_id: int, payload: DeviceUpdate) -> Device:
         device = self.get(session, device_id)
         for field, value in payload.model_dump(exclude_unset=True).items():
+            if field == "ssh_password":
+                if value:
+                    device.ssh_password_encrypted = value
+                continue
             setattr(device, field, value)
         session.flush()
         session.refresh(device)

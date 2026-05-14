@@ -47,6 +47,8 @@ function mockResolvedApiState() {
         ssh_port: 10000,
         vnc_port: 10500,
         ssh_user: "root",
+        ssh_auth_type: "password",
+        ssh_credential_configured: true,
         local_ip: null,
         os_version: null,
         description: null,
@@ -114,7 +116,23 @@ function mockResolvedApiState() {
     total: 2,
     created: 2,
     skipped: 0,
-    items: [],
+    synced: 0,
+    conflicts: 0,
+    items: [
+      {
+        name: "frps-12008",
+        device_sn: "frps-12008",
+        project_id: "frps-import",
+        ssh_port: 12008,
+        vnc_port: 17008,
+        ssh_proxy_name: "ssh-12008",
+        vnc_proxy_name: "vnc-17008",
+        status: "online",
+        import_status: "created",
+        detail: "已导入设备 2",
+        existing_device_id: 2,
+      },
+    ],
   });
 }
 
@@ -219,6 +237,8 @@ describe("App", () => {
       ssh_port: 10001,
       vnc_port: 10501,
       ssh_user: "root",
+      ssh_auth_type: "password",
+      ssh_credential_configured: true,
       local_ip: null,
       os_version: null,
       description: null,
@@ -256,6 +276,9 @@ describe("App", () => {
       project_id: "工厂-wave5",
       location: undefined,
       tags: ["视觉", "生产"],
+      ssh_user: "ztl",
+      ssh_auth_type: "password",
+      ssh_password: "123456",
     });
     expect(wrapper.text()).toContain("边缘相机 09");
     expect(wrapper.text()).toContain("SN-W5-009");
@@ -292,8 +315,10 @@ describe("App", () => {
       vnc_port_end: 22000,
       project_id: "frps-import",
       location: "frps",
+      overwrite_project_location: false,
     });
-    expect(wrapper.text()).toContain("导入 2 台");
+    expect(wrapper.text()).toContain("新增 2");
+    expect(wrapper.text()).toContain("frps-12008");
   });
 
   it("opens real remote session descriptors from the remote page", async () => {

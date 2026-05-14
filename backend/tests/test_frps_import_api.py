@@ -1,4 +1,5 @@
 from app.database import session_scope
+from app.models.device import Device
 from app.models.port_pool import PortPool
 
 
@@ -46,6 +47,7 @@ def test_frps_discover_previews_tcp_proxies_by_port_pairing(client) -> None:
     assert body["items"][1]["ssh_port"] == 12009
     assert body["items"][1]["vnc_port"] is None
     assert "17009" in body["items"][1]["detail"]
+    assert body["items"][1]["import_status"] == "missing_vnc"
 
 
 def test_frps_import_creates_devices_and_reserves_existing_ports(client, initialized_settings) -> None:
@@ -62,6 +64,9 @@ def test_frps_import_creates_devices_and_reserves_existing_ports(client, initial
     assert listed.json()["total"] == 2
     assert listed.json()["items"][0]["ssh_port"] == 12008
     assert listed.json()["items"][0]["vnc_port"] == 17008
+    assert listed.json()["items"][0]["ssh_user"] == "ztl"
+    assert listed.json()["items"][0]["ssh_credential_configured"] is True
+    assert "123456" not in str(listed.json())
     assert listed.json()["items"][1]["ssh_port"] == 12009
     assert listed.json()["items"][1]["vnc_port"] is None
 
@@ -75,7 +80,61 @@ def test_frps_import_creates_devices_and_reserves_existing_ports(client, initial
     second = client.post("/api/frps/import", headers=headers, json=_payload())
     assert second.status_code == 200
     assert second.json()["created"] == 0
-    assert second.json()["skipped"] == 2
+    assert second.json()["synced"] == 2
+
+
+def test_frps_import_reports_conflict_and_respects_project_location_overwrite(client, initialized_settings) -> None:
+    client.app.state.frps_dashboard_client = FakeFrpsDashboardClient()
+    headers = _auth_headers(client)
+
+    with session_scope(initialized_settings) as session:
+        device = Device(
+            name="manual",
+            device_sn="manual-12008",
+            project_id="manual-project",
+            location="manual-location",
+            ssh_port=12008,
+            ssh_user="custom",
+            ssh_auth_type="password",
+            ssh_password_encrypted="custom-pass",
+        )
+        session.add(device)
+
+    preview = client.post("/api/frps/discover", headers=headers, json=_payload())
+    assert preview.status_code == 200
+    assert preview.json()["items"][0]["import_status"] == "conflict"
+    assert preview.json()["conflicts"] == 1
+
+    with session_scope(initialized_settings) as session:
+        session.query(Device).filter(Device.device_sn == "manual-12008").delete()
+
+    imported = client.post("/api/frps/import", headers=headers, json=_payload())
+    assert imported.status_code == 200
+
+    no_overwrite = client.post(
+        "/api/frps/import",
+        headers=headers,
+        json={**_payload(), "project_id": "new-project", "location": "new-location"},
+    )
+    assert no_overwrite.status_code == 200
+    with session_scope(initialized_settings) as session:
+        existing = session.query(Device).filter(Device.device_sn == "frps-12008").one()
+        assert existing.project_id == "frps-existing"
+        assert existing.location == "frps"
+        assert existing.ssh_user == "ztl"
+
+    overwrite = client.post(
+        "/api/frps/import",
+        headers=headers,
+        json={**_payload(), "project_id": "new-project", "location": "new-location", "overwrite_project_location": True},
+    )
+    assert overwrite.status_code == 200
+    with session_scope(initialized_settings) as session:
+        existing = session.query(Device).filter(Device.device_sn == "frps-12008").one()
+        assert existing.project_id == "new-project"
+        assert existing.location == "new-location"
+        assert existing.ssh_user == "ztl"
+        assert existing.ssh_password_encrypted == "123456"
 
 
 def test_frps_import_requires_authentication(client) -> None:

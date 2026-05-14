@@ -9,7 +9,9 @@ class DeviceCreate(BaseModel):
     project_id: str = Field(min_length=1, max_length=120)
     location: str | None = Field(default=None, max_length=255)
     hardware_model: str | None = Field(default=None, max_length=120)
-    ssh_user: str = Field(default="root", min_length=1, max_length=64)
+    ssh_user: str = Field(default="ztl", min_length=1, max_length=64)
+    ssh_auth_type: str = Field(default="password", min_length=1, max_length=32)
+    ssh_password: str | None = Field(default="123456", max_length=255)
     local_ip: str | None = Field(default=None, max_length=64)
     os_version: str | None = Field(default=None, max_length=120)
     description: str | None = None
@@ -23,6 +25,8 @@ class DeviceUpdate(BaseModel):
     location: str | None = Field(default=None, max_length=255)
     hardware_model: str | None = Field(default=None, max_length=120)
     ssh_user: str | None = Field(default=None, min_length=1, max_length=64)
+    ssh_auth_type: str | None = Field(default=None, min_length=1, max_length=32)
+    ssh_password: str | None = Field(default=None, max_length=255)
     local_ip: str | None = Field(default=None, max_length=64)
     os_version: str | None = Field(default=None, max_length=120)
     description: str | None = None
@@ -43,6 +47,8 @@ class DeviceRead(BaseModel):
     ssh_port: int | None
     vnc_port: int | None
     ssh_user: str
+    ssh_auth_type: str
+    ssh_credential_configured: bool
     local_ip: str | None
     os_version: str | None
     description: str | None
