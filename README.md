@@ -14,6 +14,7 @@
 
 - 管理员登录认证，支持 JWT access/refresh token。
 - 设备 CRUD，自动分配 SSH/VNC 代理端口。
+- 支持从 frps Dashboard 自动发现并导入已有 TCP 代理设备。
 - 生成设备 `frpc` 配置片段，并提供配置同步接口。
 - 设备分组、标签、项目号、状态筛选。
 - 设备状态、指标记录和监控总览。
@@ -168,6 +169,11 @@ $env:FILE_BACKEND='sftp'
 - `POST /api/devices/{id}/remote/ssh`
 - `POST /api/devices/{id}/remote/vnc`
 
+### frps 导入
+
+- `POST /api/frps/discover`
+- `POST /api/frps/import`
+
 ### 文件
 
 - `GET /api/devices/{id}/files`
@@ -228,6 +234,7 @@ scripts/deploy/backup_sqlite.ps1
 ## 当前实现说明
 
 - 默认数据库是 SQLite。
+- frps 导入会读取 Dashboard `/api/proxy/tcp`，按端口范围识别已有设备。当前默认规则是 SSH `12001-17000`，VNC `17001-22000`，VNC 端口与 SSH 端口一一对应且偏移 5000。
 - 设备文件管理默认使用本地存储后端，配置 `FILE_BACKEND=sftp` 后会通过 `paramiko` SFTP 访问真实设备。
 - 远程 SSH/VNC 已提供 WebSocket 基础能力：SSH 使用 JSON 消息转发终端输入输出，VNC 使用二进制 WebSocket-to-TCP 代理。完整 noVNC 嵌入式体验和高级安全加固仍是后续工作。
 - 批量更新任务已经具备任务和进度模型，但真实设备侧命令执行仍需继续接入 SSH 执行器。
@@ -250,8 +257,9 @@ npm.cmd run build
 
 最近结果：
 
-- 后端：32 个测试通过。
-- 前端：6 个测试通过。
+- 后端：35 个测试通过。
+- 前端：7 个测试通过。
 - 前端构建：成功，仍有已知 Vite chunk size 警告。
 - Wave 7 联调：后端 `127.0.0.1:8010`、前端 `127.0.0.1:5179`，通过前端代理完成登录、更新任务列表、监控总览、设备创建、设备列表和设备删除验收。
 - Wave 8 自动化：通过 SSH/VNC WebSocket 鉴权与转发、SFTP 后端、远程页面会话入口测试；真实设备 SSH/VNC/SFTP 手工联调仍需要提供可访问的测试设备和凭据。
+- frps 导入：通过 Dashboard TCP 代理预览、导入、重复导入跳过、端口池预留和前端导入入口测试。

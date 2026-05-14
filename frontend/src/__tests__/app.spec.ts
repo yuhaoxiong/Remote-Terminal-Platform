@@ -14,6 +14,7 @@ vi.mock("../api/platform", () => ({
   executeUpdateTask: vi.fn(),
   getAccessToken: vi.fn(() => "access-token"),
   hasStoredAccessToken: vi.fn(() => false),
+  importFrpsDevices: vi.fn(),
   listDevices: vi.fn(),
   listGroups: vi.fn(),
   listLogs: vi.fn(),
@@ -108,6 +109,12 @@ function mockResolvedApiState() {
     remote_port: 10500,
     websocket_url: "/api/ws/devices/1/vnc",
     proxy_url: null,
+  });
+  api.importFrpsDevices.mockResolvedValue({
+    total: 2,
+    created: 2,
+    skipped: 0,
+    items: [],
   });
 }
 
@@ -254,6 +261,39 @@ describe("App", () => {
     expect(wrapper.text()).toContain("SN-W5-009");
     expect(wrapper.text()).toContain("SSH");
     expect(wrapper.text()).toContain("VNC");
+  });
+
+  it("imports existing frps proxies into devices", async () => {
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="nav-devices"]').trigger("click");
+    await wrapper.find('[data-testid="open-frps-import"]').trigger("click");
+    await wrapper.find('[data-testid="frps-url"] input').setValue("124.70.177.226:7500");
+    await wrapper.find('[data-testid="import-frps"]').trigger("click");
+    await flushAsync();
+
+    expect(api.importFrpsDevices).toHaveBeenCalledWith({
+      dashboard_url: "124.70.177.226:7500",
+      username: "admin",
+      password: "admin",
+      ssh_port_start: 12001,
+      ssh_port_end: 17000,
+      vnc_port_start: 17001,
+      vnc_port_end: 22000,
+      project_id: "frps-import",
+      location: "frps",
+    });
+    expect(wrapper.text()).toContain("导入 2 台");
   });
 
   it("opens real remote session descriptors from the remote page", async () => {

@@ -43,3 +43,16 @@ class PortPoolService:
         port_record.device_id = None
         port_record.allocated_at = None
         session.flush()
+
+    def reserve(self, session: Session, service_type: str, port: int, device_id: int) -> None:
+        port_record = session.scalar(select(PortPool).where(PortPool.service_type == service_type, PortPool.port == port))
+        if port_record is None:
+            port_record = PortPool(service_type=service_type, port=port)
+            session.add(port_record)
+            session.flush()
+        if port_record.status == "allocated" and port_record.device_id != device_id:
+            raise PortPoolExhaustedError(f"{service_type} port already allocated: {port}")
+        port_record.status = "allocated"
+        port_record.device_id = device_id
+        port_record.allocated_at = datetime.now(timezone.utc)
+        session.flush()

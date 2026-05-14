@@ -1096,3 +1096,70 @@ id,user_id,action,target_type,target_id,status,detail,created_at
 - `file_backend=sftp`：通过 `paramiko` SFTP 连接设备 frp SSH 端口，执行真实文件列表、上传、下载和删除。
 
 SFTP 模式仍保留路径安全限制：禁止空文件路径、`.`、`..`、路径穿越和根路径删除。
+
+## frps Dashboard 导入
+
+### 预览 frps 代理
+
+```http
+POST /api/frps/discover
+```
+
+认证：需要。
+
+请求体：
+
+```json
+{
+  "dashboard_url": "124.70.177.226:7500",
+  "username": "admin",
+  "password": "admin",
+  "ssh_port_start": 12001,
+  "ssh_port_end": 17000,
+  "vnc_port_start": 17001,
+  "vnc_port_end": 22000,
+  "project_id": "frps-import",
+  "location": "frps"
+}
+```
+
+行为：
+
+- 后端读取 `http://<dashboard_url>/api/proxy/tcp`。
+- 端口在 `ssh_port_start` 到 `ssh_port_end` 内的代理会作为 SSH 代理。
+- VNC 端口按偏移匹配，默认 `vnc_port = ssh_port + 5000`。
+- 预览接口不会写入数据库。
+
+### 导入 frps 代理
+
+```http
+POST /api/frps/import
+```
+
+认证：需要。请求体与预览接口相同。
+
+响应：
+
+```json
+{
+  "total": 2,
+  "created": 1,
+  "skipped": 1,
+  "items": [
+    {
+      "name": "frps-12008",
+      "device_sn": "frps-12008",
+      "project_id": "frps-import",
+      "ssh_port": 12008,
+      "vnc_port": 17008,
+      "ssh_proxy_name": "ssh-12008",
+      "vnc_proxy_name": "vnc-17008",
+      "status": "online",
+      "import_status": "created",
+      "detail": "设备 1 已导入"
+    }
+  ]
+}
+```
+
+导入接口会创建设备记录，并在端口池中预留对应 SSH/VNC 端口。若设备序列号或端口已存在，则跳过，不覆盖已有设备。

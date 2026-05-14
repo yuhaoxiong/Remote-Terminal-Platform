@@ -141,6 +141,38 @@ export interface RemoteSessionResponse {
   proxy_url: string | null;
 }
 
+export interface FrpsImportRequest {
+  dashboard_url: string;
+  username: string;
+  password: string;
+  ssh_port_start: number;
+  ssh_port_end: number;
+  vnc_port_start: number;
+  vnc_port_end: number;
+  project_id: string;
+  location?: string;
+}
+
+export interface FrpsDiscoveredDevice {
+  name: string;
+  device_sn: string;
+  project_id: string;
+  ssh_port: number;
+  vnc_port: number | null;
+  ssh_proxy_name: string;
+  vnc_proxy_name: string | null;
+  status: string;
+  import_status: string;
+  detail: string | null;
+}
+
+export interface FrpsImportResponse {
+  total: number;
+  created: number;
+  skipped: number;
+  items: FrpsDiscoveredDevice[];
+}
+
 export function hasStoredAccessToken(): boolean {
   return Boolean(window.localStorage.getItem(ACCESS_TOKEN_KEY));
 }
@@ -211,6 +243,16 @@ export async function openSshSession(deviceId: number): Promise<RemoteSessionRes
 
 export async function openVncSession(deviceId: number): Promise<RemoteSessionResponse> {
   const response = await api.post<RemoteSessionResponse>(`/devices/${deviceId}/remote/vnc`);
+  return response.data;
+}
+
+export async function discoverFrpsDevices(payload: FrpsImportRequest): Promise<FrpsImportResponse> {
+  const response = await api.post<FrpsImportResponse>("/frps/discover", payload);
+  return response.data;
+}
+
+export async function importFrpsDevices(payload: FrpsImportRequest): Promise<FrpsImportResponse> {
+  const response = await api.post<FrpsImportResponse>("/frps/import", payload);
   return response.data;
 }
 

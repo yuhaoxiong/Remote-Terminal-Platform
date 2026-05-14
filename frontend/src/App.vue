@@ -23,6 +23,7 @@ import {
   getAccessToken,
   getMonitoringOverview,
   hasStoredAccessToken,
+  importFrpsDevices,
   listDevices,
   listGroups,
   listLogs,
@@ -33,6 +34,7 @@ import {
   setAuthTokens,
   type DeviceCreateRequest,
   type DeviceRead,
+  type FrpsImportRequest,
   type GroupRead,
   type MonitoringOverviewResponse,
   type OperationLogRead,
@@ -111,6 +113,9 @@ const loginPassword = ref("");
 const loginError = ref("");
 const deviceSearch = ref("");
 const deviceCreateOpen = ref(false);
+const frpsImportOpen = ref(false);
+const frpsImporting = ref(false);
+const frpsImportResult = ref("");
 const updateCreateOpen = ref(false);
 const loading = ref(false);
 const operationError = ref("");
@@ -128,6 +133,17 @@ const updateForm = reactive({
   name: "",
   command: "",
   project_id: "",
+});
+
+const frpsForm = reactive({
+  dashboard_url: "124.70.177.226:7500",
+  username: "admin",
+  password: "admin",
+  ssh_port_start: 12001,
+  ssh_port_end: 17000,
+  vnc_port_start: 17001,
+  vnc_port_end: 22000,
+  project_id: "frps-import",
 });
 
 const devices = ref<Device[]>([]);
@@ -512,6 +528,31 @@ async function saveDevice() {
   }
 }
 
+async function importFromFrps() {
+  frpsImporting.value = true;
+  frpsImportResult.value = "";
+  const payload: FrpsImportRequest = {
+    dashboard_url: frpsForm.dashboard_url,
+    username: frpsForm.username,
+    password: frpsForm.password,
+    ssh_port_start: Number(frpsForm.ssh_port_start),
+    ssh_port_end: Number(frpsForm.ssh_port_end),
+    vnc_port_start: Number(frpsForm.vnc_port_start),
+    vnc_port_end: Number(frpsForm.vnc_port_end),
+    project_id: frpsForm.project_id,
+    location: "frps",
+  };
+  try {
+    const result = await importFrpsDevices(payload);
+    frpsImportResult.value = `发现 ${result.total} 台，导入 ${result.created} 台，跳过 ${result.skipped} 台`;
+    await loadPlatformData();
+  } catch (error) {
+    frpsImportResult.value = "frps 导入失败，请检查 Dashboard 地址、账号密码和后端网络";
+  } finally {
+    frpsImporting.value = false;
+  }
+}
+
 function openUpdateCreate() {
   Object.assign(updateForm, {
     name: "",
@@ -702,7 +743,31 @@ onMounted(() => {
             <el-button data-testid="open-device-create" type="primary" :icon="Plus" @click="openDeviceCreate">
               新建设备
             </el-button>
+            <el-button data-testid="open-frps-import" :icon="Refresh" @click="frpsImportOpen = !frpsImportOpen">
+              导入 frps
+            </el-button>
           </div>
+
+          <section v-if="frpsImportOpen" class="form-panel" aria-label="导入 frps 设备">
+            <div class="panel-header">
+              <h3>导入 frps 已有设备</h3>
+              <el-button text @click="frpsImportOpen = false">关闭</el-button>
+            </div>
+            <div class="form-grid">
+              <div data-testid="frps-url" class="input-wrap"><el-input v-model="frpsForm.dashboard_url" placeholder="Dashboard 地址" /></div>
+              <div data-testid="frps-username" class="input-wrap"><el-input v-model="frpsForm.username" placeholder="用户名" /></div>
+              <div data-testid="frps-password" class="input-wrap"><el-input v-model="frpsForm.password" type="password" show-password placeholder="密码" /></div>
+              <div data-testid="frps-project" class="input-wrap"><el-input v-model="frpsForm.project_id" placeholder="导入项目号" /></div>
+              <el-input-number v-model="frpsForm.ssh_port_start" :min="1" controls-position="right" />
+              <el-input-number v-model="frpsForm.ssh_port_end" :min="1" controls-position="right" />
+              <el-input-number v-model="frpsForm.vnc_port_start" :min="1" controls-position="right" />
+              <el-input-number v-model="frpsForm.vnc_port_end" :min="1" controls-position="right" />
+            </div>
+            <p v-if="frpsImportResult" class="muted">{{ frpsImportResult }}</p>
+            <div class="form-actions">
+              <el-button data-testid="import-frps" type="primary" :loading="frpsImporting" @click="importFromFrps">开始导入</el-button>
+            </div>
+          </section>
 
           <div class="table-panel">
             <el-table :data="visibleDevices" row-key="id" empty-text="暂无设备">
