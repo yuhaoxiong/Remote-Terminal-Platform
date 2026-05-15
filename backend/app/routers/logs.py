@@ -11,6 +11,14 @@ from app.services.operation_log import OperationLogService
 
 router = APIRouter(prefix="/logs", tags=["logs"])
 
+CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
+
+
+def _csv_safe(value: object) -> object:
+    if isinstance(value, str) and value.startswith(CSV_FORMULA_PREFIXES):
+        return f"\t{value}"
+    return value
+
 
 @router.get("", response_model=OperationLogListResponse)
 def list_logs(
@@ -58,6 +66,22 @@ def export_logs(
     writer.writerow(["id", "user_id", "action", "target_type", "target_id", "status", "detail", "created_at"])
     for log in logs:
         writer.writerow(
-            [log.id, log.user_id, log.action, log.target_type, log.target_id, log.status, log.detail, log.created_at]
+            [
+                _csv_safe(log.id),
+                _csv_safe(log.user_id),
+                _csv_safe(log.action),
+                _csv_safe(log.target_type),
+                _csv_safe(log.target_id),
+                _csv_safe(log.status),
+                _csv_safe(log.detail),
+                _csv_safe(log.created_at),
+            ]
         )
-    return Response(content=output.getvalue(), media_type="text/csv")
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": 'attachment; filename="operation_logs.csv"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

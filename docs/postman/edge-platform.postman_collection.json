@@ -69,6 +69,36 @@
       "key": "new_device_location",
       "value": "frps",
       "type": "string"
+    },
+    {
+      "key": "group_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "group_name",
+      "value": "Postman 分组",
+      "type": "string"
+    },
+    {
+      "key": "password_new",
+      "value": "change-me-after-test",
+      "type": "string"
+    },
+    {
+      "key": "log_action",
+      "value": "device.create",
+      "type": "string"
+    },
+    {
+      "key": "log_target_type",
+      "value": "device",
+      "type": "string"
+    },
+    {
+      "key": "log_status",
+      "value": "success",
+      "type": "string"
     }
   ],
   "item": [
@@ -458,6 +488,191 @@
             "method": "DELETE",
             "header": [],
             "url": "{{base_url}}/api/devices/{{device_id}}"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Wave 12 运维闭环",
+      "item": [
+        {
+          "name": "修改管理员密码（谨慎执行）",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"old_password\": \"{{password}}\",\n  \"new_password\": \"{{password_new}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/auth/password"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"密码修改请求成功\", function () {",
+                  "  pm.expect([204, 400, 401, 422]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test(\"如返回 204，请手动把 password 变量改为 password_new 后重新登录\", function () {",
+                  "  pm.expect(true).to.equal(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "创建分组",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{group_name}}\",\n  \"description\": \"Postman Wave 12 分组\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/groups"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"分组创建成功或名称已存在\", function () {",
+                  "  pm.expect([201, 409]).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  pm.collectionVariables.set(\"group_id\", json.id);",
+                  "  pm.environment.set(\"group_id\", json.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "分组列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/groups"
+          },
+          "response": []
+        },
+        {
+          "name": "编辑分组",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman Wave 12 分组已更新\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/groups/{{group_id}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"分组编辑成功\", function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "删除分组（谨慎执行）",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{base_url}}/api/groups/{{group_id}}"
+          },
+          "response": []
+        },
+        {
+          "name": "日志筛选",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/logs?offset=0&limit=50&action={{log_action}}&target_type={{log_target_type}}&status={{log_status}}"
+          },
+          "response": []
+        },
+        {
+          "name": "导出日志 CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/logs/export?action={{log_action}}&target_type={{log_target_type}}&status={{log_status}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"CSV 导出请求成功\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"返回 CSV\", function () { pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"text/csv\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "设备同步配置",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/devices/{{device_id}}/sync-config"
+          },
+          "response": []
+        },
+        {
+          "name": "系统诊断配置",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/diagnostics/config"
           },
           "response": []
         }

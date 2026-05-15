@@ -17,14 +17,19 @@ import { computed, onMounted, reactive, ref } from "vue";
 
 import {
   cancelUpdateTask,
+  changePassword,
   clearAuthTokens,
   buildApiWebSocketUrl,
   createDevice,
+  createGroup,
   createUpdateTask,
+  deleteGroup,
   deleteDevice,
   executeUpdateTask,
+  exportLogs,
   getAccessToken,
   getDeviceStatus,
+  getDiagnosticsConfig,
   getMonitoringOverview,
   hasStoredAccessToken,
   importFrpsDevices,
@@ -36,13 +41,19 @@ import {
   openSshSession,
   openVncSession,
   setAuthTokens,
+  syncDeviceConfig,
   updateDevice,
+  updateGroup,
+  type DiagnosticsConfigResponse,
   type DeviceCreateRequest,
   type DeviceRead,
   type DeviceUpdateRequest,
   type FrpsDiscoveredDevice,
   type FrpsImportRequest,
+  type GroupCreateRequest,
   type GroupRead,
+  type GroupUpdateRequest,
+  type ListLogsParams,
   type MonitoringOverviewResponse,
   type OperationLogRead,
   type UpdateTaskCreateRequest,
@@ -50,7 +61,7 @@ import {
   type UpdateTaskRead,
 } from "./api/platform";
 
-type SectionId = "dashboard" | "devices" | "groups" | "remote" | "updates" | "logs";
+type SectionId = "dashboard" | "devices" | "groups" | "remote" | "updates" | "logs" | "diagnostics";
 type DeviceStatus = "online" | "offline" | "degraded" | "unknown";
 type UpdateStatus = "pending" | "running" | "completed" | "canceled" | "partial_failed";
 type ExecutionMode = "dry_run" | "ssh_command";
@@ -77,6 +88,7 @@ interface Device {
 interface Group {
   id: number;
   name: string;
+  parent_id: number | null;
   description: string;
   deviceCount: number;
 }
@@ -119,6 +131,7 @@ const navItems: Array<{ id: SectionId; label: string; icon: unknown }> = [
   { id: "remote", label: "远程连接", icon: VideoPlay },
   { id: "updates", label: "批量更新", icon: Finished },
   { id: "logs", label: "操作日志", icon: Document },
+  { id: "diagnostics", label: "系统诊断", icon: WarningFilled },
 ];
 
 const authenticated = ref(hasStoredAccessToken());
@@ -126,12 +139,16 @@ const activeSection = ref<SectionId>("dashboard");
 const loginPassword = ref("");
 const loginError = ref("");
 const deviceSearch = ref("");
+const selectedGroupId = ref<number | null>(null);
 const deviceCreateOpen = ref(false);
 const deviceEditId = ref<number | null>(null);
 const frpsImportOpen = ref(false);
 const frpsImporting = ref(false);
 const frpsImportResult = ref("");
 const updateCreateOpen = ref(false);
+const passwordChangeOpen = ref(false);
+const groupFormOpen = ref(false);
+const groupEditId = ref<number | null>(null);
 const loading = ref(false);
 const operationError = ref("");
 
@@ -139,12 +156,24 @@ const deviceForm = reactive({
   name: "",
   device_sn: "",
   project_id: "",
-  group: "",
+  group_id: null as number | null,
   location: "",
   tags: "",
   ssh_user: "ztl",
   ssh_auth_type: "password",
   ssh_password: "",
+});
+
+const passwordForm = reactive({
+  old_password: "",
+  new_password: "",
+  confirm_password: "",
+});
+
+const groupForm = reactive({
+  name: "",
+  parent_id: null as number | null,
+  description: "",
 });
 
 const updateForm = reactive({
@@ -171,10 +200,27 @@ const devices = ref<Device[]>([]);
 const groups = ref<Group[]>([]);
 const updateTasks = ref<UpdateTask[]>([]);
 const auditLogs = ref<AuditLog[]>([]);
+const auditLogsTotal = ref(0);
 const frpsImportItems = ref<FrpsDiscoveredDevice[]>([]);
 const serverOverview = ref<MonitoringOverviewResponse | null>(null);
+const diagnosticsConfig = ref<DiagnosticsConfigResponse | null>(null);
+const diagnosticsLoading = ref(false);
+const syncConfigOpen = ref(false);
+const syncConfigTitle = ref("");
+const syncConfigText = ref("");
 const remoteSessions = reactive<Record<string, RemoteSessionUi>>({});
 const sshSockets = new Map<number, WebSocket>();
+
+const logFilters = reactive({
+  action: "",
+  target_type: "",
+  status: "",
+});
+
+const logPagination = reactive({
+  offset: 0,
+  limit: 50,
+});
 
 const statusType: Record<DeviceStatus, "success" | "warning" | "danger" | "info"> = {
   online: "success",
@@ -223,18 +269,21 @@ const taskDeviceStatusText: Record<string, string> = {
 
 const visibleDevices = computed(() => {
   const keyword = deviceSearch.value.trim().toLowerCase();
-  if (!keyword) {
-    return devices.value;
-  }
-  return devices.value.filter((device) =>
-    [device.name, device.device_sn, device.project_id, device.group, device.tags.join(",")]
-      .join(" ")
-      .toLowerCase()
-      .includes(keyword),
-  );
+  return devices.value.filter((device) => {
+    const matchesGroup = selectedGroupId.value === null || device.group_id === selectedGroupId.value;
+    const matchesKeyword =
+      !keyword ||
+      [device.name, device.device_sn, device.project_id, device.group, device.tags.join(",")]
+        .join(" ")
+        .toLowerCase()
+        .includes(keyword);
+    return matchesGroup && matchesKeyword;
+  });
 });
 
 const deviceFormTitle = computed(() => (deviceEditId.value === null ? "创建设备" : "编辑设备"));
+const groupFormTitle = computed(() => (groupEditId.value === null ? "创建分组" : "编辑分组"));
+const selectedGroupName = computed(() => groupNameFor(selectedGroupId.value));
 
 const overview = computed(() => {
   if (serverOverview.value) {
@@ -315,6 +364,7 @@ function mapGroup(group: GroupRead, sourceDevices = devices.value): Group {
   return {
     id: group.id,
     name: group.name,
+    parent_id: group.parent_id,
     description: group.description || "暂无描述",
     deviceCount: sourceDevices.filter((device) => device.group_id === group.id).length,
   };
@@ -376,6 +426,16 @@ function prependLocalLog(action: string, target: string, status: string, detail:
     detail,
     created_at: new Date().toLocaleString("sv-SE").slice(0, 16),
   });
+}
+
+function logQueryParams(): ListLogsParams {
+  return {
+    offset: logPagination.offset,
+    limit: logPagination.limit,
+    action: logFilters.action || undefined,
+    target_type: logFilters.target_type || undefined,
+    status: logFilters.status || undefined,
+  };
 }
 
 function remoteSessionKey(deviceId: number, sessionType: "ssh" | "vnc"): string {
@@ -486,7 +546,7 @@ async function loadPlatformData() {
     const [groupResponse, deviceResponse, logResponse, updateResponse, overviewResponse] = await Promise.all([
       listGroups(),
       listDevices(),
-      listLogs(),
+      listLogs(logQueryParams()),
       listUpdateTasks(),
       getMonitoringOverview(),
     ]);
@@ -494,6 +554,7 @@ async function loadPlatformData() {
     devices.value = deviceResponse.items.map((device) => mapDevice(device, mappedGroups));
     groups.value = groupResponse.items.map((group) => mapGroup(group, devices.value));
     auditLogs.value = logResponse.items.map(mapLog);
+    auditLogsTotal.value = logResponse.total;
     updateTasks.value = updateResponse.items.map(mapUpdateTask);
     serverOverview.value = overviewResponse;
   } catch (error) {
@@ -510,9 +571,16 @@ async function loadPlatformData() {
 }
 
 async function refreshLogsAndOverview() {
-  const [logResponse, overviewResponse] = await Promise.all([listLogs(), getMonitoringOverview()]);
+  const [logResponse, overviewResponse] = await Promise.all([listLogs(logQueryParams()), getMonitoringOverview()]);
   auditLogs.value = logResponse.items.map(mapLog);
+  auditLogsTotal.value = logResponse.total;
   serverOverview.value = overviewResponse;
+}
+
+async function loadLogs() {
+  const logResponse = await listLogs(logQueryParams());
+  auditLogs.value = logResponse.items.map(mapLog);
+  auditLogsTotal.value = logResponse.total;
 }
 
 async function login() {
@@ -545,7 +613,131 @@ function logout() {
   groups.value = [];
   updateTasks.value = [];
   auditLogs.value = [];
+  auditLogsTotal.value = 0;
   serverOverview.value = null;
+  diagnosticsConfig.value = null;
+}
+
+function openPasswordChange() {
+  Object.assign(passwordForm, {
+    old_password: "",
+    new_password: "",
+    confirm_password: "",
+  });
+  passwordChangeOpen.value = true;
+}
+
+async function savePasswordChange() {
+  if (!passwordForm.old_password || !passwordForm.new_password) {
+    prependLocalLog("修改密码校验", "管理员账户", "blocked", "原密码和新密码为必填项");
+    return;
+  }
+  if (passwordForm.new_password.length < 8) {
+    prependLocalLog("修改密码校验", "管理员账户", "blocked", "新密码至少 8 位");
+    return;
+  }
+  if (passwordForm.new_password !== passwordForm.confirm_password) {
+    prependLocalLog("修改密码校验", "管理员账户", "blocked", "两次输入的新密码不一致");
+    return;
+  }
+  try {
+    await changePassword({
+      old_password: passwordForm.old_password,
+      new_password: passwordForm.new_password,
+    });
+    prependLocalLog("修改密码", "管理员账户", "success", "密码已修改，请重新登录");
+    passwordChangeOpen.value = false;
+    logout();
+  } catch (error) {
+    prependLocalLog("修改密码", "管理员账户", "blocked", "修改失败，请检查原密码是否正确");
+  }
+}
+
+function openGroupCreate() {
+  groupEditId.value = null;
+  Object.assign(groupForm, {
+    name: "",
+    parent_id: null,
+    description: "",
+  });
+  groupFormOpen.value = true;
+}
+
+function openGroupEdit(group: Group) {
+  groupEditId.value = group.id;
+  Object.assign(groupForm, {
+    name: group.name,
+    parent_id: group.parent_id,
+    description: group.description === "暂无描述" ? "" : group.description,
+  });
+  groupFormOpen.value = true;
+}
+
+async function saveGroup() {
+  if (!groupForm.name) {
+    prependLocalLog("分组校验", "分组", "blocked", "分组名称为必填项");
+    return;
+  }
+  try {
+    if (groupEditId.value === null) {
+      const payload: GroupCreateRequest = {
+        name: groupForm.name,
+        parent_id: groupForm.parent_id,
+        description: groupForm.description || undefined,
+      };
+      const created = await createGroup(payload);
+      groups.value.push(mapGroup(created));
+    } else {
+      const payload: GroupUpdateRequest = {
+        name: groupForm.name,
+        parent_id: groupForm.parent_id,
+        description: groupForm.description || undefined,
+      };
+      const updated = await updateGroup(groupEditId.value, payload);
+      const index = groups.value.findIndex((group) => group.id === updated.id);
+      if (index >= 0) {
+        groups.value[index] = mapGroup(updated);
+      }
+      devices.value = devices.value.map((device) =>
+        device.group_id === updated.id ? { ...device, group: updated.name } : device,
+      );
+    }
+    recalculateGroupCounts();
+    await refreshLogsAndOverview();
+    groupFormOpen.value = false;
+  } catch (error) {
+    prependLocalLog(groupEditId.value === null ? "创建分组" : "编辑分组", "分组", "blocked", "保存分组失败，请检查后端返回。");
+  }
+}
+
+async function removeGroup(group: Group) {
+  try {
+    await ElMessageBox.confirm(`确定删除分组 ${group.name}？`, "删除分组", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+  } catch {
+    return;
+  }
+  try {
+    await deleteGroup(group.id);
+    groups.value = groups.value.filter((item) => item.id !== group.id);
+    if (selectedGroupId.value === group.id) {
+      selectedGroupId.value = null;
+    }
+    devices.value = devices.value.map((device) =>
+      device.group_id === group.id ? { ...device, group_id: null, group: "未分组" } : device,
+    );
+    await refreshLogsAndOverview();
+  } catch (error) {
+    prependLocalLog("删除分组", `分组：${group.id}`, "blocked", "删除分组失败，请检查后端返回。");
+  }
+}
+
+function selectGroup(groupId: number | null) {
+  selectedGroupId.value = groupId;
+  activeSection.value = "devices";
 }
 
 function openDeviceCreate() {
@@ -554,7 +746,7 @@ function openDeviceCreate() {
     name: "",
     device_sn: "",
     project_id: "",
-    group: groups.value[0]?.name ?? "",
+    group_id: selectedGroupId.value ?? groups.value[0]?.id ?? null,
     location: "",
     tags: "",
     ssh_user: "ztl",
@@ -570,7 +762,7 @@ function openDeviceEdit(device: Device) {
     name: device.name,
     device_sn: device.device_sn,
     project_id: device.project_id,
-    group: device.group,
+    group_id: device.group_id,
     location: device.location === "未分配" ? "" : device.location,
     tags: device.tags.join(","),
     ssh_user: device.ssh_user,
@@ -588,6 +780,7 @@ async function saveDevice() {
   const basePayload = {
     name: deviceForm.name,
     project_id: deviceForm.project_id,
+    group_id: deviceForm.group_id,
     location: deviceForm.location || undefined,
     tags: parseTags(deviceForm.tags),
     ssh_user: deviceForm.ssh_user || "ztl",
@@ -654,6 +847,31 @@ async function refreshDeviceStatus(device: Device) {
     }
   } catch (error) {
     prependLocalLog("刷新设备状态", `设备：${device.id}`, "blocked", "刷新状态失败，请检查后端返回。");
+  }
+}
+
+async function showSyncConfig(device: Device) {
+  syncConfigOpen.value = true;
+  syncConfigTitle.value = `${device.name} 同步配置`;
+  syncConfigText.value = "正在生成同步配置...";
+  try {
+    const response = await syncDeviceConfig(device.id);
+    syncConfigText.value = response.config;
+    await refreshLogsAndOverview();
+  } catch (error) {
+    syncConfigText.value = "生成同步配置失败，请检查设备远程端口配置。";
+  }
+}
+
+async function copySyncConfig() {
+  if (!syncConfigText.value || syncConfigText.value.startsWith("正在")) {
+    return;
+  }
+  try {
+    await navigator.clipboard?.writeText(syncConfigText.value);
+    prependLocalLog("复制同步配置", "frpc", "success", "已复制到剪贴板");
+  } catch {
+    prependLocalLog("复制同步配置", "frpc", "blocked", "当前浏览器不支持自动复制，请手动选择配置内容");
   }
 }
 
@@ -772,6 +990,41 @@ async function cancelUpdate(task: UpdateTask) {
   }
 }
 
+async function applyLogFilters() {
+  logPagination.offset = 0;
+  await loadLogs();
+}
+
+async function handleLogPageChange(page: number) {
+  logPagination.offset = (page - 1) * logPagination.limit;
+  await loadLogs();
+}
+
+async function downloadLogs() {
+  const blob = await exportLogs({
+    action: logFilters.action || undefined,
+    target_type: logFilters.target_type || undefined,
+    status: logFilters.status || undefined,
+  });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "operation_logs.csv";
+  anchor.click();
+  window.URL.revokeObjectURL(url);
+}
+
+async function loadDiagnosticsConfig() {
+  diagnosticsLoading.value = true;
+  try {
+    diagnosticsConfig.value = await getDiagnosticsConfig();
+  } catch (error) {
+    prependLocalLog("加载诊断配置", "系统", "blocked", "无法读取诊断配置，请检查后端服务。");
+  } finally {
+    diagnosticsLoading.value = false;
+  }
+}
+
 async function confirmRealSshTask(command: string, target: string): Promise<boolean> {
   try {
     await ElMessageBox.confirm(
@@ -791,6 +1044,9 @@ async function confirmRealSshTask(command: string, target: string): Promise<bool
 
 function selectSection(section: SectionId) {
   activeSection.value = section;
+  if (section === "diagnostics") {
+    void loadDiagnosticsConfig();
+  }
 }
 
 onMounted(() => {
@@ -856,6 +1112,7 @@ onMounted(() => {
         </div>
         <div class="topbar-actions">
           <el-tag type="success" effect="light">真实 API</el-tag>
+          <el-button data-testid="open-password-change" text @click="openPasswordChange">修改密码</el-button>
           <el-button :icon="SwitchButton" circle title="退出登录" @click="logout" />
         </div>
       </el-header>
@@ -870,6 +1127,27 @@ onMounted(() => {
           :closable="false"
           :title="operationError"
         />
+
+        <section v-if="passwordChangeOpen" class="form-panel" aria-label="修改管理员密码">
+          <div class="panel-header">
+            <h3>修改管理员密码</h3>
+            <el-button text @click="passwordChangeOpen = false">关闭</el-button>
+          </div>
+          <div class="form-grid">
+            <div data-testid="old-password" class="input-wrap">
+              <el-input v-model="passwordForm.old_password" type="password" show-password placeholder="原密码" />
+            </div>
+            <div data-testid="new-password" class="input-wrap">
+              <el-input v-model="passwordForm.new_password" type="password" show-password placeholder="新密码，至少 8 位" />
+            </div>
+            <div data-testid="confirm-password" class="input-wrap">
+              <el-input v-model="passwordForm.confirm_password" type="password" show-password placeholder="再次输入新密码" />
+            </div>
+          </div>
+          <div class="form-actions">
+            <el-button data-testid="save-password" type="primary" @click="savePasswordChange">保存并重新登录</el-button>
+          </div>
+        </section>
 
         <section v-if="activeSection === 'dashboard'" class="page-section">
           <div class="stat-grid">
@@ -926,6 +1204,9 @@ onMounted(() => {
         <section v-if="activeSection === 'devices'" class="page-section">
           <div class="toolbar">
             <el-input v-model="deviceSearch" :prefix-icon="Search" placeholder="按名称、序列号、项目、分组或标签搜索" />
+            <el-select v-model="selectedGroupId" placeholder="全部分组" clearable style="max-width: 180px">
+              <el-option v-for="group in groups" :key="group.id" :label="group.name" :value="group.id" />
+            </el-select>
             <el-button data-testid="open-device-create" type="primary" :icon="Plus" @click="openDeviceCreate">
               新建设备
             </el-button>
@@ -933,6 +1214,17 @@ onMounted(() => {
               导入 frps
             </el-button>
           </div>
+          <el-alert
+            v-if="selectedGroupId !== null"
+            type="info"
+            show-icon
+            :closable="false"
+            :title="`当前仅显示 ${selectedGroupName} 分组设备`"
+          >
+            <template #default>
+              <el-button text @click="selectedGroupId = null">清除分组筛选</el-button>
+            </template>
+          </el-alert>
 
           <section v-if="frpsImportOpen" class="form-panel" aria-label="导入 frps 设备">
             <div class="panel-header">
@@ -986,10 +1278,11 @@ onMounted(() => {
                   <el-button size="small" :icon="VideoPlay" @click="selectSection('remote')">VNC</el-button>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="230">
+              <el-table-column label="操作" width="310">
                 <template #default="{ row }">
                   <el-button :data-testid="`edit-device-${row.id}`" size="small" @click="openDeviceEdit(row)">编辑</el-button>
                   <el-button :data-testid="`refresh-device-${row.id}`" size="small" :icon="Refresh" @click="refreshDeviceStatus(row)">刷新</el-button>
+                  <el-button :data-testid="`sync-device-${row.id}`" size="small" @click="showSyncConfig(row)">同步配置</el-button>
                   <el-button :data-testid="`delete-device-${row.id}`" size="small" type="danger" @click="removeDevice(row)">删除</el-button>
                 </template>
               </el-table-column>
@@ -1005,7 +1298,9 @@ onMounted(() => {
               <div data-testid="device-name" class="input-wrap"><el-input v-model="deviceForm.name" placeholder="设备名称" /></div>
               <div data-testid="device-sn" class="input-wrap"><el-input v-model="deviceForm.device_sn" :disabled="deviceEditId !== null" placeholder="设备序列号" /></div>
               <div data-testid="device-project" class="input-wrap"><el-input v-model="deviceForm.project_id" placeholder="项目号" /></div>
-              <el-input v-model="deviceForm.group" placeholder="分组（当前仅用于显示）" />
+              <el-select v-model="deviceForm.group_id" placeholder="选择分组" clearable>
+                <el-option v-for="group in groups" :key="group.id" :label="group.name" :value="group.id" />
+              </el-select>
               <el-input v-model="deviceForm.location" placeholder="位置" />
               <div data-testid="device-tags" class="input-wrap"><el-input v-model="deviceForm.tags" placeholder="标签，用逗号分隔" /></div>
               <div data-testid="device-ssh-user" class="input-wrap"><el-input v-model="deviceForm.ssh_user" placeholder="SSH 用户" /></div>
@@ -1017,14 +1312,62 @@ onMounted(() => {
               <el-button data-testid="save-device" type="primary" :loading="loading" @click="saveDevice">保存设备</el-button>
             </div>
           </section>
+
+          <section v-if="syncConfigOpen" class="form-panel" aria-label="frpc 同步配置">
+            <div class="panel-header">
+              <h3>{{ syncConfigTitle }}</h3>
+              <el-button text @click="syncConfigOpen = false">关闭</el-button>
+            </div>
+            <pre class="terminal-output">{{ syncConfigText }}</pre>
+            <div class="form-actions">
+              <el-button data-testid="copy-sync-config" @click="copySyncConfig">复制配置</el-button>
+            </div>
+          </section>
         </section>
 
         <section v-if="activeSection === 'groups'" class="page-section">
+          <div class="toolbar">
+            <div>
+              <h3>分组管理</h3>
+              <p class="muted">维护设备分组，并快速按分组进入设备列表。</p>
+            </div>
+            <el-button data-testid="open-group-create" type="primary" :icon="Plus" @click="openGroupCreate">新建分组</el-button>
+          </div>
+
+          <section v-if="groupFormOpen" class="form-panel" :aria-label="groupFormTitle">
+            <div class="panel-header">
+              <h3>{{ groupFormTitle }}</h3>
+              <el-button text @click="groupFormOpen = false">关闭</el-button>
+            </div>
+            <div class="form-grid">
+              <div data-testid="group-name" class="input-wrap"><el-input v-model="groupForm.name" placeholder="分组名称" /></div>
+              <el-select v-model="groupForm.parent_id" placeholder="上级分组" clearable>
+                <el-option
+                  v-for="group in groups.filter((item) => item.id !== groupEditId)"
+                  :key="group.id"
+                  :label="group.name"
+                  :value="group.id"
+                />
+              </el-select>
+              <div data-testid="group-description" class="input-wrap textarea-wrap">
+                <el-input v-model="groupForm.description" type="textarea" :rows="3" placeholder="分组描述" />
+              </div>
+            </div>
+            <div class="form-actions">
+              <el-button data-testid="save-group" type="primary" @click="saveGroup">保存分组</el-button>
+            </div>
+          </section>
+
           <div class="list-grid">
             <div v-for="group in groups" :key="group.id" class="item-card">
               <h3>{{ group.name }}</h3>
               <p>{{ group.description }}</p>
               <el-tag>{{ group.deviceCount }} 台设备</el-tag>
+              <div class="form-actions">
+                <el-button :data-testid="`filter-group-${group.id}`" size="small" @click="selectGroup(group.id)">查看设备</el-button>
+                <el-button :data-testid="`edit-group-${group.id}`" size="small" @click="openGroupEdit(group)">编辑</el-button>
+                <el-button :data-testid="`delete-group-${group.id}`" size="small" type="danger" @click="removeGroup(group)">删除</el-button>
+              </div>
             </div>
           </div>
         </section>
@@ -1174,7 +1517,17 @@ onMounted(() => {
         <section v-if="activeSection === 'logs'" class="page-section">
           <div class="toolbar">
             <h3>操作日志</h3>
-            <el-button :icon="Document">导出 CSV</el-button>
+            <el-button data-testid="export-logs" :icon="Document" @click="downloadLogs">导出 CSV</el-button>
+          </div>
+          <div class="form-panel">
+            <div class="form-grid">
+              <div data-testid="log-action" class="input-wrap"><el-input v-model="logFilters.action" placeholder="操作，例如 device.create" /></div>
+              <div data-testid="log-target-type" class="input-wrap"><el-input v-model="logFilters.target_type" placeholder="目标类型，例如 device" /></div>
+              <div data-testid="log-status" class="input-wrap"><el-input v-model="logFilters.status" placeholder="状态，例如 success" /></div>
+            </div>
+            <div class="form-actions">
+              <el-button data-testid="apply-log-filters" type="primary" @click="applyLogFilters">筛选</el-button>
+            </div>
           </div>
           <div class="table-panel">
             <el-table :data="auditLogs" row-key="id" empty-text="暂无日志">
@@ -1189,6 +1542,81 @@ onMounted(() => {
               <el-table-column prop="detail" label="详情" min-width="220" />
             </el-table>
           </div>
+          <el-pagination
+            layout="prev, pager, next, total"
+            :total="auditLogsTotal"
+            :page-size="logPagination.limit"
+            :current-page="Math.floor(logPagination.offset / logPagination.limit) + 1"
+            @current-change="handleLogPageChange"
+          />
+        </section>
+
+        <section v-if="activeSection === 'diagnostics'" class="page-section">
+          <div class="toolbar">
+            <h3>系统诊断</h3>
+            <el-button :icon="Refresh" :loading="diagnosticsLoading" @click="loadDiagnosticsConfig">刷新诊断</el-button>
+          </div>
+          <section class="panel">
+            <div v-if="diagnosticsConfig" class="list-grid">
+              <div class="item-card">
+                <h3>服务</h3>
+                <p>{{ diagnosticsConfig.service_name }} · {{ diagnosticsConfig.version }}</p>
+                <el-tag>{{ diagnosticsConfig.api_prefix }}</el-tag>
+              </div>
+              <div class="item-card">
+                <h3>数据</h3>
+                <p>{{ diagnosticsConfig.database }}</p>
+                <el-tag>{{ diagnosticsConfig.file_backend }}</el-tag>
+              </div>
+              <div class="item-card">
+                <h3>远程网关</h3>
+                <p>SSH {{ diagnosticsConfig.remote_gateway_host }}</p>
+                <p>VNC {{ diagnosticsConfig.vnc_gateway_host }}</p>
+              </div>
+              <div class="item-card">
+                <h3>默认 SSH 用户</h3>
+                <p>{{ diagnosticsConfig.default_device_ssh_user }}</p>
+                <el-tag type="info">{{ diagnosticsConfig.ssh_timeout_seconds }} 秒超时</el-tag>
+              </div>
+            </div>
+            <el-empty v-else description="暂无诊断数据" />
+          </section>
+          <section v-if="diagnosticsConfig" class="panel">
+            <div class="panel-header">
+              <h3>安全检查</h3>
+              <el-tag :type="diagnosticsConfig.security.warnings.length ? 'warning' : 'success'">
+                {{ diagnosticsConfig.security.warnings.length ? "存在提醒" : "配置正常" }}
+              </el-tag>
+            </div>
+            <div class="list-grid">
+              <div class="item-card">
+                <h3>凭据加密</h3>
+                <el-tag :type="diagnosticsConfig.security.credential_encryption_configured ? 'success' : 'warning'">
+                  {{ diagnosticsConfig.security.credential_encryption_configured ? "已配置" : "未配置" }}
+                </el-tag>
+              </div>
+              <div class="item-card">
+                <h3>JWT 密钥</h3>
+                <el-tag :type="diagnosticsConfig.security.jwt_secret_configured ? 'success' : 'warning'">
+                  {{ diagnosticsConfig.security.jwt_secret_configured ? "已配置" : "默认值" }}
+                </el-tag>
+              </div>
+              <div class="item-card">
+                <h3>默认密码</h3>
+                <p>管理员：{{ diagnosticsConfig.security.default_admin_password_in_use ? "仍为默认值" : "已修改" }}</p>
+                <p>设备 SSH：{{ diagnosticsConfig.security.default_device_ssh_password_in_use ? "仍为默认值" : "已修改" }}</p>
+              </div>
+            </div>
+            <el-alert
+              v-for="warning in diagnosticsConfig.security.warnings"
+              :key="warning"
+              class="validation-alert"
+              type="warning"
+              show-icon
+              :closable="false"
+              :title="warning"
+            />
+          </section>
         </section>
       </el-main>
     </el-container>

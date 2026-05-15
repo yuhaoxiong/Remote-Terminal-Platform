@@ -21,6 +21,11 @@ export interface TokenResponse {
   token_type: string;
 }
 
+export interface PasswordChangeRequest {
+  old_password: string;
+  new_password: string;
+}
+
 export interface DeviceRead {
   id: number;
   name: string;
@@ -53,6 +58,7 @@ export interface DeviceCreateRequest {
   name: string;
   device_sn: string;
   project_id: string;
+  group_id?: number | null;
   location?: string;
   tags?: string[];
   ssh_user?: string;
@@ -84,6 +90,14 @@ export interface GroupListResponse {
   items: GroupRead[];
 }
 
+export interface GroupCreateRequest {
+  name: string;
+  parent_id?: number | null;
+  description?: string;
+}
+
+export type GroupUpdateRequest = Partial<GroupCreateRequest>;
+
 export interface OperationLogRead {
   id: number;
   user_id: number | null;
@@ -98,6 +112,14 @@ export interface OperationLogRead {
 export interface OperationLogListResponse {
   total: number;
   items: OperationLogRead[];
+}
+
+export interface ListLogsParams {
+  offset?: number;
+  limit?: number;
+  action?: string;
+  target_type?: string;
+  status?: string;
 }
 
 export interface MonitoringOverviewResponse {
@@ -162,6 +184,34 @@ export interface RemoteSessionResponse {
   proxy_url: string | null;
 }
 
+export interface SyncConfigResponse {
+  device_id: number;
+  status: string;
+  config: string;
+}
+
+export interface DiagnosticsSecuritySummary {
+  credential_encryption_configured: boolean;
+  jwt_secret_configured: boolean;
+  default_admin_password_in_use: boolean;
+  default_device_ssh_password_in_use: boolean;
+  warnings: string[];
+}
+
+export interface DiagnosticsConfigResponse {
+  service_name: string;
+  version: string;
+  api_prefix: string;
+  database: string;
+  file_backend: string;
+  remote_gateway_host: string;
+  vnc_gateway_host: string;
+  ssh_timeout_seconds: number;
+  vnc_timeout_seconds: number;
+  default_device_ssh_user: string;
+  security: DiagnosticsSecuritySummary;
+}
+
 export interface FrpsImportRequest {
   dashboard_url: string;
   username: string;
@@ -221,6 +271,10 @@ export async function loginAdmin(username: string, password: string): Promise<To
   return response.data;
 }
 
+export async function changePassword(payload: PasswordChangeRequest): Promise<void> {
+  await api.put("/auth/password", payload);
+}
+
 export async function listDevices(): Promise<DeviceListResponse> {
   const response = await api.get<DeviceListResponse>("/devices");
   return response.data;
@@ -250,8 +304,27 @@ export async function listGroups(): Promise<GroupListResponse> {
   return response.data;
 }
 
-export async function listLogs(): Promise<OperationLogListResponse> {
-  const response = await api.get<OperationLogListResponse>("/logs");
+export async function createGroup(payload: GroupCreateRequest): Promise<GroupRead> {
+  const response = await api.post<GroupRead>("/groups", payload);
+  return response.data;
+}
+
+export async function updateGroup(groupId: number, payload: GroupUpdateRequest): Promise<GroupRead> {
+  const response = await api.put<GroupRead>(`/groups/${groupId}`, payload);
+  return response.data;
+}
+
+export async function deleteGroup(groupId: number): Promise<void> {
+  await api.delete(`/groups/${groupId}`);
+}
+
+export async function listLogs(params?: ListLogsParams): Promise<OperationLogListResponse> {
+  const response = await api.get<OperationLogListResponse>("/logs", { params });
+  return response.data;
+}
+
+export async function exportLogs(params?: Omit<ListLogsParams, "offset" | "limit">): Promise<Blob> {
+  const response = await api.get<Blob>("/logs/export", { params, responseType: "blob" });
   return response.data;
 }
 
@@ -290,6 +363,11 @@ export async function openVncSession(deviceId: number): Promise<RemoteSessionRes
   return response.data;
 }
 
+export async function syncDeviceConfig(deviceId: number): Promise<SyncConfigResponse> {
+  const response = await api.post<SyncConfigResponse>(`/devices/${deviceId}/sync-config`);
+  return response.data;
+}
+
 export async function discoverFrpsDevices(payload: FrpsImportRequest): Promise<FrpsImportResponse> {
   const response = await api.post<FrpsImportResponse>("/frps/discover", payload);
   return response.data;
@@ -297,6 +375,11 @@ export async function discoverFrpsDevices(payload: FrpsImportRequest): Promise<F
 
 export async function importFrpsDevices(payload: FrpsImportRequest): Promise<FrpsImportResponse> {
   const response = await api.post<FrpsImportResponse>("/frps/import", payload);
+  return response.data;
+}
+
+export async function getDiagnosticsConfig(): Promise<DiagnosticsConfigResponse> {
+  const response = await api.get<DiagnosticsConfigResponse>("/diagnostics/config");
   return response.data;
 }
 

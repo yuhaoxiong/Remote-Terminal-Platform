@@ -104,3 +104,10 @@ On Debian 11 edge devices, run `scripts/deploy/edge_bootstrap.sh` to check `ssh`
 - Start with a harmless command such as `hostname` or `whoami`, then inspect each task device result for `exit_code`, `stdout_summary`, `stderr_summary`, and `error_message`.
 - If the backend runs behind Nginx, keep long-running API calls and WebSocket locations on the same single-domain reverse proxy, and raise `proxy_read_timeout` when commands may take longer than the default timeout.
 - Check `GET /api/diagnostics/config` after deployment. Any `security.warnings` should be resolved before testing real SSH tasks against production-like devices.
+
+## Wave 12 部署后检查
+
+- 登录前端后进入“系统诊断”，确认 `security.warnings` 中没有默认 JWT 密钥、默认管理员密码、默认设备 SSH 密码或未配置凭据加密密钥等风险项。
+- 进入“操作日志”，按 `action`、`target_type`、`status` 做一次筛选，并导出 `operation_logs.csv`，确认 Nginx 对 `/api/logs/export` 没有拦截下载响应头。
+- 在“设备管理”中选择一台已导入 frps 的设备，点击“同步配置”，确认 `POST /api/devices/{id}/sync-config` 能返回 frpc 配置文本。
+- 如需修改管理员密码，使用前端顶栏“修改密码”。修改后会退出登录，下一次 Postman 或浏览器测试需要使用新密码重新登录获取 Token。

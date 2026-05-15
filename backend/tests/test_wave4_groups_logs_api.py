@@ -77,16 +77,19 @@ def test_group_crud_device_filters_and_log_csv_export(client, initialized_settin
                 target_type="device",
                 target_id=first.json()["id"],
                 status="success",
-                detail="csv row",
+                detail="=csv row",
             )
         )
 
     logs = client.get("/api/logs?action=audit.test", headers=headers)
     assert logs.status_code == 200
     assert logs.json()["total"] == 1
-    assert logs.json()["items"][0]["detail"] == "csv row"
+    assert logs.json()["items"][0]["detail"] == "=csv row"
 
     exported = client.get("/api/logs/export?action=audit.test", headers=headers)
     assert exported.status_code == 200
     assert exported.headers["content-type"].startswith("text/csv")
+    assert exported.headers["content-disposition"] == 'attachment; filename="operation_logs.csv"'
+    assert exported.headers["x-content-type-options"] == "nosniff"
     assert "audit.test" in exported.text
+    assert "\t=csv row" in exported.text

@@ -1348,3 +1348,80 @@ POST /api/update-tasks
 ```
 
 执行失败时 `status` 为 `failed`，并根据失败类型写入 `exit_code`、`stderr_summary` 或 `error_message`。API 响应不会返回设备 SSH 明文密码。
+
+## Wave 12 运维管理闭环补充
+
+### 管理员修改密码
+
+```http
+PUT /api/auth/password
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+请求体：
+
+```json
+{
+  "old_password": "admin-pass",
+  "new_password": "new-admin-pass"
+}
+```
+
+成功返回 `204 No Content`。前端修改成功后会清理本地 Token，并要求重新登录。
+
+### 分组前端闭环
+
+后端分组接口保持不变：
+
+- `POST /api/groups`
+- `GET /api/groups`
+- `PUT /api/groups/{group_id}`
+- `DELETE /api/groups/{group_id}`
+
+Wave 12 前端已接入创建、编辑、删除和设备数展示。设备创建和编辑请求会提交 `group_id`，设备列表支持按分组过滤本地列表。
+
+### 日志筛选和导出
+
+```http
+GET /api/logs?offset=0&limit=50&action=device.create&target_type=device&status=success
+```
+
+查询参数：
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `offset` | integer | 分页偏移，默认 0 |
+| `limit` | integer | 每页数量，默认 50，最大 200 |
+| `action` | string | 可选，按操作名精确筛选 |
+| `target_type` | string | 可选，按目标类型精确筛选 |
+| `status` | string | 可选，按状态精确筛选 |
+
+```http
+GET /api/logs/export?action=device.create&target_type=device&status=success
+```
+
+导出返回 `text/csv`，并包含：
+
+- `Content-Disposition: attachment; filename="operation_logs.csv"`
+- `X-Content-Type-Options: nosniff`
+
+CSV 导出会对以 `=`、`+`、`-`、`@`、制表符或换行开头的字符串增加前导制表符，降低电子表格公式注入风险。
+
+### 设备同步配置
+
+```http
+POST /api/devices/{device_id}/sync-config
+Authorization: Bearer <access_token>
+```
+
+当前实现返回生成后的 frpc 配置文本，并记录操作日志；前端设备表可直接查看和复制配置。
+
+### 系统诊断页
+
+```http
+GET /api/diagnostics/config
+Authorization: Bearer <access_token>
+```
+
+前端“系统诊断”页展示服务名、版本、API 前缀、数据库摘要、文件后端、远程网关、默认 SSH 用户和 `security` 摘要。该接口和页面只展示非敏感摘要，不返回密码、Token、私钥内容、密钥或解密后的设备凭据。

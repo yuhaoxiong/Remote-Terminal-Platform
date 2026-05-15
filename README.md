@@ -307,3 +307,12 @@ docs/postman/edge-platform.postman_collection.json
 - `GET /api/diagnostics/config` 新增 `security` 摘要，用于提示默认 JWT 密钥、默认管理员密码、默认设备 SSH 密码和未配置凭据加密等风险；接口不返回密钥、Token、私钥或明文密码。
 - 前端设备管理补齐编辑、删除和单设备状态刷新。编辑设备时，SSH 密码留空表示不修改已有凭据。
 - 批量更新真实 SSH 任务在创建和执行前会显示确认提示；任务列表支持取消待执行或执行中的任务。
+
+## Wave 12 补充说明
+
+- 前端顶栏新增“修改密码”，调用 `PUT /api/auth/password`；修改成功后会清理本地 Token 并回到登录页。
+- 分组管理页支持创建、编辑、删除分组；设备表支持按分组筛选，设备创建和编辑会提交 `group_id`。
+- 操作日志页支持按 `action`、`target_type`、`status` 筛选，接入分页，并可下载 `operation_logs.csv`。
+- 日志 CSV 导出新增下载响应头和 CSV 注入防护：以 `=`、`+`、`-`、`@`、制表符或换行开头的字符串会在导出时加前导制表符。
+- 设备管理表新增“同步配置”，可生成并查看 `POST /api/devices/{id}/sync-config` 返回的 frpc 配置。
+- 新增“系统诊断”前端页，展示 `GET /api/diagnostics/config` 的非敏感运行摘要和安全提醒。

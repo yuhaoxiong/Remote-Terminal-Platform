@@ -10,12 +10,17 @@ vi.mock("../api/platform", () => ({
   clearAuthTokens: vi.fn(),
   buildApiWebSocketUrl: vi.fn((path: string, token: string) => `ws://test${path}?token=${token}`),
   cancelUpdateTask: vi.fn(),
+  changePassword: vi.fn(),
   createDevice: vi.fn(),
+  createGroup: vi.fn(),
   createUpdateTask: vi.fn(),
+  deleteGroup: vi.fn(),
   deleteDevice: vi.fn(),
   executeUpdateTask: vi.fn(),
+  exportLogs: vi.fn(),
   getAccessToken: vi.fn(() => "access-token"),
   getDeviceStatus: vi.fn(),
+  getDiagnosticsConfig: vi.fn(),
   hasStoredAccessToken: vi.fn(() => false),
   importFrpsDevices: vi.fn(),
   listDevices: vi.fn(),
@@ -26,7 +31,9 @@ vi.mock("../api/platform", () => ({
   openSshSession: vi.fn(),
   openVncSession: vi.fn(),
   setAuthTokens: vi.fn(),
+  syncDeviceConfig: vi.fn(),
   updateDevice: vi.fn(),
+  updateGroup: vi.fn(),
   getMonitoringOverview: vi.fn(),
 }));
 
@@ -105,6 +112,32 @@ function mockResolvedApiState() {
     offline_devices: 0,
     unknown_devices: 0,
   });
+  api.changePassword.mockResolvedValue(undefined);
+  api.exportLogs.mockResolvedValue(new Blob(["id,action\n1,device.create\n"], { type: "text/csv" }));
+  api.getDiagnosticsConfig.mockResolvedValue({
+    service_name: "edge-platform",
+    version: "0.1.0",
+    api_prefix: "/api",
+    database: "sqlite:///edge-platform.db",
+    file_backend: "local",
+    remote_gateway_host: "127.0.0.1",
+    vnc_gateway_host: "127.0.0.1",
+    ssh_timeout_seconds: 15,
+    vnc_timeout_seconds: 15,
+    default_device_ssh_user: "ztl",
+    security: {
+      credential_encryption_configured: false,
+      jwt_secret_configured: false,
+      default_admin_password_in_use: false,
+      default_device_ssh_password_in_use: true,
+      warnings: ["未配置设备凭据加密密钥"],
+    },
+  });
+  api.syncDeviceConfig.mockResolvedValue({
+    device_id: 1,
+    status: "generated",
+    config: "[common]\nserver_addr = 127.0.0.1\n",
+  });
   api.openSshSession.mockResolvedValue({
     device_id: 1,
     session_type: "ssh",
@@ -156,6 +189,11 @@ describe("App", () => {
     window.localStorage.clear();
     vi.clearAllMocks();
     vi.stubGlobal("WebSocket", undefined);
+    window.URL.createObjectURL = vi.fn();
+    window.URL.revokeObjectURL = vi.fn();
+    vi.spyOn(window.URL, "createObjectURL").mockReturnValue("blob:operation-logs");
+    vi.spyOn(window.URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as never);
     mockResolvedApiState();
   });
@@ -284,6 +322,7 @@ describe("App", () => {
       name: "边缘相机 09",
       device_sn: "SN-W5-009",
       project_id: "工厂-wave5",
+      group_id: 1,
       location: undefined,
       tags: ["视觉", "生产"],
       ssh_user: "ztl",
@@ -328,6 +367,97 @@ describe("App", () => {
     });
     expect(wrapper.text()).toContain("新增 2");
     expect(wrapper.text()).toContain("frps-12008");
+  });
+
+  it("changes the admin password and returns to the login page", async () => {
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="open-password-change"]').trigger("click");
+    await wrapper.find('[data-testid="old-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="new-password"] input').setValue("new-admin-pass");
+    await wrapper.find('[data-testid="confirm-password"] input').setValue("new-admin-pass");
+    await wrapper.find('[data-testid="save-password"]').trigger("click");
+    await flushAsync();
+
+    expect(api.changePassword).toHaveBeenCalledWith({
+      old_password: "admin-pass",
+      new_password: "new-admin-pass",
+    });
+    expect(api.clearAuthTokens).toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="login-submit"]').exists()).toBe(true);
+  });
+
+  it("creates, edits, filters, and deletes groups", async () => {
+    api.createGroup.mockResolvedValueOnce({
+      id: 2,
+      name: "产线二",
+      parent_id: null,
+      description: "测试线",
+      created_at: "2026-05-13T00:00:00",
+      updated_at: "2026-05-13T00:00:00",
+    });
+    api.updateGroup.mockResolvedValueOnce({
+      id: 2,
+      name: "产线二已更新",
+      parent_id: null,
+      description: "更新后的测试线",
+      created_at: "2026-05-13T00:00:00",
+      updated_at: "2026-05-13T00:00:00",
+    });
+    api.deleteGroup.mockResolvedValueOnce(undefined);
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="nav-groups"]').trigger("click");
+    await wrapper.find('[data-testid="open-group-create"]').trigger("click");
+    await wrapper.find('[data-testid="group-name"] input').setValue("产线二");
+    await wrapper.find('[data-testid="group-description"] textarea').setValue("测试线");
+    await wrapper.find('[data-testid="save-group"]').trigger("click");
+    await flushAsync();
+
+    expect(api.createGroup).toHaveBeenCalledWith({
+      name: "产线二",
+      parent_id: null,
+      description: "测试线",
+    });
+    expect(wrapper.text()).toContain("产线二");
+
+    await wrapper.find('[data-testid="edit-group-2"]').trigger("click");
+    await wrapper.find('[data-testid="group-name"] input').setValue("产线二已更新");
+    await wrapper.find('[data-testid="save-group"]').trigger("click");
+    await flushAsync();
+    expect(api.updateGroup).toHaveBeenCalledWith(2, {
+      name: "产线二已更新",
+      parent_id: null,
+      description: "测试线",
+    });
+
+    await wrapper.find('[data-testid="filter-group-1"]').trigger("click");
+    expect(wrapper.find('[data-testid="nav-devices"]').classes()).toContain("is-active");
+
+    await wrapper.find('[data-testid="nav-groups"]').trigger("click");
+    await wrapper.find('[data-testid="delete-group-2"]').trigger("click");
+    await flushAsync();
+    expect(api.deleteGroup).toHaveBeenCalledWith(2);
   });
 
   it("edits, refreshes, and deletes a device from the device table", async () => {
@@ -377,6 +507,7 @@ describe("App", () => {
     expect(api.updateDevice).toHaveBeenCalledWith(1, {
       name: "装配边缘终端 01 已更新",
       project_id: "工厂-b",
+      group_id: 1,
       location: "北京",
       tags: ["维护"],
       ssh_user: "root",
@@ -394,6 +525,55 @@ describe("App", () => {
     await flushAsync();
     expect(api.deleteDevice).toHaveBeenCalledWith(1);
     expect(wrapper.find('[data-testid="delete-device-1"]').exists()).toBe(false);
+  });
+
+  it("shows sync config, filters logs, exports csv, and loads diagnostics", async () => {
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="nav-devices"]').trigger("click");
+    await wrapper.find('[data-testid="sync-device-1"]').trigger("click");
+    await flushAsync();
+
+    expect(api.syncDeviceConfig).toHaveBeenCalledWith(1);
+    expect(wrapper.text()).toContain("server_addr");
+
+    await wrapper.find('[data-testid="nav-logs"]').trigger("click");
+    await wrapper.find('[data-testid="log-action"] input').setValue("device.create");
+    await wrapper.find('[data-testid="log-target-type"] input').setValue("device");
+    await wrapper.find('[data-testid="log-status"] input').setValue("success");
+    await wrapper.find('[data-testid="apply-log-filters"]').trigger("click");
+    await flushAsync();
+    expect(api.listLogs).toHaveBeenLastCalledWith({
+      offset: 0,
+      limit: 50,
+      action: "device.create",
+      target_type: "device",
+      status: "success",
+    });
+
+    await wrapper.find('[data-testid="export-logs"]').trigger("click");
+    await flushAsync();
+    expect(api.exportLogs).toHaveBeenCalledWith({
+      action: "device.create",
+      target_type: "device",
+      status: "success",
+    });
+
+    await wrapper.find('[data-testid="nav-diagnostics"]').trigger("click");
+    await flushAsync();
+    expect(api.getDiagnosticsConfig).toHaveBeenCalled();
+    expect(wrapper.text()).toContain("系统诊断");
+    expect(wrapper.text()).toContain("未配置设备凭据加密密钥");
   });
 
   it("opens real remote session descriptors from the remote page", async () => {
