@@ -3,6 +3,7 @@ from typing import Any
 
 from app.config import Settings
 from app.models.device import Device
+from app.services.encryption import EncryptionService
 
 
 class RemoteConnectionError(RuntimeError):
@@ -76,6 +77,7 @@ class ParamikoSftpSession:
 class SshService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self.encryption = EncryptionService(settings)
 
     def open_shell(self, device: Device) -> SshShellSession:
         client = self._connect(device)
@@ -100,7 +102,7 @@ class SshService:
         if device.ssh_port is None:
             raise RemoteConnectionError("设备没有分配 SSH 端口")
 
-        password = device.ssh_password_encrypted or self.settings.ssh_password
+        password = self.encryption.decrypt_optional(device.ssh_password_encrypted) or self.settings.ssh_password
         if not password and not self.settings.ssh_key_filename:
             raise RemoteConnectionError("设备没有可用的 SSH 凭据")
 

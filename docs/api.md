@@ -1198,7 +1198,25 @@ GET /api/diagnostics/config
 
 认证：需要 Bearer Token。
 
-该接口只返回非敏感配置摘要，例如 API 前缀、数据库摘要、文件后端、远程网关主机、VNC 网关主机、SSH/VNC 超时时间和默认设备 SSH 用户。接口不得返回密码、Token、私钥内容或 passphrase。
+该接口只返回非敏感配置摘要，例如 API 前缀、数据库摘要、文件后端、远程网关主机、VNC 网关主机、SSH/VNC 超时时间、默认设备 SSH 用户和安全摘要。接口不得返回密码、Token、私钥内容、passphrase 或凭据加密密钥。
+
+安全摘要示例：
+
+```json
+{
+  "security": {
+    "credential_encryption_configured": true,
+    "jwt_secret_configured": true,
+    "default_admin_password_in_use": false,
+    "default_device_ssh_password_in_use": true,
+    "warnings": [
+      "设备默认 SSH 密码仍为默认值，请按部署环境调整"
+    ]
+  }
+}
+```
+
+`credential_encryption_configured=false` 表示后端未配置 `CREDENTIAL_ENCRYPTION_KEY`，新增设备凭据会按兼容模式保存。配置后，新写入的设备 SSH 密码会以 Fernet 密文保存；旧明文凭据仍兼容读取，避免升级后已有设备失联。
 
 ### 设备级 SSH 凭据
 
@@ -1217,6 +1235,8 @@ GET /api/diagnostics/config
 | `ssh_user` | string | 当前 SSH 用户 |
 | `ssh_auth_type` | string | 凭据类型 |
 | `ssh_credential_configured` | boolean | 是否已配置 SSH 密码或密钥 |
+
+Wave 11 起，配置 `CREDENTIAL_ENCRYPTION_KEY` 后，`ssh_password` 写入值会加密保存到数据库字段 `ssh_password_encrypted`。该字段不会通过 API 响应返回。未配置加密密钥时保持兼容模式，并由诊断接口给出 warning。
 
 ### frps 同步扩展
 

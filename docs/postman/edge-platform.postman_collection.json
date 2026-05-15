@@ -54,6 +54,21 @@
       "key": "update_task_id",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "device_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "new_device_project_id",
+      "value": "frps-import",
+      "type": "string"
+    },
+    {
+      "key": "new_device_location",
+      "value": "frps",
+      "type": "string"
     }
   ],
   "item": [
@@ -186,7 +201,26 @@
             "header": [],
             "url": "{{base_url}}/api/devices"
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"设备列表请求成功\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.items && json.items.length > 0) {",
+                  "  pm.collectionVariables.set(\"device_id\", json.items[0].id);",
+                  "  pm.environment.set(\"device_id\", json.items[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "诊断配置",
@@ -360,6 +394,70 @@
             "method": "GET",
             "header": [],
             "url": "{{base_url}}/api/update-tasks/{{update_task_id}}"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Wave 11 运维增强",
+      "item": [
+        {
+          "name": "诊断安全摘要",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/diagnostics/config"
+          },
+          "response": []
+        },
+        {
+          "name": "刷新设备状态",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/devices/{{device_id}}/status"
+          },
+          "response": []
+        },
+        {
+          "name": "编辑设备基础信息",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"project_id\": \"{{new_device_project_id}}\",\n  \"location\": \"{{new_device_location}}\",\n  \"ssh_user\": \"ztl\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/devices/{{device_id}}"
+          },
+          "response": []
+        },
+        {
+          "name": "取消当前更新任务",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/update-tasks/{{update_task_id}}/cancel"
+          },
+          "response": []
+        },
+        {
+          "name": "删除设备（谨慎执行）",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{base_url}}/api/devices/{{device_id}}"
           },
           "response": []
         }

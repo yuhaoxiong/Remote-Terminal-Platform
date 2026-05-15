@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.models.device import Device
 from app.schemas.device import DeviceCreate, DeviceUpdate
+from app.services.encryption import EncryptionService
 from app.services.port_pool import PortPoolService
 
 
@@ -19,6 +20,7 @@ class DeviceService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.port_pool = PortPoolService(settings)
+        self.encryption = EncryptionService(settings)
 
     def create(self, session: Session, payload: DeviceCreate) -> Device:
         existing_id = session.scalar(select(Device.id).where(Device.device_sn == payload.device_sn))
@@ -29,7 +31,7 @@ class DeviceService:
         ssh_password = values.pop("ssh_password", None)
         device = Device(**values)
         if ssh_password:
-            device.ssh_password_encrypted = ssh_password
+            device.ssh_password_encrypted = self.encryption.encrypt_optional(ssh_password)
         session.add(device)
         session.flush()
         device.ssh_port = self.port_pool.allocate(session, "ssh", device.id)
@@ -84,7 +86,7 @@ class DeviceService:
         for field, value in payload.model_dump(exclude_unset=True).items():
             if field == "ssh_password":
                 if value:
-                    device.ssh_password_encrypted = value
+                    device.ssh_password_encrypted = self.encryption.encrypt_optional(value)
                 continue
             setattr(device, field, value)
         session.flush()

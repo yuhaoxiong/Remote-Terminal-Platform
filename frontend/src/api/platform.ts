@@ -60,6 +60,16 @@ export interface DeviceCreateRequest {
   ssh_password?: string;
 }
 
+export type DeviceUpdateRequest = Partial<Omit<DeviceCreateRequest, "device_sn">> & {
+  status?: string;
+};
+
+export interface DeviceStatusResponse {
+  id: number;
+  status: string;
+  last_seen: string | null;
+}
+
 export interface GroupRead {
   id: number;
   name: string;
@@ -221,6 +231,20 @@ export async function createDevice(payload: DeviceCreateRequest): Promise<Device
   return response.data;
 }
 
+export async function updateDevice(deviceId: number, payload: DeviceUpdateRequest): Promise<DeviceRead> {
+  const response = await api.put<DeviceRead>(`/devices/${deviceId}`, payload);
+  return response.data;
+}
+
+export async function deleteDevice(deviceId: number): Promise<void> {
+  await api.delete(`/devices/${deviceId}`);
+}
+
+export async function getDeviceStatus(deviceId: number): Promise<DeviceStatusResponse> {
+  const response = await api.get<DeviceStatusResponse>(`/devices/${deviceId}/status`);
+  return response.data;
+}
+
 export async function listGroups(): Promise<GroupListResponse> {
   const response = await api.get<GroupListResponse>("/groups");
   return response.data;
@@ -248,6 +272,11 @@ export async function createUpdateTask(payload: UpdateTaskCreateRequest): Promis
 
 export async function executeUpdateTask(taskId: number): Promise<UpdateTaskRead> {
   const response = await api.post<UpdateTaskRead>(`/update-tasks/${taskId}/execute`);
+  return response.data;
+}
+
+export async function cancelUpdateTask(taskId: number): Promise<UpdateTaskRead> {
+  const response = await api.post<UpdateTaskRead>(`/update-tasks/${taskId}/cancel`);
   return response.data;
 }
 

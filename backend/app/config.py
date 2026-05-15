@@ -30,6 +30,7 @@ class Settings(BaseModel):
     file_backend: str = "local"
     default_device_ssh_user: str = "ztl"
     default_device_ssh_password: str = "123456"
+    credential_encryption_key: str | None = None
 
 
 @lru_cache
@@ -46,4 +47,5 @@ def get_settings() -> Settings:
         file_backend=os.getenv("FILE_BACKEND", "local"),
         default_device_ssh_user=os.getenv("DEFAULT_DEVICE_SSH_USER", "ztl"),
         default_device_ssh_password=os.getenv("DEFAULT_DEVICE_SSH_PASSWORD", "123456"),
+        credential_encryption_key=os.getenv("CREDENTIAL_ENCRYPTION_KEY"),
     )

@@ -12,15 +12,19 @@ import {
   VideoPlay,
   WarningFilled,
 } from "@element-plus/icons-vue";
+import { ElMessageBox } from "element-plus";
 import { computed, onMounted, reactive, ref } from "vue";
 
 import {
+  cancelUpdateTask,
   clearAuthTokens,
   buildApiWebSocketUrl,
   createDevice,
   createUpdateTask,
+  deleteDevice,
   executeUpdateTask,
   getAccessToken,
+  getDeviceStatus,
   getMonitoringOverview,
   hasStoredAccessToken,
   importFrpsDevices,
@@ -32,8 +36,10 @@ import {
   openSshSession,
   openVncSession,
   setAuthTokens,
+  updateDevice,
   type DeviceCreateRequest,
   type DeviceRead,
+  type DeviceUpdateRequest,
   type FrpsDiscoveredDevice,
   type FrpsImportRequest,
   type GroupRead,
@@ -121,6 +127,7 @@ const loginPassword = ref("");
 const loginError = ref("");
 const deviceSearch = ref("");
 const deviceCreateOpen = ref(false);
+const deviceEditId = ref<number | null>(null);
 const frpsImportOpen = ref(false);
 const frpsImporting = ref(false);
 const frpsImportResult = ref("");
@@ -137,7 +144,7 @@ const deviceForm = reactive({
   tags: "",
   ssh_user: "ztl",
   ssh_auth_type: "password",
-  ssh_password: "123456",
+  ssh_password: "",
 });
 
 const updateForm = reactive({
@@ -226,6 +233,8 @@ const visibleDevices = computed(() => {
       .includes(keyword),
   );
 });
+
+const deviceFormTitle = computed(() => (deviceEditId.value === null ? "创建设备" : "编辑设备"));
 
 const overview = computed(() => {
   if (serverOverview.value) {
@@ -540,6 +549,7 @@ function logout() {
 }
 
 function openDeviceCreate() {
+  deviceEditId.value = null;
   Object.assign(deviceForm, {
     name: "",
     device_sn: "",
@@ -549,34 +559,101 @@ function openDeviceCreate() {
     tags: "",
     ssh_user: "ztl",
     ssh_auth_type: "password",
-    ssh_password: "123456",
+    ssh_password: "",
+  });
+  deviceCreateOpen.value = true;
+}
+
+function openDeviceEdit(device: Device) {
+  deviceEditId.value = device.id;
+  Object.assign(deviceForm, {
+    name: device.name,
+    device_sn: device.device_sn,
+    project_id: device.project_id,
+    group: device.group,
+    location: device.location === "未分配" ? "" : device.location,
+    tags: device.tags.join(","),
+    ssh_user: device.ssh_user,
+    ssh_auth_type: device.ssh_auth_type,
+    ssh_password: "",
   });
   deviceCreateOpen.value = true;
 }
 
 async function saveDevice() {
   if (!deviceForm.name || !deviceForm.device_sn || !deviceForm.project_id) {
-    prependLocalLog("设备校验", "新设备", "blocked", "设备名称、序列号和项目号为必填项");
+    prependLocalLog("设备校验", deviceEditId.value === null ? "新设备" : `设备：${deviceEditId.value}`, "blocked", "设备名称、序列号和项目号为必填项");
     return;
   }
-  const payload: DeviceCreateRequest = {
+  const basePayload = {
     name: deviceForm.name,
-    device_sn: deviceForm.device_sn,
     project_id: deviceForm.project_id,
     location: deviceForm.location || undefined,
     tags: parseTags(deviceForm.tags),
     ssh_user: deviceForm.ssh_user || "ztl",
     ssh_auth_type: deviceForm.ssh_auth_type || "password",
-    ssh_password: deviceForm.ssh_password || "123456",
   };
+  const passwordPayload = deviceForm.ssh_password ? { ssh_password: deviceForm.ssh_password } : {};
   try {
-    const created = await createDevice(payload);
-    devices.value.push(mapDevice(created));
+    if (deviceEditId.value === null) {
+      const payload: DeviceCreateRequest = {
+        ...basePayload,
+        ...passwordPayload,
+        device_sn: deviceForm.device_sn,
+      };
+      const created = await createDevice(payload);
+      devices.value.push(mapDevice(created));
+    } else {
+      const payload: DeviceUpdateRequest = {
+        ...basePayload,
+        ...passwordPayload,
+      };
+      const updated = await updateDevice(deviceEditId.value, payload);
+      const index = devices.value.findIndex((device) => device.id === updated.id);
+      if (index >= 0) {
+        devices.value[index] = mapDevice(updated);
+      }
+    }
     recalculateGroupCounts();
     await refreshLogsAndOverview();
     deviceCreateOpen.value = false;
   } catch (error) {
-    prependLocalLog("创建设备", "新设备", "blocked", "创建设备失败，请检查后端返回。");
+    prependLocalLog(deviceEditId.value === null ? "创建设备" : "编辑设备", "设备", "blocked", "保存设备失败，请检查后端返回。");
+  }
+}
+
+async function removeDevice(device: Device) {
+  try {
+    await ElMessageBox.confirm(`确定删除设备 ${device.name}（${device.device_sn}）？`, "删除设备", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
+  } catch {
+    return;
+  }
+  try {
+    await deleteDevice(device.id);
+    devices.value = devices.value.filter((item) => item.id !== device.id);
+    recalculateGroupCounts();
+    await refreshLogsAndOverview();
+  } catch (error) {
+    prependLocalLog("删除设备", `设备：${device.id}`, "blocked", "删除设备失败，请检查后端返回。");
+  }
+}
+
+async function refreshDeviceStatus(device: Device) {
+  try {
+    const status = await getDeviceStatus(device.id);
+    const index = devices.value.findIndex((item) => item.id === device.id);
+    if (index >= 0) {
+      devices.value[index] = {
+        ...devices.value[index],
+        status: normalizeDeviceStatus(status.status),
+      };
+    }
+  } catch (error) {
+    prependLocalLog("刷新设备状态", `设备：${device.id}`, "blocked", "刷新状态失败，请检查后端返回。");
   }
 }
 
@@ -632,6 +709,12 @@ async function saveUpdate() {
     failure_strategy: "continue",
     concurrency_limit: 5,
   };
+  if (payload.execution_mode === "ssh_command") {
+    const confirmed = await confirmRealSshTask(updateForm.command, updateForm.project_id || "全部项目");
+    if (!confirmed) {
+      return;
+    }
+  }
   try {
     const created = await createUpdateTask(payload);
     updateTasks.value.push(mapUpdateTask(created));
@@ -643,6 +726,12 @@ async function saveUpdate() {
 }
 
 async function executeUpdate(task: UpdateTask) {
+  if (task.execution_mode === "ssh_command") {
+    const confirmed = await confirmRealSshTask(task.command, task.project_id);
+    if (!confirmed) {
+      return;
+    }
+  }
   task.status = "running";
   task.lastEvent = "正在请求后端执行";
   try {
@@ -657,6 +746,46 @@ async function executeUpdate(task: UpdateTask) {
     task.status = "partial_failed";
     task.lastEvent = "后端执行失败";
     prependLocalLog("执行更新任务", `更新任务：${task.id}`, "blocked", "执行失败，请检查后端任务状态。");
+  }
+}
+
+async function cancelUpdate(task: UpdateTask) {
+  try {
+    await ElMessageBox.confirm(`确定取消更新任务 ${task.name}？`, "取消更新任务", {
+      type: "warning",
+      confirmButtonText: "取消任务",
+      cancelButtonText: "返回",
+    });
+  } catch {
+    return;
+  }
+  try {
+    const canceled = await cancelUpdateTask(task.id);
+    const mapped = mapUpdateTask(canceled);
+    const index = updateTasks.value.findIndex((item) => item.id === task.id);
+    if (index >= 0) {
+      updateTasks.value[index] = mapped;
+    }
+    await refreshLogsAndOverview();
+  } catch (error) {
+    prependLocalLog("取消更新任务", `更新任务：${task.id}`, "blocked", "取消任务失败，请检查后端任务状态。");
+  }
+}
+
+async function confirmRealSshTask(command: string, target: string): Promise<boolean> {
+  try {
+    await ElMessageBox.confirm(
+      `将通过 SSH 在目标设备上真实执行命令。\n目标：${target}\n命令：${command}\n建议先使用演练模式确认范围。`,
+      "确认真实 SSH 执行",
+      {
+        type: "warning",
+        confirmButtonText: "确认执行",
+        cancelButtonText: "取消",
+      },
+    );
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -857,17 +986,24 @@ onMounted(() => {
                   <el-button size="small" :icon="VideoPlay" @click="selectSection('remote')">VNC</el-button>
                 </template>
               </el-table-column>
+              <el-table-column label="操作" width="230">
+                <template #default="{ row }">
+                  <el-button :data-testid="`edit-device-${row.id}`" size="small" @click="openDeviceEdit(row)">编辑</el-button>
+                  <el-button :data-testid="`refresh-device-${row.id}`" size="small" :icon="Refresh" @click="refreshDeviceStatus(row)">刷新</el-button>
+                  <el-button :data-testid="`delete-device-${row.id}`" size="small" type="danger" @click="removeDevice(row)">删除</el-button>
+                </template>
+              </el-table-column>
             </el-table>
           </div>
 
-          <section v-if="deviceCreateOpen" class="form-panel" aria-label="创建设备">
+          <section v-if="deviceCreateOpen" class="form-panel" :aria-label="deviceFormTitle">
             <div class="panel-header">
-              <h3>创建设备</h3>
+              <h3>{{ deviceFormTitle }}</h3>
               <el-button text @click="deviceCreateOpen = false">关闭</el-button>
             </div>
             <div class="form-grid">
               <div data-testid="device-name" class="input-wrap"><el-input v-model="deviceForm.name" placeholder="设备名称" /></div>
-              <div data-testid="device-sn" class="input-wrap"><el-input v-model="deviceForm.device_sn" placeholder="设备序列号" /></div>
+              <div data-testid="device-sn" class="input-wrap"><el-input v-model="deviceForm.device_sn" :disabled="deviceEditId !== null" placeholder="设备序列号" /></div>
               <div data-testid="device-project" class="input-wrap"><el-input v-model="deviceForm.project_id" placeholder="项目号" /></div>
               <el-input v-model="deviceForm.group" placeholder="分组（当前仅用于显示）" />
               <el-input v-model="deviceForm.location" placeholder="位置" />
@@ -876,6 +1012,7 @@ onMounted(() => {
               <div data-testid="device-ssh-auth-type" class="input-wrap"><el-input v-model="deviceForm.ssh_auth_type" placeholder="凭据类型" /></div>
               <div data-testid="device-ssh-password" class="input-wrap"><el-input v-model="deviceForm.ssh_password" type="password" show-password placeholder="SSH 密码" /></div>
             </div>
+            <p class="muted">SSH 密码不会从接口回显；编辑设备时留空表示不修改已有凭据。</p>
             <div class="form-actions">
               <el-button data-testid="save-device" type="primary" :loading="loading" @click="saveDevice">保存设备</el-button>
             </div>
@@ -1008,7 +1145,7 @@ onMounted(() => {
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="130">
+              <el-table-column label="操作" width="190">
                 <template #default="{ row }">
                   <el-button
                     :data-testid="`execute-update-${row.id}`"
@@ -1018,6 +1155,15 @@ onMounted(() => {
                     @click="executeUpdate(row)"
                   >
                     执行
+                  </el-button>
+                  <el-button
+                    v-if="row.status === 'pending' || row.status === 'running'"
+                    :data-testid="`cancel-update-${row.id}`"
+                    size="small"
+                    type="warning"
+                    @click="cancelUpdate(row)"
+                  >
+                    取消
                   </el-button>
                 </template>
               </el-table-column>

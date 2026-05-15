@@ -136,9 +136,16 @@ $env:SSH_PASSWORD='<测试设备 SSH 密码>'
 $env:SSH_KEY_FILENAME='C:\path\to\id_ed25519'
 $env:SSH_KEY_PASSPHRASE='<私钥口令>'
 $env:FILE_BACKEND='sftp'
+$env:CREDENTIAL_ENCRYPTION_KEY='<Fernet 密钥>'
 ```
 
 `FILE_BACKEND` 默认是 `local`，用于没有真实设备的本地开发；设置为 `sftp` 后，文件列表、上传、下载和删除会通过设备 frp SSH 端口访问真实设备。
+
+生成 `CREDENTIAL_ENCRYPTION_KEY`：
+
+```powershell
+py -3.12 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
 
 ## API 概览
 
@@ -240,7 +247,7 @@ scripts/deploy/backup_sqlite.ps1
 - 批量更新任务默认使用演练模式；选择“真实 SSH 执行”后会通过设备级 SSH 凭据连接 frp SSH 端口并执行命令，记录退出码、标准输出摘要、错误输出摘要和失败原因。
 - 前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:8000`，可以用 `VITE_API_PROXY_TARGET` 覆盖代理目标。
 - 前端构建会出现 Vite 大 chunk 警告，原因是 Element Plus 被打进主 chunk；当前不影响构建产物。
-- 当前工作区不是 Git 仓库，因此本地变更不会在此环境中自动提交。
+- 当前工作区是 Git 仓库；提交或推送前请确认没有暂存无关本地文档。
 
 ## 最近验证记录
 
@@ -257,8 +264,8 @@ npm.cmd run build
 
 最近结果：
 
-- 后端：35 个测试通过。
-- 前端：7 个测试通过。
+- 后端：48 个测试通过。
+- 前端：9 个测试通过。
 - 前端构建：成功，仍有已知 Vite chunk size 警告。
 - Wave 7 联调：后端 `127.0.0.1:8010`、前端 `127.0.0.1:5179`，通过前端代理完成登录、更新任务列表、监控总览、设备创建、设备列表和设备删除验收。
 - Wave 8 自动化：通过 SSH/VNC WebSocket 鉴权与转发、SFTP 后端、远程页面会话入口测试；真实设备 SSH/VNC/SFTP 手工联调仍需要提供可访问的测试设备和凭据。
@@ -292,3 +299,11 @@ docs/postman/edge-platform.postman_collection.json
 - 真实 SSH 执行会按任务目标设备逐台执行命令，并在任务详情中返回 `exit_code`、`stdout_summary`、`stderr_summary` 和 `error_message`。
 - `failure_strategy=continue` 会继续执行后续设备；`pause` 和 `rollback` 会在首个失败后跳过后续待执行设备。本轮暂不自动执行回滚命令，只会在结果中记录提示。
 - 真实执行依赖设备记录中的 SSH 用户和密码。Wave 9 导入设备默认使用 `ztl` / `123456`，后续生产环境应改为加密保存凭据。
+
+## Wave 11 补充说明
+
+- 新增设备 SSH 凭据加密配置 `CREDENTIAL_ENCRYPTION_KEY`。配置后，新建、更新和 frps 导入写入的设备 SSH 密码会以 Fernet 密文保存。
+- 旧数据库中的明文凭据仍可兼容读取，避免升级后已有设备无法 SSH；设备下次更新密码时会按新配置写入密文。
+- `GET /api/diagnostics/config` 新增 `security` 摘要，用于提示默认 JWT 密钥、默认管理员密码、默认设备 SSH 密码和未配置凭据加密等风险；接口不返回密钥、Token、私钥或明文密码。
+- 前端设备管理补齐编辑、删除和单设备状态刷新。编辑设备时，SSH 密码留空表示不修改已有凭据。
+- 批量更新真实 SSH 任务在创建和执行前会显示确认提示；任务列表支持取消待执行或执行中的任务。

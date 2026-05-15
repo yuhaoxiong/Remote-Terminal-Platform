@@ -1,5 +1,5 @@
 ﻿import { mount } from "@vue/test-utils";
-import ElementPlus from "element-plus";
+import ElementPlus, { ElMessageBox } from "element-plus";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 
@@ -9,10 +9,13 @@ import * as platformApi from "../api/platform";
 vi.mock("../api/platform", () => ({
   clearAuthTokens: vi.fn(),
   buildApiWebSocketUrl: vi.fn((path: string, token: string) => `ws://test${path}?token=${token}`),
+  cancelUpdateTask: vi.fn(),
   createDevice: vi.fn(),
   createUpdateTask: vi.fn(),
+  deleteDevice: vi.fn(),
   executeUpdateTask: vi.fn(),
   getAccessToken: vi.fn(() => "access-token"),
+  getDeviceStatus: vi.fn(),
   hasStoredAccessToken: vi.fn(() => false),
   importFrpsDevices: vi.fn(),
   listDevices: vi.fn(),
@@ -23,6 +26,7 @@ vi.mock("../api/platform", () => ({
   openSshSession: vi.fn(),
   openVncSession: vi.fn(),
   setAuthTokens: vi.fn(),
+  updateDevice: vi.fn(),
   getMonitoringOverview: vi.fn(),
 }));
 
@@ -90,6 +94,11 @@ function mockResolvedApiState() {
     ],
   });
   api.listUpdateTasks.mockResolvedValue({ total: 0, items: [] });
+  api.getDeviceStatus.mockResolvedValue({
+    id: 1,
+    status: "offline",
+    last_seen: null,
+  });
   api.getMonitoringOverview.mockResolvedValue({
     total_devices: 1,
     online_devices: 1,
@@ -147,6 +156,7 @@ describe("App", () => {
     window.localStorage.clear();
     vi.clearAllMocks();
     vi.stubGlobal("WebSocket", undefined);
+    vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as never);
     mockResolvedApiState();
   });
 
@@ -278,7 +288,6 @@ describe("App", () => {
       tags: ["视觉", "生产"],
       ssh_user: "ztl",
       ssh_auth_type: "password",
-      ssh_password: "123456",
     });
     expect(wrapper.text()).toContain("边缘相机 09");
     expect(wrapper.text()).toContain("SN-W5-009");
@@ -321,6 +330,72 @@ describe("App", () => {
     expect(wrapper.text()).toContain("frps-12008");
   });
 
+  it("edits, refreshes, and deletes a device from the device table", async () => {
+    api.updateDevice.mockResolvedValueOnce({
+      id: 1,
+      name: "装配边缘终端 01 已更新",
+      device_sn: "SN-EDGE-001",
+      project_id: "工厂-b",
+      location: "上海",
+      hardware_model: null,
+      ssh_port: 10000,
+      vnc_port: 10500,
+      ssh_user: "ztl",
+      ssh_auth_type: "password",
+      ssh_credential_configured: true,
+      local_ip: null,
+      os_version: null,
+      description: null,
+      tags: ["维护"],
+      group_id: 1,
+      status: "online",
+      last_seen: null,
+      created_at: "2026-05-13T00:00:00",
+      updated_at: "2026-05-13T00:00:00",
+    });
+    api.deleteDevice.mockResolvedValueOnce(undefined);
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="nav-devices"]').trigger("click");
+    await wrapper.find('[data-testid="edit-device-1"]').trigger("click");
+    await wrapper.find('[data-testid="device-name"] input').setValue("装配边缘终端 01 已更新");
+    await wrapper.find('[data-testid="device-project"] input').setValue("工厂-b");
+    await wrapper.find('[data-testid="device-tags"] input').setValue("维护");
+    await wrapper.find('[data-testid="save-device"]').trigger("click");
+    await flushAsync();
+
+    expect(api.updateDevice).toHaveBeenCalledWith(1, {
+      name: "装配边缘终端 01 已更新",
+      project_id: "工厂-b",
+      location: "北京",
+      tags: ["维护"],
+      ssh_user: "root",
+      ssh_auth_type: "password",
+    });
+    expect(api.updateDevice.mock.calls[0][1]).not.toHaveProperty("ssh_password");
+    expect(wrapper.text()).toContain("装配边缘终端 01 已更新");
+
+    await wrapper.find('[data-testid="refresh-device-1"]').trigger("click");
+    await flushAsync();
+    expect(api.getDeviceStatus).toHaveBeenCalledWith(1);
+    expect(wrapper.text()).toContain("离线");
+
+    await wrapper.find('[data-testid="delete-device-1"]').trigger("click");
+    await flushAsync();
+    expect(api.deleteDevice).toHaveBeenCalledWith(1);
+    expect(wrapper.find('[data-testid="delete-device-1"]').exists()).toBe(false);
+  });
+
   it("opens real remote session descriptors from the remote page", async () => {
     const wrapper = mount(App, {
       global: {
@@ -346,6 +421,64 @@ describe("App", () => {
     expect(wrapper.text()).toContain("VNC");
     expect(wrapper.text()).toContain("10000");
     expect(wrapper.text()).toContain("10500");
+  });
+
+  it("cancels a pending update task", async () => {
+    api.listUpdateTasks.mockResolvedValueOnce({
+      total: 1,
+      items: [
+        {
+          id: 9,
+          name: "待取消任务",
+          task_type: "command",
+          command: "hostname",
+          rollback_command: null,
+          target_filter: { project_id: "工厂-a" },
+          execution_mode: "dry_run",
+          failure_strategy: "continue",
+          concurrency_limit: 5,
+          status: "pending",
+          created_at: "2026-05-13T00:00:00",
+          updated_at: "2026-05-13T00:00:00",
+          device_count: 1,
+          devices: [],
+        },
+      ],
+    });
+    api.cancelUpdateTask.mockResolvedValueOnce({
+      id: 9,
+      name: "待取消任务",
+      task_type: "command",
+      command: "hostname",
+      rollback_command: null,
+      target_filter: { project_id: "工厂-a" },
+      execution_mode: "dry_run",
+      failure_strategy: "continue",
+      concurrency_limit: 5,
+      status: "canceled",
+      created_at: "2026-05-13T00:00:00",
+      updated_at: "2026-05-13T00:00:00",
+      device_count: 1,
+      devices: [],
+    });
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="nav-updates"]').trigger("click");
+    await wrapper.find('[data-testid="cancel-update-9"]').trigger("click");
+    await flushAsync();
+
+    expect(api.cancelUpdateTask).toHaveBeenCalledWith(9);
+    expect(wrapper.text()).toContain("已取消");
   });
 
   it("creates and executes a filtered update task through the backend API", async () => {
@@ -442,6 +575,11 @@ describe("App", () => {
       concurrency_limit: 5,
     });
     expect(api.executeUpdateTask).toHaveBeenCalledWith(1);
+    expect(ElMessageBox.confirm).toHaveBeenCalledWith(
+      expect.stringContaining("将通过 SSH 在目标设备上真实执行命令"),
+      "确认真实 SSH 执行",
+      expect.any(Object),
+    );
     expect(wrapper.text()).toContain("重启视觉服务");
     expect(wrapper.text()).toContain("已完成");
     expect(wrapper.text()).toContain("1/1");

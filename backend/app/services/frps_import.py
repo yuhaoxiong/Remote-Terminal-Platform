@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.models.device import Device
 from app.schemas.frps import FrpsDiscoveredDevice, FrpsImportRequest, FrpsImportResponse
+from app.services.encryption import EncryptionService
 from app.services.port_pool import PortPoolExhaustedError, PortPoolService
 
 
@@ -19,6 +20,7 @@ class FrpsImportService:
         self.settings = settings
         self.dashboard_client = dashboard_client
         self.port_pool = PortPoolService(settings)
+        self.encryption = EncryptionService(settings)
 
     def discover(self, session: Session, payload: FrpsImportRequest) -> FrpsImportResponse:
         proxies = self._fetch_tcp_proxies(payload)
@@ -50,7 +52,7 @@ class FrpsImportService:
                 location=payload.location,
                 ssh_user=self.settings.default_device_ssh_user,
                 ssh_auth_type="password",
-                ssh_password_encrypted=self.settings.default_device_ssh_password,
+                ssh_password_encrypted=self.encryption.encrypt_optional(self.settings.default_device_ssh_password),
                 ssh_port=item.ssh_port,
                 vnc_port=item.vnc_port,
                 tags=self._tags_for_item(item),

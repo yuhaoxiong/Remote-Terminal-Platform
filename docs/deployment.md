@@ -4,7 +4,15 @@
 
 1. Copy the repository to the server, for example `/opt/edge-platform`.
 2. Run `scripts/deploy/install_backend.ps1` to create the Python environment, install `backend/requirements.txt`, and generate a `systemd` service for `uvicorn`.
-3. Place the generated service at `/etc/systemd/system/edge-platform.service`, then run:
+3. Configure runtime secrets with environment variables before starting the service:
+
+```bash
+export JWT_SECRET_KEY='replace-with-a-long-random-secret'
+export CREDENTIAL_ENCRYPTION_KEY="$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+export DEFAULT_ADMIN_PASSWORD='replace-admin-password'
+```
+
+4. Place the generated service at `/etc/systemd/system/edge-platform.service`, then run:
 
 ```bash
 sudo systemctl daemon-reload
@@ -90,8 +98,9 @@ On Debian 11 edge devices, run `scripts/deploy/edge_bootstrap.sh` to check `ssh`
 ## Operational Notes
 
 - Restrict file permissions for SQLite and uploaded file storage to the backend service user.
-- Keep JWT and credential encryption secrets outside source control.
+- Keep JWT and credential encryption secrets outside source control. If `CREDENTIAL_ENCRYPTION_KEY` is lost, encrypted device SSH passwords cannot be decrypted.
 - Verify `frps`, SSH, and VNC ports before opening remote sessions.
 - For real batch SSH tasks, verify imported devices have reachable SSH proxy ports and configured device credentials before switching update tasks from `dry_run` to `ssh_command`.
 - Start with a harmless command such as `hostname` or `whoami`, then inspect each task device result for `exit_code`, `stdout_summary`, `stderr_summary`, and `error_message`.
 - If the backend runs behind Nginx, keep long-running API calls and WebSocket locations on the same single-domain reverse proxy, and raise `proxy_read_timeout` when commands may take longer than the default timeout.
+- Check `GET /api/diagnostics/config` after deployment. Any `security.warnings` should be resolved before testing real SSH tasks against production-like devices.
