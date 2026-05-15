@@ -10,6 +10,7 @@ class UpdateTaskCreate(BaseModel):
     command: str = Field(min_length=1)
     rollback_command: str | None = None
     target_filter: dict[str, Any] | None = None
+    execution_mode: str = Field(default="dry_run", pattern="^(dry_run|ssh_command)$")
     failure_strategy: str = Field(default="continue", pattern="^(continue|pause|rollback)$")
     concurrency_limit: int = Field(default=5, ge=1, le=50)
 
@@ -28,6 +29,10 @@ class UpdateTaskDeviceRead(BaseModel):
     device_id: int
     status: str
     output_summary: str | None
+    exit_code: int | None
+    stdout_summary: str | None
+    stderr_summary: str | None
+    error_message: str | None
     started_at: datetime | None
     finished_at: datetime | None
 
@@ -41,6 +46,7 @@ class UpdateTaskRead(BaseModel):
     command: str
     rollback_command: str | None
     target_filter: dict[str, Any] | None
+    execution_mode: str
     failure_strategy: str
     concurrency_limit: int
     status: str

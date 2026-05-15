@@ -100,6 +100,10 @@ class SshService:
         if device.ssh_port is None:
             raise RemoteConnectionError("设备没有分配 SSH 端口")
 
+        password = device.ssh_password_encrypted or self.settings.ssh_password
+        if not password and not self.settings.ssh_key_filename:
+            raise RemoteConnectionError("设备没有可用的 SSH 凭据")
+
         try:
             import paramiko
         except ImportError as exc:
@@ -113,14 +117,14 @@ class SshService:
                 hostname=self.settings.remote_gateway_host,
                 port=device.ssh_port,
                 username=device.ssh_user,
-                password=self.settings.ssh_password,
+                password=password,
                 key_filename=self.settings.ssh_key_filename,
                 passphrase=self.settings.ssh_key_passphrase,
                 timeout=self.settings.ssh_timeout_seconds,
                 banner_timeout=self.settings.ssh_timeout_seconds,
                 auth_timeout=self.settings.ssh_timeout_seconds,
-                look_for_keys=self.settings.ssh_key_filename is None and self.settings.ssh_password is None,
-                allow_agent=self.settings.ssh_password is None,
+                look_for_keys=False,
+                allow_agent=False,
             )
         except paramiko.AuthenticationException as exc:
             client.close()

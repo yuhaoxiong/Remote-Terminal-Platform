@@ -103,6 +103,10 @@ export interface UpdateTaskDeviceRead {
   device_id: number;
   status: string;
   output_summary: string | null;
+  exit_code: number | null;
+  stdout_summary: string | null;
+  stderr_summary: string | null;
+  error_message: string | null;
   started_at: string | null;
   finished_at: string | null;
 }
@@ -114,6 +118,7 @@ export interface UpdateTaskRead {
   command: string;
   rollback_command: string | null;
   target_filter: Record<string, unknown> | null;
+  execution_mode: "dry_run" | "ssh_command";
   failure_strategy: string;
   concurrency_limit: number;
   status: string;
@@ -133,6 +138,7 @@ export interface UpdateTaskCreateRequest {
   task_type: string;
   command: string;
   target_filter?: Record<string, unknown>;
+  execution_mode: "dry_run" | "ssh_command";
   failure_strategy: "continue" | "pause" | "rollback";
   concurrency_limit: number;
 }

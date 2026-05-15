@@ -1,4 +1,4 @@
-import { mount } from "@vue/test-utils";
+﻿import { mount } from "@vue/test-utils";
 import ElementPlus from "element-plus";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
@@ -356,13 +356,28 @@ describe("App", () => {
       command: "sudo systemctl restart vision",
       rollback_command: null,
       target_filter: { project_id: "工厂-a" },
+      execution_mode: "dry_run",
       failure_strategy: "continue",
       concurrency_limit: 5,
       status: "pending",
       created_at: "2026-05-13T00:00:00",
       updated_at: "2026-05-13T00:00:00",
       device_count: 1,
-      devices: [{ id: 1, task_id: 1, device_id: 1, status: "pending", output_summary: null, started_at: null, finished_at: null }],
+      devices: [
+        {
+          id: 1,
+          task_id: 1,
+          device_id: 1,
+          status: "pending",
+          output_summary: null,
+          exit_code: null,
+          stdout_summary: null,
+          stderr_summary: null,
+          error_message: null,
+          started_at: null,
+          finished_at: null,
+        },
+      ],
     });
     api.executeUpdateTask.mockResolvedValueOnce({
       id: 1,
@@ -371,13 +386,28 @@ describe("App", () => {
       command: "sudo systemctl restart vision",
       rollback_command: null,
       target_filter: { project_id: "工厂-a" },
+      execution_mode: "ssh_command",
       failure_strategy: "continue",
       concurrency_limit: 5,
       status: "completed",
       created_at: "2026-05-13T00:00:00",
       updated_at: "2026-05-13T00:00:00",
       device_count: 1,
-      devices: [{ id: 1, task_id: 1, device_id: 1, status: "success", output_summary: "ok", started_at: null, finished_at: null }],
+      devices: [
+        {
+          id: 1,
+          task_id: 1,
+          device_id: 1,
+          status: "success",
+          output_summary: "ok",
+          exit_code: 0,
+          stdout_summary: "ok",
+          stderr_summary: null,
+          error_message: null,
+          started_at: null,
+          finished_at: null,
+        },
+      ],
     });
     const wrapper = mount(App, {
       global: {
@@ -396,6 +426,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="update-name"] input').setValue("重启视觉服务");
     await wrapper.find('[data-testid="update-command"] textarea').setValue("sudo systemctl restart vision");
     await wrapper.find('[data-testid="update-project"] input').setValue("工厂-a");
+    await wrapper.find('[data-testid="update-execution-mode"]').setValue("ssh_command");
     await wrapper.find('[data-testid="save-update"]').trigger("click");
     await flushAsync();
     await wrapper.find('[data-testid="execute-update-1"]').trigger("click");
@@ -406,6 +437,7 @@ describe("App", () => {
       task_type: "command",
       command: "sudo systemctl restart vision",
       target_filter: { project_id: "工厂-a" },
+      execution_mode: "ssh_command",
       failure_strategy: "continue",
       concurrency_limit: 5,
     });
@@ -413,5 +445,7 @@ describe("App", () => {
     expect(wrapper.text()).toContain("重启视觉服务");
     expect(wrapper.text()).toContain("已完成");
     expect(wrapper.text()).toContain("1/1");
+    expect(wrapper.text()).toContain("真实 SSH 执行");
+    expect(wrapper.text()).toContain("退出码 0");
   });
 });

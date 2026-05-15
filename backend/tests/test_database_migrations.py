@@ -35,15 +35,31 @@ def test_init_db_migrates_legacy_update_task_columns(tmp_path: Path) -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE update_task_devices (
+                id INTEGER PRIMARY KEY,
+                task_id INTEGER NOT NULL,
+                device_id INTEGER NOT NULL,
+                status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                output_summary TEXT,
+                started_at DATETIME,
+                finished_at DATETIME
+            )
+            """
+        )
 
     settings = _settings(db_path)
     init_db(settings)
 
     with sqlite3.connect(db_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(update_tasks)").fetchall()}
+        device_columns = {row[1] for row in connection.execute("PRAGMA table_info(update_task_devices)").fetchall()}
 
     assert "failure_strategy" in columns
     assert "concurrency_limit" in columns
+    assert "execution_mode" in columns
+    assert {"exit_code", "stdout_summary", "stderr_summary", "error_message"}.issubset(device_columns)
 
     with TestClient(create_app(settings)) as client:
         login = client.post("/api/auth/login", json={"username": "admin", "password": "admin-pass"})

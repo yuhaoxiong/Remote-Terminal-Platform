@@ -92,3 +92,6 @@ On Debian 11 edge devices, run `scripts/deploy/edge_bootstrap.sh` to check `ssh`
 - Restrict file permissions for SQLite and uploaded file storage to the backend service user.
 - Keep JWT and credential encryption secrets outside source control.
 - Verify `frps`, SSH, and VNC ports before opening remote sessions.
+- For real batch SSH tasks, verify imported devices have reachable SSH proxy ports and configured device credentials before switching update tasks from `dry_run` to `ssh_command`.
+- Start with a harmless command such as `hostname` or `whoami`, then inspect each task device result for `exit_code`, `stdout_summary`, `stderr_summary`, and `error_message`.
+- If the backend runs behind Nginx, keep long-running API calls and WebSocket locations on the same single-domain reverse proxy, and raise `proxy_read_timeout` when commands may take longer than the default timeout.

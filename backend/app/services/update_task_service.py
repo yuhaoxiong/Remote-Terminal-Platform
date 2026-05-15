@@ -10,6 +10,7 @@ from app.config import Settings
 from app.models.device import Device
 from app.models.update_task import UpdateTask, UpdateTaskDevice
 from app.schemas.update_task import UpdateTaskCreate, UpdateTaskRead
+from app.services.ssh_service import RemoteAuthenticationError, RemoteConnectionError, SshService
 
 
 class UpdateTaskNotFoundError(RuntimeError):
@@ -21,8 +22,11 @@ class UpdateTaskInvalidStateError(RuntimeError):
 
 
 class UpdateTaskService:
-    def __init__(self, settings: Settings) -> None:
+    output_limit = 4000
+
+    def __init__(self, settings: Settings, ssh_service: SshService | None = None) -> None:
         self.settings = settings
+        self.ssh_service = ssh_service or SshService(settings)
 
     def create(self, session: Session, payload: UpdateTaskCreate) -> UpdateTask:
         task = UpdateTask(**payload.model_dump())
@@ -62,16 +66,12 @@ class UpdateTaskService:
         if task.status in {"completed", "canceled"}:
             raise UpdateTaskInvalidStateError(f"Update task cannot execute from status: {task.status}")
         task.status = "running"
-        now = datetime.now(timezone.utc)
         rows = self.device_rows(session, task.id)
-        for row in rows:
-            if row.status != "pending":
-                continue
-            row.status = "success"
-            row.started_at = now
-            row.finished_at = datetime.now(timezone.utc)
-            row.output_summary = f"simulated command execution: {task.command}"
-        task.status = "completed" if all(row.status == "success" for row in rows) else "partial_failed"
+        if task.execution_mode == "ssh_command":
+            self._execute_ssh_command(session, task, rows)
+        else:
+            self._execute_dry_run(task, rows)
+        task.status = self._final_task_status(rows, dry_run=task.execution_mode != "ssh_command")
         session.flush()
         session.refresh(task)
         return task
@@ -100,6 +100,16 @@ class UpdateTaskService:
         rows = self.device_rows(session, task.id)
         return UpdateTaskRead.model_validate(task).model_copy(update={"device_count": len(rows), "devices": rows})
 
+    def execution_stats(self, session: Session, task: UpdateTask) -> dict[str, int | str]:
+        rows = self.device_rows(session, task.id)
+        return {
+            "execution_mode": task.execution_mode,
+            "total": len(rows),
+            "success": sum(1 for row in rows if row.status == "success"),
+            "failed": sum(1 for row in rows if row.status == "failed"),
+            "skipped": sum(1 for row in rows if row.status == "skipped"),
+        }
+
     def _target_devices(self, session: Session, target_filter: dict[str, Any] | None) -> list[Device]:
         target_filter = target_filter or {}
         statement = select(Device)
@@ -120,3 +130,94 @@ class UpdateTaskService:
             required_tags = {str(tag) for tag in tags}
             devices = [device for device in devices if required_tags.issubset(set(device.tags or []))]
         return devices
+
+    def _execute_dry_run(self, task: UpdateTask, rows: list[UpdateTaskDevice]) -> None:
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            if row.status != "pending":
+                continue
+            row.status = "skipped"
+            row.started_at = now
+            row.finished_at = datetime.now(timezone.utc)
+            row.exit_code = None
+            row.stdout_summary = None
+            row.stderr_summary = None
+            row.error_message = None
+            row.output_summary = f"演练模式，未连接设备：{task.command}"
+
+    def _execute_ssh_command(self, session: Session, task: UpdateTask, rows: list[UpdateTaskDevice]) -> None:
+        stop_after_failure = False
+        for row in rows:
+            if row.status != "pending":
+                continue
+            if stop_after_failure:
+                self._mark_skipped(row, "失败策略要求停止，跳过后续设备")
+                continue
+            device = session.get(Device, row.device_id)
+            if device is None:
+                self._mark_failed(row, "目标设备不存在")
+            else:
+                self._execute_device_command(row, device, task.command)
+            if row.status == "failed" and task.failure_strategy in {"pause", "rollback"}:
+                if task.failure_strategy == "rollback":
+                    row.error_message = f"{row.error_message or '设备执行失败'}；回滚命令暂未自动执行"
+                stop_after_failure = True
+
+    def _execute_device_command(self, row: UpdateTaskDevice, device: Device, command: str) -> None:
+        row.status = "running"
+        row.started_at = datetime.now(timezone.utc)
+        row.exit_code = None
+        row.stdout_summary = None
+        row.stderr_summary = None
+        row.error_message = None
+        try:
+            exit_code, stdout_text, stderr_text = self.ssh_service.execute(device, command, self.settings.ssh_timeout_seconds)
+        except RemoteAuthenticationError:
+            self._mark_failed(row, "SSH 认证失败")
+            return
+        except RemoteConnectionError as exc:
+            self._mark_failed(row, str(exc))
+            return
+        except Exception:
+            self._mark_failed(row, "SSH 执行异常")
+            return
+
+        row.exit_code = exit_code
+        row.stdout_summary = self._truncate(stdout_text)
+        row.stderr_summary = self._truncate(stderr_text)
+        row.finished_at = datetime.now(timezone.utc)
+        if exit_code == 0:
+            row.status = "success"
+            row.output_summary = row.stdout_summary or "命令执行成功"
+        else:
+            row.status = "failed"
+            row.error_message = f"命令退出码非 0：{exit_code}"
+            row.output_summary = row.stderr_summary or row.error_message
+
+    def _mark_failed(self, row: UpdateTaskDevice, message: str) -> None:
+        row.status = "failed"
+        row.started_at = row.started_at or datetime.now(timezone.utc)
+        row.finished_at = datetime.now(timezone.utc)
+        row.error_message = self._truncate(message)
+        row.output_summary = row.error_message
+
+    def _mark_skipped(self, row: UpdateTaskDevice, message: str) -> None:
+        row.status = "skipped"
+        row.started_at = row.started_at or datetime.now(timezone.utc)
+        row.finished_at = datetime.now(timezone.utc)
+        row.error_message = message
+        row.output_summary = message
+
+    def _truncate(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if len(value) <= self.output_limit:
+            return value
+        return value[: self.output_limit] + "...[已截断]"
+
+    def _final_task_status(self, rows: list[UpdateTaskDevice], *, dry_run: bool) -> str:
+        if not rows:
+            return "completed"
+        if dry_run:
+            return "completed"
+        return "completed" if all(row.status == "success" for row in rows) else "partial_failed"

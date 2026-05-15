@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.database import session_scope
@@ -77,7 +79,7 @@ def execute_update_task(
     current_user: User = Depends(get_current_user),
 ) -> UpdateTaskRead:
     settings = get_app_settings(request)
-    service = UpdateTaskService(settings)
+    service = UpdateTaskService(settings, ssh_service=getattr(request.app.state, "ssh_service", None))
     with session_scope(settings) as session:
         try:
             task = service.execute(session, task_id)
@@ -92,7 +94,7 @@ def execute_update_task(
             target_type="update_task",
             target_id=task.id,
             status=task.status,
-            detail=task.name,
+            detail=json.dumps(service.execution_stats(session, task), ensure_ascii=False),
         )
         return service.to_read(session, task)
 

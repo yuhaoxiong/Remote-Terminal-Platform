@@ -129,6 +129,7 @@ Authorization: Bearer <access_token>
 | `command` | string | 执行命令 |
 | `rollback_command` | string/null | 回滚命令 |
 | `target_filter` | object/null | 目标筛选条件 |
+| `execution_mode` | string | `dry_run` 或 `ssh_command` |
 | `failure_strategy` | string | `continue`、`pause` 或 `rollback` |
 | `concurrency_limit` | integer | 并发限制，1-50，默认 5 |
 | `status` | string | `pending`、`running`、`completed`、`partial_failed`、`canceled` 等 |
@@ -736,6 +737,7 @@ POST /api/update-tasks
     "project_id": "factory-a",
     "tags": ["vision"]
   },
+  "execution_mode": "dry_run",
   "failure_strategy": "continue",
   "concurrency_limit": 5
 }
@@ -745,6 +747,7 @@ POST /api/update-tasks
 
 校验规则：
 
+- `execution_mode` 只能是 `dry_run` 或 `ssh_command`，默认 `dry_run`。
 - `failure_strategy` 只能是 `continue`、`pause`、`rollback`。
 - 当 `failure_strategy` 为 `rollback` 时，必须提供 `rollback_command`。
 
@@ -795,7 +798,12 @@ POST /api/update-tasks/{task_id}/execute
 
 响应 `200`：`UpdateTask`。
 
-当前实现为模拟执行：待执行设备会被直接标记为 `success`，任务状态随后变为 `completed` 或 `partial_failed`，不会真实通过 SSH 执行命令。
+执行行为由 `execution_mode` 决定：
+
+- `dry_run`：演练模式，不连接设备；待执行设备会标记为 `skipped`，并写入演练说明。
+- `ssh_command`：真实 SSH 执行；后端通过设备的 frp SSH 端口连接设备，执行 `command`，并记录每台设备的 `exit_code`、`stdout_summary`、`stderr_summary` 和 `error_message`。
+
+`failure_strategy=continue` 会继续执行后续设备；`pause` 和 `rollback` 会在首个失败后跳过后续待执行设备。本轮 `rollback` 不自动执行回滚命令，只会记录提示。
 
 错误：
 
@@ -1257,3 +1265,66 @@ docs/postman/edge-platform.postman_collection.json
 ```
 
 使用顺序：健康检查、登录、当前用户、设备列表、frps 预览、监控概览、日志列表。登录和刷新 Token 请求的保存脚本必须放在 Tests 中，不要放在 Pre-request Script 中。
+
+## Wave 10 批量 SSH 命令执行补充
+
+### 创建演练任务
+
+```http
+POST /api/update-tasks
+```
+
+请求体：
+
+```json
+{
+  "name": "演练 hostname",
+  "task_type": "command",
+  "command": "hostname",
+  "target_filter": {
+    "project_id": "frps-import"
+  },
+  "execution_mode": "dry_run",
+  "failure_strategy": "continue",
+  "concurrency_limit": 5
+}
+```
+
+演练任务执行后不会连接设备，设备结果会标记为 `skipped`。
+
+### 创建真实 SSH 任务
+
+```http
+POST /api/update-tasks
+```
+
+请求体：
+
+```json
+{
+  "name": "真实执行 hostname",
+  "task_type": "command",
+  "command": "hostname",
+  "target_filter": {
+    "project_id": "frps-import"
+  },
+  "execution_mode": "ssh_command",
+  "failure_strategy": "continue",
+  "concurrency_limit": 5
+}
+```
+
+执行成功后的单设备结果示例：
+
+```json
+{
+  "device_id": 1,
+  "status": "success",
+  "exit_code": 0,
+  "stdout_summary": "edge-01",
+  "stderr_summary": "",
+  "error_message": null
+}
+```
+
+执行失败时 `status` 为 `failed`，并根据失败类型写入 `exit_code`、`stderr_summary` 或 `error_message`。API 响应不会返回设备 SSH 明文密码。

@@ -39,6 +39,21 @@
       "key": "refresh_token",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "project_id",
+      "value": "frps-import",
+      "type": "string"
+    },
+    {
+      "key": "ssh_command",
+      "value": "hostname",
+      "type": "string"
+    },
+    {
+      "key": "update_task_id",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -220,6 +235,131 @@
             "method": "GET",
             "header": [],
             "url": "{{base_url}}/api/logs"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "批量 SSH 任务",
+      "item": [
+        {
+          "name": "创建演练任务",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"任务创建成功\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set(\"update_task_id\", json.id);",
+                  "  pm.environment.set(\"update_task_id\", json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman 演练任务\",\n  \"task_type\": \"command\",\n  \"command\": \"{{ssh_command}}\",\n  \"target_filter\": {\n    \"project_id\": \"{{project_id}}\"\n  },\n  \"execution_mode\": \"dry_run\",\n  \"failure_strategy\": \"continue\",\n  \"concurrency_limit\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/update-tasks"
+          },
+          "response": []
+        },
+        {
+          "name": "创建真实 SSH 任务",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"任务创建成功\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set(\"update_task_id\", json.id);",
+                  "  pm.environment.set(\"update_task_id\", json.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman 真实 SSH 任务\",\n  \"task_type\": \"command\",\n  \"command\": \"{{ssh_command}}\",\n  \"target_filter\": {\n    \"project_id\": \"{{project_id}}\"\n  },\n  \"execution_mode\": \"ssh_command\",\n  \"failure_strategy\": \"continue\",\n  \"concurrency_limit\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/update-tasks"
+          },
+          "response": []
+        },
+        {
+          "name": "执行当前更新任务",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"任务执行请求成功\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test(\"任务返回设备结果\", function () {",
+                  "  pm.expect(json.devices).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/update-tasks/{{update_task_id}}/execute"
+          },
+          "response": []
+        },
+        {
+          "name": "查询当前更新任务详情",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/update-tasks/{{update_task_id}}"
           },
           "response": []
         }

@@ -65,12 +65,27 @@ def _ensure_sqlite_schema(settings: Settings) -> None:
     with engine.begin() as connection:
         if "update_tasks" in table_names:
             update_task_columns = {column["name"] for column in inspector.get_columns("update_tasks")}
+            if "execution_mode" not in update_task_columns:
+                connection.execute(
+                    text("ALTER TABLE update_tasks ADD COLUMN execution_mode VARCHAR(32) NOT NULL DEFAULT 'dry_run'")
+                )
             if "failure_strategy" not in update_task_columns:
                 connection.execute(
                     text("ALTER TABLE update_tasks ADD COLUMN failure_strategy VARCHAR(32) NOT NULL DEFAULT 'continue'")
                 )
             if "concurrency_limit" not in update_task_columns:
                 connection.execute(text("ALTER TABLE update_tasks ADD COLUMN concurrency_limit INTEGER NOT NULL DEFAULT 5"))
+
+        if "update_task_devices" in table_names:
+            update_task_device_columns = {column["name"] for column in inspector.get_columns("update_task_devices")}
+            if "exit_code" not in update_task_device_columns:
+                connection.execute(text("ALTER TABLE update_task_devices ADD COLUMN exit_code INTEGER"))
+            if "stdout_summary" not in update_task_device_columns:
+                connection.execute(text("ALTER TABLE update_task_devices ADD COLUMN stdout_summary TEXT"))
+            if "stderr_summary" not in update_task_device_columns:
+                connection.execute(text("ALTER TABLE update_task_devices ADD COLUMN stderr_summary TEXT"))
+            if "error_message" not in update_task_device_columns:
+                connection.execute(text("ALTER TABLE update_task_devices ADD COLUMN error_message TEXT"))
 
         if "devices" in table_names:
             device_columns = {column["name"] for column in inspector.get_columns("devices")}

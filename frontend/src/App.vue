@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import {
   Cpu,
   Document,
@@ -40,12 +40,14 @@ import {
   type MonitoringOverviewResponse,
   type OperationLogRead,
   type UpdateTaskCreateRequest,
+  type UpdateTaskDeviceRead,
   type UpdateTaskRead,
 } from "./api/platform";
 
 type SectionId = "dashboard" | "devices" | "groups" | "remote" | "updates" | "logs";
 type DeviceStatus = "online" | "offline" | "degraded" | "unknown";
 type UpdateStatus = "pending" | "running" | "completed" | "canceled" | "partial_failed";
+type ExecutionMode = "dry_run" | "ssh_command";
 
 interface Device {
   id: number;
@@ -78,10 +80,12 @@ interface UpdateTask {
   name: string;
   command: string;
   project_id: string;
+  execution_mode: ExecutionMode;
   status: UpdateStatus;
   matched: number;
   completed: number;
   lastEvent: string;
+  devices: UpdateTaskDeviceRead[];
 }
 
 interface AuditLog {
@@ -140,6 +144,7 @@ const updateForm = reactive({
   name: "",
   command: "",
   project_id: "",
+  execution_mode: "dry_run" as ExecutionMode,
 });
 
 const frpsForm = reactive({
@@ -192,6 +197,21 @@ const logStatusText: Record<string, string> = {
   blocked: "已阻止",
   generated: "已生成",
   ready: "就绪",
+};
+
+const executionModeText: Record<ExecutionMode, string> = {
+  dry_run: "演练模式",
+  ssh_command: "真实 SSH 执行",
+};
+
+const taskDeviceStatusText: Record<string, string> = {
+  pending: "等待执行",
+  running: "执行中",
+  success: "成功",
+  failed: "失败",
+  skipped: "已跳过",
+  canceled: "已取消",
+  completed: "已完成",
 };
 
 const visibleDevices = computed(() => {
@@ -292,18 +312,26 @@ function mapGroup(group: GroupRead, sourceDevices = devices.value): Group {
 }
 
 function mapUpdateTask(task: UpdateTaskRead): UpdateTask {
-  const completed = task.devices.filter((device) => ["success", "completed"].includes(device.status)).length;
+  const completed = task.devices.filter((device) => ["success", "completed", "failed", "skipped"].includes(device.status)).length;
   const targetFilter = task.target_filter ?? {};
   const projectId = typeof targetFilter.project_id === "string" ? targetFilter.project_id : "全部项目";
+  const lastDevice = task.devices.at(-1);
   return {
     id: task.id,
     name: task.name,
     command: task.command,
     project_id: projectId,
+    execution_mode: task.execution_mode,
     status: normalizeUpdateStatus(task.status),
     matched: task.device_count,
     completed,
-    lastEvent: task.devices.at(-1)?.output_summary || statusTextForTask(task.status),
+    lastEvent:
+      lastDevice?.error_message ||
+      lastDevice?.stdout_summary ||
+      lastDevice?.stderr_summary ||
+      lastDevice?.output_summary ||
+      statusTextForTask(task.status),
+    devices: task.devices,
   };
 }
 
@@ -583,8 +611,9 @@ async function importFromFrps() {
 function openUpdateCreate() {
   Object.assign(updateForm, {
     name: "",
-    command: "",
+    command: "hostname",
     project_id: devices.value[0]?.project_id ?? "",
+    execution_mode: "dry_run" as ExecutionMode,
   });
   updateCreateOpen.value = true;
 }
@@ -599,6 +628,7 @@ async function saveUpdate() {
     task_type: "command",
     command: updateForm.command,
     target_filter: updateForm.project_id ? { project_id: updateForm.project_id } : {},
+    execution_mode: updateForm.execution_mode,
     failure_strategy: "continue",
     concurrency_limit: 5,
   };
@@ -929,10 +959,20 @@ onMounted(() => {
             <div class="form-grid">
               <div data-testid="update-name" class="input-wrap"><el-input v-model="updateForm.name" placeholder="任务名称" /></div>
               <div data-testid="update-project" class="input-wrap"><el-input v-model="updateForm.project_id" placeholder="目标项目" /></div>
+              <label class="field-label">
+                <span>执行模式</span>
+                <select data-testid="update-execution-mode" v-model="updateForm.execution_mode" class="native-select">
+                  <option value="dry_run">演练模式</option>
+                  <option value="ssh_command">真实 SSH 执行</option>
+                </select>
+              </label>
               <div data-testid="update-command" class="input-wrap textarea-wrap">
                 <el-input v-model="updateForm.command" type="textarea" :rows="3" placeholder="命令或脚本" />
               </div>
             </div>
+            <p v-if="updateForm.execution_mode === 'ssh_command'" class="muted">
+              真实 SSH 执行会连接目标设备。建议先使用 hostname、whoami、uptime 等只读命令验收。
+            </p>
             <div class="form-actions">
               <el-button data-testid="save-update" type="primary" @click="saveUpdate">保存更新任务</el-button>
             </div>
@@ -942,6 +982,9 @@ onMounted(() => {
             <el-table :data="updateTasks" row-key="id" empty-text="暂无更新任务">
               <el-table-column prop="name" label="任务" min-width="190" />
               <el-table-column prop="project_id" label="目标" width="130" />
+              <el-table-column label="模式" width="130">
+                <template #default="{ row }">{{ executionModeText[row.execution_mode as ExecutionMode] }}</template>
+              </el-table-column>
               <el-table-column label="进度" width="140">
                 <template #default="{ row }">{{ row.completed }}/{{ row.matched }}</template>
               </el-table-column>
@@ -951,6 +994,20 @@ onMounted(() => {
                 </template>
               </el-table-column>
               <el-table-column prop="lastEvent" label="最新事件" min-width="190" />
+              <el-table-column label="设备结果" min-width="260">
+                <template #default="{ row }">
+                  <div v-for="device in row.devices" :key="device.id" class="task-device-result">
+                    <el-tag size="small" :type="device.status === 'success' ? 'success' : device.status === 'failed' ? 'danger' : 'info'">
+                      {{ taskDeviceStatusText[device.status] ?? device.status }}
+                    </el-tag>
+                    <span>设备 {{ device.device_id }}</span>
+                    <small v-if="device.exit_code !== null">退出码 {{ device.exit_code }}</small>
+                    <small v-if="device.stdout_summary">{{ device.stdout_summary }}</small>
+                    <small v-if="device.stderr_summary">{{ device.stderr_summary }}</small>
+                    <small v-if="device.error_message">{{ device.error_message }}</small>
+                  </div>
+                </template>
+              </el-table-column>
               <el-table-column label="操作" width="130">
                 <template #default="{ row }">
                   <el-button

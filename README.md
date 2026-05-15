@@ -19,7 +19,7 @@
 - 设备分组、标签、项目号、状态筛选。
 - 设备状态、指标记录和监控总览。
 - 远程 SSH/VNC 会话描述接口、Web SSH WebSocket 和 VNC WebSocket-to-TCP 代理。
-- 批量更新任务创建、执行、取消、单设备状态追踪和 WebSocket 进度快照。
+- 批量更新任务创建、演练执行、真实 SSH 命令执行、取消、单设备状态追踪和 WebSocket 进度快照。
 - 操作日志查询和 CSV 导出。
 - 设备文件管理接口：列表、上传、下载、删除，支持本地开发后端与 SFTP 后端。
 - 定时任务接口：创建、列表、更新、删除、启停、执行和执行日志。
@@ -237,7 +237,7 @@ scripts/deploy/backup_sqlite.ps1
 - frps 导入会读取 Dashboard `/api/proxy/tcp`，按端口范围识别已有设备。当前默认规则是 SSH `12001-17000`，VNC `17001-22000`，VNC 端口与 SSH 端口一一对应且偏移 5000。
 - 设备文件管理默认使用本地存储后端，配置 `FILE_BACKEND=sftp` 后会通过 `paramiko` SFTP 访问真实设备。
 - 远程 SSH/VNC 已提供 WebSocket 基础能力：SSH 使用 JSON 消息转发终端输入输出，VNC 使用二进制 WebSocket-to-TCP 代理。完整 noVNC 嵌入式体验和高级安全加固仍是后续工作。
-- 批量更新任务已经具备任务和进度模型，但真实设备侧命令执行仍需继续接入 SSH 执行器。
+- 批量更新任务默认使用演练模式；选择“真实 SSH 执行”后会通过设备级 SSH 凭据连接 frp SSH 端口并执行命令，记录退出码、标准输出摘要、错误输出摘要和失败原因。
 - 前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:8000`，可以用 `VITE_API_PROXY_TARGET` 覆盖代理目标。
 - 前端构建会出现 Vite 大 chunk 警告，原因是 Element Plus 被打进主 chunk；当前不影响构建产物。
 - 当前工作区不是 Git 仓库，因此本地变更不会在此环境中自动提交。
@@ -282,3 +282,13 @@ docs/postman/edge-platform.postman_collection.json
 导入后先运行“登录”请求，Tests 脚本会自动保存 `access_token` 和 `refresh_token`；其他接口继承集合级 Bearer Token `{{access_token}}`。
 
 常见错误：如果出现 `Cannot read property 'json' of undefined`，说明脚本被放到了 Pre-request Script。保存 Token 的脚本必须放在登录请求的 Tests 中。
+
+集合中的“批量 SSH 任务”文件夹提供演练任务、真实 SSH 任务、执行任务和查询任务详情请求。运行真实 SSH 任务前先确认 `project_id` 命中的设备已导入并能通过 frp SSH 端口访问。
+
+## Wave 10 补充说明
+
+- 批量更新任务新增 `execution_mode` 字段：`dry_run` 表示演练模式，`ssh_command` 表示真实 SSH 执行。
+- 演练模式不会连接设备，单设备结果会标记为“已跳过”，用于确认筛选范围和命令内容。
+- 真实 SSH 执行会按任务目标设备逐台执行命令，并在任务详情中返回 `exit_code`、`stdout_summary`、`stderr_summary` 和 `error_message`。
+- `failure_strategy=continue` 会继续执行后续设备；`pause` 和 `rollback` 会在首个失败后跳过后续待执行设备。本轮暂不自动执行回滚命令，只会在结果中记录提示。
+- 真实执行依赖设备记录中的 SSH 用户和密码。Wave 9 导入设备默认使用 `ztl` / `123456`，后续生产环境应改为加密保存凭据。

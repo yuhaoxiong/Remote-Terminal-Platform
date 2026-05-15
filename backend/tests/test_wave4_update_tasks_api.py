@@ -74,7 +74,8 @@ def test_update_task_lifecycle_filters_targets_and_streams_progress(client) -> N
     executed = client.post(f"/api/update-tasks/{task_id}/execute", headers=headers)
     assert executed.status_code == 200
     assert executed.json()["status"] == "completed"
-    assert executed.json()["devices"][0]["status"] == "success"
+    assert executed.json()["execution_mode"] == "dry_run"
+    assert executed.json()["devices"][0]["status"] == "skipped"
     assert "sudo systemctl restart ai-app" in executed.json()["devices"][0]["output_summary"]
 
     detail = client.get(f"/api/update-tasks/{task_id}", headers=headers)
@@ -85,7 +86,8 @@ def test_update_task_lifecycle_filters_targets_and_streams_progress(client) -> N
         snapshot = websocket.receive_json()
     assert snapshot["type"] == "task.snapshot"
     assert snapshot["task"]["status"] == "completed"
-    assert snapshot["task"]["devices"][0]["status"] == "success"
+    assert snapshot["task"]["devices"][0]["status"] == "skipped"
+    assert "exit_code" in snapshot["task"]["devices"][0]
 
 
 def test_update_task_cancel_marks_pending_devices(client) -> None:
