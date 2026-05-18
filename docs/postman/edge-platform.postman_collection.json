@@ -677,6 +677,106 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "Wave 13 监控指标",
+      "item": [
+        {
+          "name": "上报示例设备指标",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"指标上报成功\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json.device_id) {",
+                  "  pm.collectionVariables.set(\"device_id\", json.device_id);",
+                  "  pm.environment.set(\"device_id\", json.device_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"online\",\n  \"cpu_percent\": 64,\n  \"memory_percent\": 72,\n  \"disk_percent\": 81\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/devices/{{device_id}}/metrics"
+          },
+          "response": []
+        },
+        {
+          "name": "查询当前设备最新指标",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"最新指标查询成功\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"返回指标列表结构\", function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property(\"items\");",
+                  "  pm.expect(json.items).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/devices/{{device_id}}/metrics?limit=1"
+          },
+          "response": []
+        },
+        {
+          "name": "查询监控总览",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"监控总览查询成功\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"包含设备状态统计\", function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property(\"total_devices\");",
+                  "  pm.expect(json).to.have.property(\"online_devices\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/monitoring/overview"
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

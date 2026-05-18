@@ -1425,3 +1425,60 @@ Authorization: Bearer <access_token>
 ```
 
 前端“系统诊断”页展示服务名、版本、API 前缀、数据库摘要、文件后端、远程网关、默认 SSH 用户和 `security` 摘要。该接口和页面只展示非敏感摘要，不返回密码、Token、私钥内容、密钥或解密后的设备凭据。
+
+## Wave 13 监控指标与仪表盘展示规则
+
+### 上报设备指标
+
+```http
+POST /api/devices/{device_id}/metrics
+```
+
+认证：需要 Bearer Token。
+
+请求体示例：
+
+```json
+{
+  "status": "online",
+  "cpu_percent": 64,
+  "memory_percent": 72,
+  "disk_percent": 81
+}
+```
+
+响应 `201` 返回写入的指标记录。该接口也会同步更新设备当前状态和 `last_seen`。
+
+### 查询设备最新指标
+
+```http
+GET /api/devices/{device_id}/metrics?limit=1
+```
+
+认证：需要 Bearer Token。
+
+前端 Wave 13 固定按每台设备 `limit=1` 查询最新指标。无指标时返回：
+
+```json
+{
+  "total": 0,
+  "items": []
+}
+```
+
+### 查询监控总览
+
+```http
+GET /api/monitoring/overview
+```
+
+认证：需要 Bearer Token。
+
+返回设备总数、在线数、离线数和未知数。前端仪表盘将该接口用于顶部统计卡片，将设备级指标接口用于资源快照和异常设备摘要。
+
+### 前端展示约定
+
+- 无指标设备显示“暂无指标”，不得显示 `0%`。
+- 指标超过 10 分钟未更新时显示“指标过期”。
+- 指标接口返回 401/403 才视为登录失效；单台设备指标读取失败只显示“指标加载失败”。
+- CPU >= 90% 显示高负载，内存 >= 85% 显示高内存，磁盘 >= 90% 显示磁盘紧张。

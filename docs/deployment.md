@@ -111,3 +111,29 @@ On Debian 11 edge devices, run `scripts/deploy/edge_bootstrap.sh` to check `ssh`
 - 进入“操作日志”，按 `action`、`target_type`、`status` 做一次筛选，并导出 `operation_logs.csv`，确认 Nginx 对 `/api/logs/export` 没有拦截下载响应头。
 - 在“设备管理”中选择一台已导入 frps 的设备，点击“同步配置”，确认 `POST /api/devices/{id}/sync-config` 能返回 frpc 配置文本。
 - 如需修改管理员密码，使用前端顶栏“修改密码”。修改后会退出登录，下一次 Postman 或浏览器测试需要使用新密码重新登录获取 Token。
+
+## Wave 13 监控指标验证
+
+部署后可以用 Postman 或 `curl` 写入一条示例指标，确认前端仪表盘和系统诊断页已接收到真实监控数据。
+
+1. 登录获取 Token。
+2. 确认已有设备并记录 `device_id`。
+3. 上报示例指标：
+
+```bash
+curl -X POST "$BASE_URL/api/devices/$DEVICE_ID/metrics" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"online","cpu_percent":64,"memory_percent":72,"disk_percent":81}'
+```
+
+4. 查询最新指标：
+
+```bash
+curl "$BASE_URL/api/devices/$DEVICE_ID/metrics?limit=1" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+5. 刷新前端仪表盘，确认“资源快照”显示 CPU、内存、磁盘真实值；进入“系统诊断”，确认“监控可用性”显示有指标设备数和最近指标时间。
+
+如果指标接口返回 502，优先检查 Nginx `/api` 反向代理、后端服务进程和后端日志。指标接口单台失败不会导致前端退出登录。

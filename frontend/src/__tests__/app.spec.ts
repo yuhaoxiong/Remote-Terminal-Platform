@@ -24,6 +24,7 @@ vi.mock("../api/platform", () => ({
   hasStoredAccessToken: vi.fn(() => false),
   importFrpsDevices: vi.fn(),
   listDevices: vi.fn(),
+  listDeviceMetrics: vi.fn(),
   listGroups: vi.fn(),
   listLogs: vi.fn(),
   listUpdateTasks: vi.fn(),
@@ -112,6 +113,20 @@ function mockResolvedApiState() {
     offline_devices: 0,
     unknown_devices: 0,
   });
+  api.listDeviceMetrics.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 1,
+        device_id: 1,
+        status: "online",
+        cpu_percent: 64,
+        memory_percent: 72,
+        disk_percent: 81,
+        recorded_at: new Date().toISOString(),
+      },
+    ],
+  });
   api.changePassword.mockResolvedValue(undefined);
   api.exportLogs.mockResolvedValue(new Blob(["id,action\n1,device.create\n"], { type: "text/csv" }));
   api.getDiagnosticsConfig.mockResolvedValue({
@@ -179,9 +194,10 @@ function mockResolvedApiState() {
 }
 
 async function flushAsync() {
-  await nextTick();
-  await Promise.resolve();
-  await nextTick();
+  for (let index = 0; index < 4; index += 1) {
+    await nextTick();
+    await Promise.resolve();
+  }
 }
 
 describe("App", () => {
@@ -367,6 +383,74 @@ describe("App", () => {
     });
     expect(wrapper.text()).toContain("新增 2");
     expect(wrapper.text()).toContain("frps-12008");
+  });
+
+  it("shows real device metrics, stale state, and monitoring diagnostics", async () => {
+    api.listDeviceMetrics.mockResolvedValueOnce({
+      total: 1,
+      items: [
+        {
+          id: 9,
+          device_id: 1,
+          status: "online",
+          cpu_percent: 94,
+          memory_percent: 86,
+          disk_percent: 91,
+          recorded_at: "2026-05-18T06:00:00Z",
+        },
+      ],
+    });
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+
+    expect(api.listDeviceMetrics).toHaveBeenCalledWith(1, 1);
+    expect(wrapper.text()).toContain("CPU 94%");
+    expect(wrapper.text()).toContain("内存 86%");
+    expect(wrapper.text()).toContain("磁盘 91%");
+    expect(wrapper.text()).toContain("指标过期");
+    expect(wrapper.text()).toContain("高负载");
+    expect(wrapper.text()).toContain("磁盘紧张");
+
+    await wrapper.find('[data-testid="nav-diagnostics"]').trigger("click");
+    await flushAsync();
+    expect(wrapper.text()).toContain("监控可用性");
+    expect(wrapper.text()).toContain("有指标设备：1");
+    expect(wrapper.text()).toContain("无指标设备：0");
+  });
+
+  it("does not show fake zero metrics and keeps the page when metric loading fails", async () => {
+    api.listDeviceMetrics.mockRejectedValueOnce(
+      Object.assign(new Error("metric unavailable"), {
+        response: { status: 500 },
+      }),
+    );
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+
+    expect(api.clearAuthTokens).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="login-submit"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain("指标加载失败");
+    expect(wrapper.text()).not.toContain("CPU 0%");
   });
 
   it("changes the admin password and returns to the login page", async () => {

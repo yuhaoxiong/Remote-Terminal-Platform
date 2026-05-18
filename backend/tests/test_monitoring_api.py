@@ -74,3 +74,34 @@ def test_metrics_reject_missing_device_and_authentication(client) -> None:
     missing = client.post("/api/devices/999/metrics", headers=headers, json={"status": "online"})
     assert missing.status_code == 404
 
+
+def test_metrics_list_returns_latest_limited_empty_and_missing_device(client) -> None:
+    headers = _auth_headers(client)
+    device = _create_device(client, headers, device_sn="monitor-sn-002")
+
+    empty_response = client.get(f"/api/devices/{device['id']}/metrics?limit=1", headers=headers)
+    assert empty_response.status_code == 200
+    assert empty_response.json() == {"total": 0, "items": []}
+
+    first = client.post(
+        f"/api/devices/{device['id']}/metrics",
+        headers=headers,
+        json={"status": "online", "cpu_percent": 11.0, "memory_percent": 22.0, "disk_percent": 33.0},
+    )
+    assert first.status_code == 201
+    second = client.post(
+        f"/api/devices/{device['id']}/metrics",
+        headers=headers,
+        json={"status": "online", "cpu_percent": 91.0, "memory_percent": 88.0, "disk_percent": 77.0},
+    )
+    assert second.status_code == 201
+
+    latest_response = client.get(f"/api/devices/{device['id']}/metrics?limit=1", headers=headers)
+    assert latest_response.status_code == 200
+    latest_body = latest_response.json()
+    assert latest_body["total"] == 2
+    assert len(latest_body["items"]) == 1
+    assert latest_body["items"][0]["cpu_percent"] == 91.0
+
+    missing_response = client.get("/api/devices/999/metrics?limit=1", headers=headers)
+    assert missing_response.status_code == 404
