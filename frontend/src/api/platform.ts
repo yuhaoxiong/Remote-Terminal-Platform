@@ -190,6 +190,61 @@ export interface UpdateTaskCreateRequest {
   concurrency_limit: number;
 }
 
+export interface DeviceFileItem {
+  name: string;
+  path: string;
+  type: "file" | "directory" | string;
+  size: number;
+  modified_at: string | null;
+}
+
+export interface DeviceFileListResponse {
+  device_id: number;
+  path: string;
+  items: DeviceFileItem[];
+}
+
+export interface DeviceFileOperationResponse {
+  device_id: number;
+  remote_path: string;
+  status: string;
+  size: number | null;
+}
+
+export interface ScheduledTaskRead {
+  id: number;
+  name: string;
+  task_type: string;
+  schedule: string;
+  command: string | null;
+  target_filter: Record<string, unknown> | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduledTaskListResponse {
+  total: number;
+  items: ScheduledTaskRead[];
+}
+
+export interface ScheduledTaskCreateRequest {
+  name: string;
+  task_type: string;
+  schedule: string;
+  command?: string | null;
+  target_filter?: Record<string, unknown> | null;
+  enabled?: boolean;
+}
+
+export type ScheduledTaskUpdateRequest = Partial<ScheduledTaskCreateRequest>;
+
+export interface ScheduledTaskExecuteResponse {
+  task_id: number;
+  status: string;
+  output_summary: string;
+}
+
 export interface RemoteSessionResponse {
   device_id: number;
   session_type: "ssh" | "vnc";
@@ -370,6 +425,66 @@ export async function executeUpdateTask(taskId: number): Promise<UpdateTaskRead>
 
 export async function cancelUpdateTask(taskId: number): Promise<UpdateTaskRead> {
   const response = await api.post<UpdateTaskRead>(`/update-tasks/${taskId}/cancel`);
+  return response.data;
+}
+
+export async function listDeviceFiles(deviceId: number, path = "/"): Promise<DeviceFileListResponse> {
+  const response = await api.get<DeviceFileListResponse>(`/devices/${deviceId}/files`, { params: { path } });
+  return response.data;
+}
+
+export async function uploadDeviceFile(deviceId: number, remotePath: string, file: File): Promise<DeviceFileOperationResponse> {
+  const form = new FormData();
+  form.append("remote_path", remotePath);
+  form.append("file", file);
+  const response = await api.post<DeviceFileOperationResponse>(`/devices/${deviceId}/files/upload`, form);
+  return response.data;
+}
+
+export async function downloadDeviceFile(deviceId: number, remotePath: string): Promise<Blob> {
+  const response = await api.get<Blob>(`/devices/${deviceId}/files/download`, {
+    params: { remote_path: remotePath },
+    responseType: "blob",
+  });
+  return response.data;
+}
+
+export async function deleteDeviceFile(deviceId: number, remotePath: string): Promise<DeviceFileOperationResponse> {
+  const response = await api.delete<DeviceFileOperationResponse>(`/devices/${deviceId}/files`, { data: { remote_path: remotePath } });
+  return response.data;
+}
+
+export async function listScheduledTasks(): Promise<ScheduledTaskListResponse> {
+  const response = await api.get<ScheduledTaskListResponse>("/scheduled-tasks");
+  return response.data;
+}
+
+export async function createScheduledTask(payload: ScheduledTaskCreateRequest): Promise<ScheduledTaskRead> {
+  const response = await api.post<ScheduledTaskRead>("/scheduled-tasks", payload);
+  return response.data;
+}
+
+export async function updateScheduledTask(taskId: number, payload: ScheduledTaskUpdateRequest): Promise<ScheduledTaskRead> {
+  const response = await api.put<ScheduledTaskRead>(`/scheduled-tasks/${taskId}`, payload);
+  return response.data;
+}
+
+export async function deleteScheduledTask(taskId: number): Promise<void> {
+  await api.delete(`/scheduled-tasks/${taskId}`);
+}
+
+export async function toggleScheduledTask(taskId: number): Promise<ScheduledTaskRead> {
+  const response = await api.post<ScheduledTaskRead>(`/scheduled-tasks/${taskId}/toggle`);
+  return response.data;
+}
+
+export async function executeScheduledTask(taskId: number): Promise<ScheduledTaskExecuteResponse> {
+  const response = await api.post<ScheduledTaskExecuteResponse>(`/scheduled-tasks/${taskId}/execute`);
+  return response.data;
+}
+
+export async function listScheduledTaskLogs(taskId: number): Promise<OperationLogListResponse> {
+  const response = await api.get<OperationLogListResponse>(`/scheduled-tasks/${taskId}/logs`);
   return response.data;
 }
 

@@ -45,33 +45,37 @@ class FileService:
         return items
 
     def upload_text(self, device: Device, remote_path: str, content: str) -> int:
+        return self.upload_bytes(device, remote_path, content.encode("utf-8"))
+
+    def upload_bytes(self, device: Device, remote_path: str, content: bytes) -> int:
         if self.settings.file_backend == "sftp":
             target = self._normalize_sftp_file_path(remote_path)
             sftp = self.ssh_service.open_sftp(device)
             try:
-                data = content.encode("utf-8")
-                with sftp.open(target, "w") as remote_file:
+                with sftp.open(target, "wb") as remote_file:
                     remote_file.write(content)
-                return len(data)
+                return len(content)
             finally:
                 sftp.close()
 
         target = self._resolve(device.id, remote_path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        data = content.encode("utf-8")
-        target.write_bytes(data)
-        return len(data)
+        target.write_bytes(content)
+        return len(content)
 
     def download_text(self, device: Device, remote_path: str) -> str:
+        return self.download_bytes(device, remote_path).decode("utf-8")
+
+    def download_bytes(self, device: Device, remote_path: str) -> bytes:
         if self.settings.file_backend == "sftp":
             target = self._normalize_sftp_file_path(remote_path)
             sftp = self.ssh_service.open_sftp(device)
             try:
-                with sftp.open(target, "r") as remote_file:
+                with sftp.open(target, "rb") as remote_file:
                     content = remote_file.read()
                 if isinstance(content, bytes):
-                    return content.decode("utf-8")
-                return str(content)
+                    return content
+                return str(content).encode("utf-8")
             except OSError as exc:
                 raise RemoteFileNotFoundError(remote_path) from exc
             finally:
@@ -80,7 +84,7 @@ class FileService:
         target = self._resolve(device.id, remote_path)
         if not target.exists() or not target.is_file():
             raise RemoteFileNotFoundError(remote_path)
-        return target.read_text(encoding="utf-8")
+        return target.read_bytes()
 
     def delete(self, device: Device, remote_path: str) -> None:
         if self.settings.file_backend == "sftp":

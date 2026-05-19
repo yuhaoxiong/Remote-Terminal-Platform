@@ -62,8 +62,10 @@ import {
   type UpdateTaskDeviceRead,
   type UpdateTaskRead,
 } from "./api/platform";
+import DeviceFilePanel from "./components/DeviceFilePanel.vue";
+import ScheduledTaskPanel from "./components/ScheduledTaskPanel.vue";
 
-type SectionId = "dashboard" | "devices" | "groups" | "remote" | "updates" | "logs" | "diagnostics";
+type SectionId = "dashboard" | "devices" | "groups" | "remote" | "updates" | "scheduled" | "logs" | "diagnostics";
 type DeviceStatus = "online" | "offline" | "degraded" | "unknown";
 type UpdateStatus = "pending" | "running" | "completed" | "canceled" | "partial_failed";
 type ExecutionMode = "dry_run" | "ssh_command";
@@ -164,6 +166,7 @@ const navItems: Array<{ id: SectionId; label: string; icon: unknown }> = [
   { id: "groups", label: "分组管理", icon: Operation },
   { id: "remote", label: "远程连接", icon: VideoPlay },
   { id: "updates", label: "批量更新", icon: Finished },
+  { id: "scheduled", label: "定时任务", icon: Operation },
   { id: "logs", label: "操作日志", icon: Document },
   { id: "diagnostics", label: "系统诊断", icon: WarningFilled },
 ];
@@ -189,6 +192,7 @@ const remoteDeviceSearch = ref("");
 const selectedRemoteDeviceId = ref<number | null>(null);
 const sshTerminalHostRef = ref<HTMLElement | null>(null);
 const vncCanvasHostRef = ref<HTMLElement | null>(null);
+const filePanelDevice = ref<Device | null>(null);
 
 const deviceForm = reactive({
   name: "",
@@ -689,6 +693,10 @@ function remoteSessionFor(deviceId: number, sessionType: "ssh" | "vnc"): RemoteS
 
 function setRemoteSession(deviceId: number, sessionType: "ssh" | "vnc", update: Partial<RemoteSessionUi>) {
   Object.assign(remoteSessionFor(deviceId, sessionType), update);
+}
+
+function openFilePanel(device: Device) {
+  filePanelDevice.value = device;
 }
 
 function selectRemoteDevice(device: Device) {
@@ -1824,6 +1832,7 @@ onBeforeUnmount(() => {
                 <template #default="{ row }">
                   <el-button :data-testid="`edit-device-${row.id}`" size="small" @click="openDeviceEdit(row)">编辑</el-button>
                   <el-button :data-testid="`refresh-device-${row.id}`" size="small" :icon="Refresh" @click="refreshDeviceStatus(row)">刷新</el-button>
+                  <el-button :data-testid="`open-files-${row.id}`" size="small" @click="openFilePanel(row)">文件</el-button>
                   <el-button :data-testid="`sync-device-${row.id}`" size="small" @click="showSyncConfig(row)">同步配置</el-button>
                   <el-button :data-testid="`delete-device-${row.id}`" size="small" type="danger" @click="removeDevice(row)">删除</el-button>
                 </template>
@@ -1865,6 +1874,8 @@ onBeforeUnmount(() => {
               <el-button data-testid="copy-sync-config" @click="copySyncConfig">复制配置</el-button>
             </div>
           </section>
+
+          <DeviceFilePanel v-if="filePanelDevice" :device="filePanelDevice" />
         </section>
 
         <section v-if="activeSection === 'groups'" class="page-section">
@@ -2139,6 +2150,8 @@ onBeforeUnmount(() => {
             </el-table>
           </div>
         </section>
+
+        <ScheduledTaskPanel v-if="activeSection === 'scheduled'" />
 
         <section v-if="activeSection === 'logs'" class="page-section">
           <div class="toolbar">

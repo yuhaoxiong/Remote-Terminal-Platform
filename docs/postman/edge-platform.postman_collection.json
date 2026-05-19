@@ -1,4 +1,4 @@
-﻿{
+{
   "info": {
     "name": "Edge Platform API",
     "description": "远程终端平台 API 验收集合。先运行“登录”，Tests 脚本会自动保存 access_token 和 refresh_token；后续接口继承集合级 Bearer Token。",
@@ -98,6 +98,16 @@
     {
       "key": "log_status",
       "value": "success",
+      "type": "string"
+    },
+    {
+      "key": "remote_path",
+      "value": "/tmp/edge-platform-postman.bin",
+      "type": "string"
+    },
+    {
+      "key": "scheduled_task_id",
+      "value": "",
       "type": "string"
     }
   ],
@@ -798,6 +808,176 @@
             "header": [],
             "url": "{{base_url}}/api/devices/{{device_id}}/remote/vnc",
             "description": "返回 websocket_url 后，前端 noVNC 使用 ws://<host>/api/ws/devices/{{device_id}}/vnc?token={{access_token}} 连接。Postman Collection 只覆盖会话描述请求，WebSocket 交互请用 Postman WebSocket 客户端或浏览器前端验收。"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Wave 15 文件与定时任务",
+      "item": [
+        {
+          "name": "查询设备文件列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/devices/{{device_id}}/files?path=/",
+            "description": "使用设备文件管理入口前,先确认目标设备 ID 可用。local 文件后端会读取本地模拟目录,sftp 文件后端会访问真实设备。"
+          },
+          "response": []
+        },
+        {
+          "name": "上传任意文件",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "remote_path",
+                  "value": "{{remote_path}}",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": "{{base_url}}/api/devices/{{device_id}}/files/upload",
+            "description": "在 Postman 中为 file 字段选择本地文件。后端支持任意文件类型上传。"
+          },
+          "response": []
+        },
+        {
+          "name": "下载文件",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/devices/{{device_id}}/files/download?remote_path={{remote_path}}",
+            "description": "响应为二进制文件,带 Content-Disposition 下载头。"
+          },
+          "response": []
+        },
+        {
+          "name": "删除文件",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"remote_path\": \"{{remote_path}}\"\n}"
+            },
+            "url": "{{base_url}}/api/devices/{{device_id}}/files"
+          },
+          "response": []
+        },
+        {
+          "name": "创建定时任务",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('创建定时任务成功', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.id) {",
+                  "  pm.collectionVariables.set('scheduled_task_id', String(json.id));",
+                  "  pm.environment.set('scheduled_task_id', String(json.id));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman 巡检任务\",\n  \"task_type\": \"command\",\n  \"schedule\": \"interval:300\",\n  \"command\": \"hostname\",\n  \"target_filter\": {\n    \"project_id\": \"{{project_id}}\"\n  },\n  \"enabled\": true\n}"
+            },
+            "url": "{{base_url}}/api/scheduled-tasks",
+            "description": "本轮只创建 API 配置,不会接入真实后台调度器。"
+          },
+          "response": []
+        },
+        {
+          "name": "查询定时任务列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/scheduled-tasks"
+          },
+          "response": []
+        },
+        {
+          "name": "更新定时任务",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman 巡检任务已更新\",\n  \"schedule\": \"interval:600\",\n  \"enabled\": true\n}"
+            },
+            "url": "{{base_url}}/api/scheduled-tasks/{{scheduled_task_id}}"
+          },
+          "response": []
+        },
+        {
+          "name": "启停定时任务",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/scheduled-tasks/{{scheduled_task_id}}/toggle"
+          },
+          "response": []
+        },
+        {
+          "name": "手动执行定时任务",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/scheduled-tasks/{{scheduled_task_id}}/execute",
+            "description": "当前为模拟执行,会记录 scheduled_task.execute 操作日志。"
+          },
+          "response": []
+        },
+        {
+          "name": "查询定时任务日志",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/scheduled-tasks/{{scheduled_task_id}}/logs"
+          },
+          "response": []
+        },
+        {
+          "name": "删除定时任务",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{base_url}}/api/scheduled-tasks/{{scheduled_task_id}}"
           },
           "response": []
         }

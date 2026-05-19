@@ -49,7 +49,7 @@ def test_device_file_browser_upload_download_and_delete(client) -> None:
         headers=headers,
     )
     assert downloaded.status_code == 200
-    assert downloaded.headers["content-type"].startswith("text/plain")
+    assert "attachment" in downloaded.headers["content-disposition"]
     assert downloaded.text == "mode: wave6\n"
 
     deleted = client.request(
@@ -66,6 +66,33 @@ def test_device_file_browser_upload_download_and_delete(client) -> None:
         headers=headers,
     )
     assert missing.status_code == 404
+
+
+def test_device_file_upload_and_download_binary_content(client) -> None:
+    headers = _auth_headers(client)
+    created = client.post("/api/devices", headers=headers, json=_device_payload("edge-files-binary-001"))
+    assert created.status_code == 201
+    device_id = created.json()["id"]
+    payload = b"\x00\x01\x02\xffbinary-payload"
+
+    uploaded = client.post(
+        f"/api/devices/{device_id}/files/upload",
+        headers=headers,
+        data={"remote_path": "/opt/app/payload.bin"},
+        files={"file": ("payload.bin", payload, "application/octet-stream")},
+    )
+    assert uploaded.status_code == 201
+    assert uploaded.json()["status"] == "uploaded"
+    assert uploaded.json()["size"] == len(payload)
+
+    downloaded = client.get(
+        f"/api/devices/{device_id}/files/download?remote_path=/opt/app/payload.bin",
+        headers=headers,
+    )
+    assert downloaded.status_code == 200
+    assert downloaded.headers["content-type"].startswith("application/octet-stream")
+    assert "payload.bin" in downloaded.headers["content-disposition"]
+    assert downloaded.content == payload
 
 
 def test_file_paths_cannot_escape_device_storage(client) -> None:

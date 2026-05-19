@@ -88,6 +88,7 @@ async def device_ssh(websocket: WebSocket, device_id: int) -> None:
                 await asyncio.to_thread(shell.resize, int(message.get("columns", 120)), int(message.get("rows", 32)))
             elif message_type == "close":
                 await asyncio.to_thread(shell.close)
+                await websocket.send_json({"type": "status", "status": "closed"})
                 shell = None
                 break
     except RemoteConnectionError as exc:

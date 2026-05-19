@@ -107,7 +107,7 @@ On Debian 11 edge devices, run `scripts/deploy/edge_bootstrap.sh` to check `ssh`
 
 ## Wave 14 远程连接部署检查
 
-远程连接页现在会直接连接 `/api/ws/devices/{id}/ssh` 和 `/api/ws/devices/{id}/vnc`。如果使用单域名 Nginx 反向代理，确认 `/api/ws/` location 包含：
+远程连接页现在会直接连接 `/api/ws/devices/{id}/ssh` 和 `/api/ws/devices/{id}/vnc`。如果使用单域名 Nginx 反向代理,确认 `/api/ws/` location 包含:
 
 ```nginx
 proxy_http_version 1.1;
@@ -117,28 +117,28 @@ proxy_read_timeout 3600s;
 proxy_send_timeout 3600s;
 ```
 
-SSH/VNC 验收顺序：
+SSH/VNC 验收顺序:
 
-1. 在平台中确认设备 `ssh_port`、`vnc_port` 非空，且 `ssh_credential_configured=true`。
-2. 在后端服务器上确认 frps 主机和端口可达，例如 `nc -vz <frps-ip> <ssh_port>` 和 `nc -vz <frps-ip> <vnc_port>`。
+1. 在平台中确认设备 `ssh_port`、`vnc_port` 非空,且 `ssh_credential_configured=true`。
+2. 在后端服务器上确认 frps 主机和端口可达,例如 `nc -vz <frps-ip> <ssh_port>` 和 `nc -vz <frps-ip> <vnc_port>`。
 3. 确认后端环境变量 `REMOTE_GATEWAY_HOST`、`VNC_GATEWAY_HOST` 指向 frps 对外可达地址。
-4. 浏览器登录后进入“远程连接”，选择设备，先测试 SSH，再测试 VNC。
-5. 如果 REST 请求返回 502，优先查 Nginx `/api` 到后端的反向代理；如果 REST 成功但画面连接失败，查 `/api/ws` WebSocket 升级、frps 端口、防火墙和设备端 frpc。
+4. 浏览器登录后进入"远程连接",选择设备,先测试 SSH,再测试 VNC。
+5. 如果 REST 请求返回 502,优先查 Nginx `/api` 到后端的反向代理;如果 REST 成功但画面连接失败,查 `/api/ws` WebSocket 升级、frps 端口、防火墙和设备端 frpc。
 
 ## Wave 12 部署后检查
 
-- 登录前端后进入“系统诊断”，确认 `security.warnings` 中没有默认 JWT 密钥、默认管理员密码、默认设备 SSH 密码或未配置凭据加密密钥等风险项。
-- 进入“操作日志”，按 `action`、`target_type`、`status` 做一次筛选，并导出 `operation_logs.csv`，确认 Nginx 对 `/api/logs/export` 没有拦截下载响应头。
-- 在“设备管理”中选择一台已导入 frps 的设备，点击“同步配置”，确认 `POST /api/devices/{id}/sync-config` 能返回 frpc 配置文本。
-- 如需修改管理员密码，使用前端顶栏“修改密码”。修改后会退出登录，下一次 Postman 或浏览器测试需要使用新密码重新登录获取 Token。
+- 登录前端后进入"系统诊断",确认 `security.warnings` 中没有默认 JWT 密钥、默认管理员密码、默认设备 SSH 密码或未配置凭据加密密钥等风险项。
+- 进入"操作日志",按 `action`、`target_type`、`status` 做一次筛选,并导出 `operation_logs.csv`,确认 Nginx 对 `/api/logs/export` 没有拦截下载响应头。
+- 在"设备管理"中选择一台已导入 frps 的设备,点击"同步配置",确认 `POST /api/devices/{id}/sync-config` 能返回 frpc 配置文本。
+- 如需修改管理员密码,使用前端顶栏"修改密码"。修改后会退出登录,下一次 Postman 或浏览器测试需要使用新密码重新登录获取 Token。
 
 ## Wave 13 监控指标验证
 
-部署后可以用 Postman 或 `curl` 写入一条示例指标，确认前端仪表盘和系统诊断页已接收到真实监控数据。
+部署后可以用 Postman 或 `curl` 写入一条示例指标,确认前端仪表盘和系统诊断页已接收到真实监控数据。
 
 1. 登录获取 Token。
 2. 确认已有设备并记录 `device_id`。
-3. 上报示例指标：
+3. 上报示例指标:
 
 ```bash
 curl -X POST "$BASE_URL/api/devices/$DEVICE_ID/metrics" \
@@ -147,13 +147,21 @@ curl -X POST "$BASE_URL/api/devices/$DEVICE_ID/metrics" \
   -d '{"status":"online","cpu_percent":64,"memory_percent":72,"disk_percent":81}'
 ```
 
-4. 查询最新指标：
+4. 查询最新指标:
 
 ```bash
 curl "$BASE_URL/api/devices/$DEVICE_ID/metrics?limit=1" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
-5. 刷新前端仪表盘，确认“资源快照”显示 CPU、内存、磁盘真实值；进入“系统诊断”，确认“监控可用性”显示有指标设备数和最近指标时间。
+5. 刷新前端仪表盘,确认"资源快照"显示 CPU、内存、磁盘真实值;进入"系统诊断",确认"监控可用性"显示有指标设备数和最近指标时间。
 
-如果指标接口返回 502，优先检查 Nginx `/api` 反向代理、后端服务进程和后端日志。指标接口单台失败不会导致前端退出登录。
+如果指标接口返回 502,优先检查 Nginx `/api` 反向代理、后端服务进程和后端日志。指标接口单台失败不会导致前端退出登录。
+
+## Wave 15 文件与定时任务部署检查
+
+- 若需要访问真实设备文件,后端必须配置 `FILE_BACKEND=sftp`,并保证设备记录已有 `ssh_port` 和可用 SSH 凭据;否则文件接口会使用本地存储后端,只适合开发测试。
+- 文件上传使用 `multipart/form-data`,Nginx 默认允许 1 MB 请求体。若需要上传更大的文件,在 `server` 或 `location /api/` 中增加 `client_max_body_size`,例如 `client_max_body_size 100m;`。
+- 文件下载走 `/api/devices/{id}/files/download`,请确认 Nginx 没有拦截 `Content-Disposition` 响应头,浏览器应直接下载文件。
+- 定时任务本轮只做 API 管理闭环,不会由后台调度器自动触发。部署验收时可在前端"定时任务"页点击"立即执行",确认操作日志中出现 `scheduled_task.execute`。
+- Web SSH 主动断开会发送 `{ "type": "close" }`,后端关闭 shell 后返回 `status=closed`;如果浏览器显示已断开但后端仍有长连接,优先检查 `/api/ws/` 的 WebSocket 升级和超时配置。

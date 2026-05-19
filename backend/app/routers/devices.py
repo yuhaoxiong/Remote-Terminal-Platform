@@ -1,4 +1,11 @@
+import mimetypes
+from pathlib import PurePosixPath
+from urllib.parse import quote
+
+from pydantic import ValidationError
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from starlette.datastructures import UploadFile
 
 from app.dependencies import get_app_settings, get_current_user
 from app.database import session_scope
@@ -218,17 +225,17 @@ def list_device_files(
 
 
 @router.post("/{device_id}/files/upload", response_model=FileOperationResponse, status_code=status.HTTP_201_CREATED)
-def upload_device_file(
+async def upload_device_file(
     device_id: int,
-    payload: FileUploadRequest,
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> FileOperationResponse:
+    remote_path, content = await _read_file_upload_request(request)
     settings = get_app_settings(request)
     with session_scope(settings) as session:
         try:
             device = DeviceService(settings).get(session, device_id)
-            size = FileService(settings).upload_text(device, payload.remote_path, payload.content)
+            size = FileService(settings).upload_bytes(device, remote_path, content)
         except DeviceNotFoundError as exc:
             raise _not_found(exc) from exc
         except FilePathError as exc:
@@ -240,9 +247,26 @@ def upload_device_file(
             target_type="device",
             target_id=device.id,
             status="success",
-            detail=payload.remote_path,
+            detail=remote_path,
         )
-        return FileOperationResponse(device_id=device.id, remote_path=payload.remote_path, status="uploaded", size=size)
+        return FileOperationResponse(device_id=device.id, remote_path=remote_path, status="uploaded", size=size)
+
+
+async def _read_file_upload_request(request: Request) -> tuple[str, bytes]:
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        remote_path = str(form.get("remote_path") or "")
+        upload = form.get("file")
+        if not isinstance(upload, UploadFile):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="请选择要上传的文件")
+        return remote_path, await upload.read()
+
+    try:
+        payload = FileUploadRequest.model_validate(await request.json())
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
+    return payload.remote_path, payload.content.encode("utf-8")
 
 
 @router.get("/{device_id}/files/download")
@@ -256,7 +280,7 @@ def download_device_file(
     with session_scope(settings) as session:
         try:
             device = DeviceService(settings).get(session, device_id)
-            content = FileService(settings).download_text(device, remote_path)
+            content = FileService(settings).download_bytes(device, remote_path)
         except DeviceNotFoundError as exc:
             raise _not_found(exc) from exc
         except FilePathError as exc:
@@ -272,7 +296,13 @@ def download_device_file(
             status="success",
             detail=remote_path,
         )
-    return Response(content=content, media_type="text/plain")
+    filename = PurePosixPath(remote_path).name or "download"
+    media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 @router.delete("/{device_id}/files", response_model=FileOperationResponse)

@@ -114,6 +114,17 @@ vi.mock("../api/platform", () => ({
   deleteDevice: vi.fn(),
   executeUpdateTask: vi.fn(),
   exportLogs: vi.fn(),
+  listDeviceFiles: vi.fn(),
+  uploadDeviceFile: vi.fn(),
+  downloadDeviceFile: vi.fn(),
+  deleteDeviceFile: vi.fn(),
+  listScheduledTasks: vi.fn(),
+  createScheduledTask: vi.fn(),
+  updateScheduledTask: vi.fn(),
+  deleteScheduledTask: vi.fn(),
+  toggleScheduledTask: vi.fn(),
+  executeScheduledTask: vi.fn(),
+  listScheduledTaskLogs: vi.fn(),
   getAccessToken: vi.fn(() => "access-token"),
   getDeviceStatus: vi.fn(),
   getDiagnosticsConfig: vi.fn(),
@@ -267,6 +278,109 @@ function mockResolvedApiState() {
   });
   api.changePassword.mockResolvedValue(undefined);
   api.exportLogs.mockResolvedValue(new Blob(["id,action\n1,device.create\n"], { type: "text/csv" }));
+  api.listDeviceFiles.mockResolvedValue({
+    device_id: 1,
+    path: "/",
+    items: [
+      {
+        name: "config.bin",
+        path: "/config.bin",
+        type: "file",
+        size: 4,
+        modified_at: "2026-05-19T00:00:00",
+      },
+      {
+        name: "logs",
+        path: "/logs",
+        type: "directory",
+        size: 0,
+        modified_at: null,
+      },
+    ],
+  });
+  api.uploadDeviceFile.mockResolvedValue({
+    device_id: 1,
+    remote_path: "/payload.bin",
+    status: "uploaded",
+    size: 4,
+  });
+  api.downloadDeviceFile.mockResolvedValue(new Blob([new Uint8Array([0, 1, 2, 255])], { type: "application/octet-stream" }));
+  api.deleteDeviceFile.mockResolvedValue({
+    device_id: 1,
+    remote_path: "/config.bin",
+    status: "deleted",
+    size: null,
+  });
+  api.listScheduledTasks.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 7,
+        name: "巡检任务",
+        task_type: "command",
+        schedule: "interval:300",
+        command: "hostname",
+        target_filter: { project_id: "frps-import" },
+        enabled: true,
+        created_at: "2026-05-19T00:00:00",
+        updated_at: "2026-05-19T00:00:00",
+      },
+    ],
+  });
+  api.createScheduledTask.mockResolvedValue({
+    id: 8,
+    name: "新建巡检",
+    task_type: "command",
+    schedule: "interval:600",
+    command: "whoami",
+    target_filter: { project_id: "frps-import" },
+    enabled: true,
+    created_at: "2026-05-19T00:00:00",
+    updated_at: "2026-05-19T00:00:00",
+  });
+  api.updateScheduledTask.mockResolvedValue({
+    id: 7,
+    name: "巡检任务已更新",
+    task_type: "command",
+    schedule: "interval:300",
+    command: "hostname",
+    target_filter: { project_id: "frps-import" },
+    enabled: true,
+    created_at: "2026-05-19T00:00:00",
+    updated_at: "2026-05-19T00:00:00",
+  });
+  api.deleteScheduledTask.mockResolvedValue(undefined);
+  api.toggleScheduledTask.mockResolvedValue({
+    id: 7,
+    name: "巡检任务",
+    task_type: "command",
+    schedule: "interval:300",
+    command: "hostname",
+    target_filter: { project_id: "frps-import" },
+    enabled: false,
+    created_at: "2026-05-19T00:00:00",
+    updated_at: "2026-05-19T00:00:00",
+  });
+  api.executeScheduledTask.mockResolvedValue({
+    task_id: 7,
+    status: "success",
+    output_summary: "simulated scheduled task execution: hostname",
+  });
+  api.listScheduledTaskLogs.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 10,
+        user_id: 1,
+        action: "scheduled_task.execute",
+        target_type: "scheduled_task",
+        target_id: 7,
+        status: "success",
+        detail: "simulated scheduled task execution: hostname",
+        created_at: "2026-05-19T00:00:00",
+      },
+    ],
+  });
   api.getDiagnosticsConfig.mockResolvedValue({
     service_name: "edge-platform",
     version: "0.1.0",
@@ -1062,5 +1176,119 @@ describe("App", () => {
     expect(wrapper.text()).toContain("1/1");
     expect(wrapper.text()).toContain("真实 SSH 执行");
     expect(wrapper.text()).toContain("退出码 0");
+  });
+
+  it("manages device files from the device operation area", async () => {
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="nav-devices"]').trigger("click");
+    await wrapper.find('[data-testid="open-files-1"]').trigger("click");
+    await waitUntil(() => expect(api.listDeviceFiles).toHaveBeenCalledWith(1, "/"));
+
+    expect(wrapper.text()).toContain("文件管理");
+    expect(wrapper.text()).toContain("config.bin");
+
+    const file = new File([new Uint8Array([0, 1, 2, 255])], "payload.bin", {
+      type: "application/octet-stream",
+    });
+    const uploadInput = wrapper.find('[data-testid="file-upload-input"]').element as HTMLInputElement;
+    Object.defineProperty(uploadInput, "files", {
+      value: [file],
+      configurable: true,
+    });
+    await wrapper.find('[data-testid="file-upload-input"]').trigger("change");
+    await wrapper.find('[data-testid="file-upload-path"] input').setValue("/payload.bin");
+    await wrapper.find('[data-testid="upload-file"]').trigger("click");
+    await waitUntil(() => expect(api.uploadDeviceFile).toHaveBeenCalledWith(1, "/payload.bin", file));
+
+    await wrapper.find('[data-testid="download-file-config.bin"]').trigger("click");
+    await flushAsync();
+    expect(api.downloadDeviceFile).toHaveBeenCalledWith(1, "/config.bin");
+    expect(window.URL.createObjectURL).toHaveBeenCalled();
+
+    await wrapper.find('[data-testid="delete-file-config.bin"]').trigger("click");
+    await flushAsync();
+    expect(api.deleteDeviceFile).toHaveBeenCalledWith(1, "/config.bin");
+  });
+
+  it("manages scheduled tasks through the dedicated panel", async () => {
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="nav-scheduled"]').trigger("click");
+    await waitUntil(() => expect(api.listScheduledTasks).toHaveBeenCalled());
+
+    expect(wrapper.text()).toContain("定时任务");
+    expect(wrapper.text()).toContain("巡检任务");
+
+    await wrapper.find('[data-testid="open-scheduled-create"]').trigger("click");
+    await wrapper.find('[data-testid="scheduled-name"] input').setValue("新建巡检");
+    await wrapper.find('[data-testid="scheduled-schedule"] input').setValue("interval:600");
+    await wrapper.find('[data-testid="scheduled-command"] textarea').setValue("whoami");
+    await wrapper.find('[data-testid="scheduled-target-filter"] textarea').setValue('{"project_id":"frps-import"}');
+    await wrapper.find('[data-testid="save-scheduled-task"]').trigger("click");
+    await flushAsync();
+
+    expect(api.createScheduledTask).toHaveBeenCalledWith({
+      name: "新建巡检",
+      task_type: "command",
+      schedule: "interval:600",
+      command: "whoami",
+      target_filter: { project_id: "frps-import" },
+      enabled: true,
+    });
+    expect(wrapper.text()).toContain("新建巡检");
+
+    await wrapper.find('[data-testid="edit-scheduled-7"]').trigger("click");
+    await wrapper.find('[data-testid="scheduled-name"] input').setValue("巡检任务已更新");
+    await wrapper.find('[data-testid="save-scheduled-task"]').trigger("click");
+    await flushAsync();
+    expect(api.updateScheduledTask).toHaveBeenCalledWith(7, {
+      name: "巡检任务已更新",
+      task_type: "command",
+      schedule: "interval:300",
+      command: "hostname",
+      target_filter: { project_id: "frps-import" },
+      enabled: true,
+    });
+    expect(wrapper.text()).toContain("巡检任务已更新");
+
+    await wrapper.find('[data-testid="toggle-scheduled-7"]').trigger("click");
+    await flushAsync();
+    expect(api.toggleScheduledTask).toHaveBeenCalledWith(7);
+    expect(wrapper.text()).toContain("停用");
+
+    await wrapper.find('[data-testid="execute-scheduled-7"]').trigger("click");
+    await flushAsync();
+    expect(api.executeScheduledTask).toHaveBeenCalledWith(7);
+    expect(wrapper.text()).toContain("simulated scheduled task execution: hostname");
+
+    await wrapper.find('[data-testid="logs-scheduled-7"]').trigger("click");
+    await flushAsync();
+    expect(api.listScheduledTaskLogs).toHaveBeenCalledWith(7);
+    expect(wrapper.text()).toContain("scheduled_task.execute");
+
+    await wrapper.find('[data-testid="delete-scheduled-7"]').trigger("click");
+    await flushAsync();
+    expect(api.deleteScheduledTask).toHaveBeenCalledWith(7);
   });
 });

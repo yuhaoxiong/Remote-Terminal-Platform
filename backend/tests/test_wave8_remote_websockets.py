@@ -84,6 +84,7 @@ def test_ssh_websocket_relays_shell_io(client) -> None:
         assert websocket.receive_json() == {"type": "output", "data": "echo:echo ok\n"}
         websocket.send_json({"type": "resize", "columns": 120, "rows": 32})
         websocket.send_json({"type": "close"})
+        assert websocket.receive_json() == {"type": "status", "status": "closed"}
 
     assert "echo ok\n" in fake_service.shell.sent
     assert "resize:120x32" in fake_service.shell.sent

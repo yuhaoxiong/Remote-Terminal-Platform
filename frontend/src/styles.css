@@ -146,6 +146,38 @@ textarea {
   gap: 10px;
 }
 
+.file-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.field-label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 14px;
+}
+
+.native-select {
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  color: #1f2937;
+  background: #fff;
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  color: #2563eb;
+  background: transparent;
+  cursor: pointer;
+}
+
 .content {
   padding: 24px;
 }
@@ -554,8 +586,13 @@ textarea {
   }
 
   .toolbar .el-input,
-  .toolbar .el-button {
+  .toolbar .el-button,
+  .file-toolbar {
     width: 100%;
     max-width: none;
+  }
+
+  .file-toolbar {
+    grid-template-columns: 1fr;
   }
 }
