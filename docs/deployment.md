@@ -105,6 +105,26 @@ On Debian 11 edge devices, run `scripts/deploy/edge_bootstrap.sh` to check `ssh`
 - If the backend runs behind Nginx, keep long-running API calls and WebSocket locations on the same single-domain reverse proxy, and raise `proxy_read_timeout` when commands may take longer than the default timeout.
 - Check `GET /api/diagnostics/config` after deployment. Any `security.warnings` should be resolved before testing real SSH tasks against production-like devices.
 
+## Wave 14 远程连接部署检查
+
+远程连接页现在会直接连接 `/api/ws/devices/{id}/ssh` 和 `/api/ws/devices/{id}/vnc`。如果使用单域名 Nginx 反向代理，确认 `/api/ws/` location 包含：
+
+```nginx
+proxy_http_version 1.1;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "upgrade";
+proxy_read_timeout 3600s;
+proxy_send_timeout 3600s;
+```
+
+SSH/VNC 验收顺序：
+
+1. 在平台中确认设备 `ssh_port`、`vnc_port` 非空，且 `ssh_credential_configured=true`。
+2. 在后端服务器上确认 frps 主机和端口可达，例如 `nc -vz <frps-ip> <ssh_port>` 和 `nc -vz <frps-ip> <vnc_port>`。
+3. 确认后端环境变量 `REMOTE_GATEWAY_HOST`、`VNC_GATEWAY_HOST` 指向 frps 对外可达地址。
+4. 浏览器登录后进入“远程连接”，选择设备，先测试 SSH，再测试 VNC。
+5. 如果 REST 请求返回 502，优先查 Nginx `/api` 到后端的反向代理；如果 REST 成功但画面连接失败，查 `/api/ws` WebSocket 升级、frps 端口、防火墙和设备端 frpc。
+
 ## Wave 12 部署后检查
 
 - 登录前端后进入“系统诊断”，确认 `security.warnings` 中没有默认 JWT 密钥、默认管理员密码、默认设备 SSH 密码或未配置凭据加密密钥等风险项。

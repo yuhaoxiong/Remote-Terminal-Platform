@@ -509,7 +509,36 @@ POST /api/devices/{device_id}/remote/ssh
 }
 ```
 
-当前实现返回会话描述，不包含真实 SSH WebSocket 转发实现。
+返回会话描述后，前端需要把 `websocket_url` 与 access token 拼成 WebSocket 地址：
+
+```text
+/api/ws/devices/{device_id}/ssh?token=<access_token>
+```
+
+Web SSH 消息格式：
+
+```json
+{ "type": "input", "data": "whoami\n" }
+```
+
+```json
+{ "type": "resize", "columns": 120, "rows": 32 }
+```
+
+```json
+{ "type": "close" }
+```
+
+后端输出：
+
+```json
+{ "type": "output", "data": "shell-ready\n" }
+```
+
+错误：
+
+- `400`：设备没有分配 SSH 端口，或设备没有可用的 SSH 凭据。
+- `404`：设备不存在。
 
 ### 创建 VNC 会话描述
 
@@ -527,12 +556,23 @@ POST /api/devices/{device_id}/remote/vnc
   "session_type": "vnc",
   "status": "ready",
   "remote_port": 10500,
-  "websocket_url": null,
+  "websocket_url": "/api/ws/devices/1/vnc",
   "proxy_url": "/novnc/vnc.html?device_id=1&port=10500"
 }
 ```
 
-当前实现返回会话描述，不包含真实 noVNC 代理实现。
+返回会话描述后，前端 noVNC 客户端连接：
+
+```text
+/api/ws/devices/{device_id}/vnc?token=<access_token>
+```
+
+该 WebSocket 转发二进制 VNC 数据，目标为 `vnc_gateway_host` 和设备 `vnc_port`。当前前端只支持内嵌连接、断开和浏览器全屏，不支持剪贴板同步、文件拖拽或远程分辨率高级控制。
+
+错误：
+
+- `400`：设备没有分配 VNC 端口。
+- `404`：设备不存在。
 
 ## 设备文件接口
 
@@ -1482,3 +1522,34 @@ GET /api/monitoring/overview
 - 指标超过 10 分钟未更新时显示“指标过期”。
 - 指标接口返回 401/403 才视为登录失效；单台设备指标读取失败只显示“指标加载失败”。
 - CPU >= 90% 显示高负载，内存 >= 85% 显示高内存，磁盘 >= 90% 显示磁盘紧张。
+
+## Wave 14 远程连接产品化补充
+
+### 前端连接状态
+
+远程连接页按 SSH 和 VNC 分别维护状态：
+
+| 状态 | 中文展示含义 |
+| --- | --- |
+| `idle` | 未连接 |
+| `connecting` | 正在创建会话或连接 WebSocket |
+| `ready` | 会话描述已创建 |
+| `connected` | 已连接 |
+| `failed` | 连接失败 |
+| `disconnected` | 已断开 |
+
+### 错误处理约定
+
+- REST 会话接口和 WebSocket 使用同一个 access token。
+- REST 返回 `401` 或 `403` 时，前端视为登录失效并清理 Token。
+- REST 返回 `400`、`502`、`503`、`504` 或 WebSocket 错误时，前端只在远程连接区域显示中文错误，不退出登录。
+- 后端日志记录远程会话创建、连接成功、失败和断开摘要，但不得记录 SSH 密码、Token、私钥、完整终端输入或 VNC 画面内容。
+
+### Postman 使用
+
+Postman Collection 的“Wave 14 远程连接”分组提供创建 SSH/VNC 会话描述的请求。WebSocket 交互需要使用 Postman 的 WebSocket 客户端或浏览器前端手工验证，连接地址格式为：
+
+```text
+ws://<host>/api/ws/devices/{{device_id}}/ssh?token={{access_token}}
+ws://<host>/api/ws/devices/{{device_id}}/vnc?token={{access_token}}
+```

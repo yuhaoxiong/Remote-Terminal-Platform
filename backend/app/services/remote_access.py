@@ -4,7 +4,9 @@ from app.models.device import Device
 class RemoteAccessService:
     def build_ssh_session(self, device: Device) -> dict[str, object]:
         if device.ssh_port is None:
-            raise ValueError("Device does not have an allocated SSH port")
+            raise ValueError("设备没有分配 SSH 端口")
+        if not device.ssh_password_encrypted:
+            raise ValueError("设备没有可用的 SSH 凭据")
         return {
             "device_id": device.id,
             "session_type": "ssh",
@@ -16,7 +18,7 @@ class RemoteAccessService:
 
     def build_vnc_session(self, device: Device) -> dict[str, object]:
         if device.vnc_port is None:
-            raise ValueError("Device does not have an allocated VNC port")
+            raise ValueError("设备没有分配 VNC 端口")
         return {
             "device_id": device.id,
             "session_type": "vnc",

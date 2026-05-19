@@ -1,4 +1,4 @@
-{
+﻿{
   "info": {
     "name": "Edge Platform API",
     "description": "远程终端平台 API 验收集合。先运行“登录”，Tests 脚本会自动保存 access_token 和 refresh_token；后续接口继承集合级 Bearer Token。",
@@ -773,6 +773,31 @@
             "method": "GET",
             "header": [],
             "url": "{{base_url}}/api/monitoring/overview"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Wave 14 远程连接",
+      "item": [
+        {
+          "name": "创建 SSH 会话描述",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/devices/{{device_id}}/remote/ssh",
+            "description": "返回 websocket_url 后，使用 ws://<host>/api/ws/devices/{{device_id}}/ssh?token={{access_token}} 建立 Web SSH 连接。"
+          },
+          "response": []
+        },
+        {
+          "name": "创建 VNC 会话描述",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/devices/{{device_id}}/remote/vnc",
+            "description": "返回 websocket_url 后，前端 noVNC 使用 ws://<host>/api/ws/devices/{{device_id}}/vnc?token={{access_token}} 连接。Postman Collection 只覆盖会话描述请求，WebSocket 交互请用 Postman WebSocket 客户端或浏览器前端验收。"
           },
           "response": []
         }

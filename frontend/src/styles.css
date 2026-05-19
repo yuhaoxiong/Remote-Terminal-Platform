@@ -133,7 +133,8 @@ textarea {
 .panel h3,
 .toolbar h3,
 .item-card h3,
-.remote-card h3 {
+.remote-panel h3,
+.remote-console h3 {
   margin: 0;
 }
 
@@ -174,7 +175,9 @@ textarea {
 .table-panel,
 .form-panel,
 .item-card,
-.remote-card {
+.remote-device-list,
+.remote-console,
+.remote-panel {
   border: 1px solid #d8e0ea;
   border-radius: 8px;
   background: #fff;
@@ -376,9 +379,90 @@ textarea {
   padding: 16px;
 }
 
-.remote-card {
+.remote-workspace {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.remote-device-list,
+.remote-console,
+.remote-panel {
+  padding: 16px;
+}
+
+.remote-device-list {
+  display: grid;
+  gap: 12px;
+}
+
+.remote-list-header {
+  display: grid;
+  gap: 12px;
+}
+
+.remote-device-row {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  text-align: left;
+  color: #1f2937;
+  background: #fff;
+  cursor: pointer;
+}
+
+.remote-device-row:hover,
+.remote-device-row.is-selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.remote-device-row span:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.remote-device-row small {
+  color: #64748b;
+}
+
+.remote-port-tags,
+.remote-panels {
+  display: grid;
+  gap: 8px;
+}
+
+.remote-console {
+  min-width: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.remote-console-header {
+  align-items: flex-start;
+}
+
+.remote-panels {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.remote-panel {
   display: grid;
   gap: 14px;
+  min-width: 0;
+}
+
+.remote-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  color: #92400e;
+  background: #fffbeb;
 }
 
 .remote-session-state {
@@ -402,7 +486,24 @@ textarea {
   white-space: pre-wrap;
 }
 
-.remote-card p,
+.ssh-terminal,
+.vnc-screen {
+  min-height: 320px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #0f172a;
+}
+
+.ssh-terminal {
+  padding: 8px;
+}
+
+.vnc-screen {
+  display: grid;
+  place-items: center;
+  color: #cbd5e1;
+}
+
 .item-card p {
   margin: 6px 0 12px;
   color: #64748b;
@@ -423,6 +524,7 @@ textarea {
 
   .stat-grid,
   .two-column,
+  .remote-workspace,
   .form-grid,
   .metric-row > .metric-bars,
   .chart-grid {

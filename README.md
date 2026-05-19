@@ -18,12 +18,12 @@
 - 生成设备 `frpc` 配置片段，并提供配置同步接口。
 - 设备分组、标签、项目号、状态筛选。
 - 设备状态、指标记录和监控总览。
-- 远程 SSH/VNC 会话描述接口、Web SSH WebSocket 和 VNC WebSocket-to-TCP 代理。
+- 远程 SSH/VNC 会话描述接口、Web SSH WebSocket、内嵌 xterm 终端和 noVNC 画面入口。
 - 批量更新任务创建、演练执行、真实 SSH 命令执行、取消、单设备状态追踪和 WebSocket 进度快照。
 - 操作日志查询和 CSV 导出。
 - 设备文件管理接口：列表、上传、下载、删除，支持本地开发后端与 SFTP 后端。
 - 定时任务接口：创建、列表、更新、删除、启停、执行和执行日志。
-- 前端操作界面：登录、仪表盘、设备、分组、远程入口、更新任务和日志。
+- 前端操作界面：登录、仪表盘、设备、分组、远程连接、更新任务、日志和系统诊断。
 - 部署辅助资产：后端安装、边缘设备引导、SQLite 备份和部署文档。
 
 ## 项目结构
@@ -125,7 +125,7 @@ npm.cmd run dev -- --port 5177 --host 127.0.0.1
 http://127.0.0.1:5177/
 ```
 
-当前前端已接入真实后端 API，登录后会通过 JWT 鉴权加载设备、分组、监控总览、批量更新任务和操作日志。设备创建、批量任务创建和任务执行会调用后端接口；远程 SSH/VNC 入口会请求真实会话描述，并可连接后端 WebSocket。
+当前前端已接入真实后端 API，登录后会通过 JWT 鉴权加载设备、分组、监控总览、批量更新任务和操作日志。设备创建、批量任务创建和任务执行会调用后端接口；“远程连接”页支持选择设备后打开 SSH xterm 终端或 noVNC 画面，并连接后端 WebSocket。
 
 远程连接相关后端配置：
 
@@ -139,7 +139,7 @@ $env:FILE_BACKEND='sftp'
 $env:CREDENTIAL_ENCRYPTION_KEY='<Fernet 密钥>'
 ```
 
-`FILE_BACKEND` 默认是 `local`，用于没有真实设备的本地开发；设置为 `sftp` 后，文件列表、上传、下载和删除会通过设备 frp SSH 端口访问真实设备。
+`FILE_BACKEND` 默认是 `local`，用于没有真实设备的本地开发；设置为 `sftp` 后，文件列表、上传、下载和删除会通过设备 frp SSH 端口访问真实设备。远程 SSH/VNC 连接依赖设备记录中的代理端口、设备级 SSH 凭据、frpc/frps 可达性和 Nginx WebSocket 代理。
 
 生成 `CREDENTIAL_ENCRYPTION_KEY`：
 
@@ -243,7 +243,7 @@ scripts/deploy/backup_sqlite.ps1
 - 默认数据库是 SQLite。
 - frps 导入会读取 Dashboard `/api/proxy/tcp`，按端口范围识别已有设备。当前默认规则是 SSH `12001-17000`，VNC `17001-22000`，VNC 端口与 SSH 端口一一对应且偏移 5000。
 - 设备文件管理默认使用本地存储后端，配置 `FILE_BACKEND=sftp` 后会通过 `paramiko` SFTP 访问真实设备。
-- 远程 SSH/VNC 已提供 WebSocket 基础能力：SSH 使用 JSON 消息转发终端输入输出，VNC 使用二进制 WebSocket-to-TCP 代理。完整 noVNC 嵌入式体验和高级安全加固仍是后续工作。
+- 远程 SSH/VNC 已提供产品化入口：SSH 使用 xterm 和 JSON WebSocket 转发终端输入输出、resize 和断开；VNC 使用 noVNC 连接二进制 WebSocket-to-TCP 代理，支持内嵌连接、断开和全屏。
 - 批量更新任务默认使用演练模式；选择“真实 SSH 执行”后会通过设备级 SSH 凭据连接 frp SSH 端口并执行命令，记录退出码、标准输出摘要、错误输出摘要和失败原因。
 - 前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:8000`，可以用 `VITE_API_PROXY_TARGET` 覆盖代理目标。
 - 前端构建会出现 Vite 大 chunk 警告，原因是 Element Plus 被打进主 chunk；当前不影响构建产物。
@@ -325,3 +325,11 @@ docs/postman/edge-platform.postman_collection.json
 - 仪表盘新增 ECharts 监控分布图，同时保留文字统计，便于在图表不可用时继续验收。
 - 系统诊断页新增“监控可用性”，展示有指标设备数、无指标设备数和最近指标时间。
 - Postman Collection 新增“Wave 13 监控指标”分组，可直接上报示例指标、查询最新指标和监控总览。
+
+## Wave 14 远程连接体验补充
+
+- “远程连接”页改为左侧设备列表、右侧操作区。设备可按名称、序列号、项目号和位置搜索；缺少 SSH/VNC 端口或 SSH 凭据时会在页面中显示中文原因并禁用对应连接。
+- SSH 连接流程为：调用 `POST /api/devices/{id}/remote/ssh` 获取会话描述，前端拼接 `?token=<access_token>` 后连接 `/api/ws/devices/{id}/ssh`，终端输入发送 `{ "type": "input", "data": "..." }`，窗口变化发送 `{ "type": "resize", "columns": N, "rows": M }`。
+- VNC 连接流程为：调用 `POST /api/devices/{id}/remote/vnc` 获取会话描述，前端用 noVNC 连接 `/api/ws/devices/{id}/vnc?token=<access_token>`，支持连接、断开和浏览器全屏。
+- 远程连接失败只显示在远程连接区域；只有 REST 接口返回 401/403 时才会清理 Token 并回到登录页。
+- SSH 终端依赖已使用 `@xterm/xterm` 和 `@xterm/addon-fit`，避免继续使用已废弃的旧 `xterm` 包。

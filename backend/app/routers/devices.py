@@ -364,6 +364,17 @@ def create_ssh_session(
             payload = RemoteAccessService().build_ssh_session(device)
         except DeviceNotFoundError as exc:
             raise _not_found(exc) from exc
+        except ValueError as exc:
+            OperationLogService(settings).record(
+                session,
+                user_id=current_user.id,
+                action="remote.ssh",
+                target_type="device",
+                target_id=device_id,
+                status="failed",
+                detail=str(exc),
+            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -389,6 +400,17 @@ def create_vnc_session(
             payload = RemoteAccessService().build_vnc_session(device)
         except DeviceNotFoundError as exc:
             raise _not_found(exc) from exc
+        except ValueError as exc:
+            OperationLogService(settings).record(
+                session,
+                user_id=current_user.id,
+                action="remote.vnc",
+                target_type="device",
+                target_id=device_id,
+                status="failed",
+                detail=str(exc),
+            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,

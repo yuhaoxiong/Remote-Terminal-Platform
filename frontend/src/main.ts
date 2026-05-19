@@ -1,4 +1,5 @@
 import "element-plus/dist/index.css";
+import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 
 import ElementPlus from "element-plus";

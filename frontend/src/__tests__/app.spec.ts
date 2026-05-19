@@ -6,6 +6,102 @@ import { nextTick } from "vue";
 import App from "../App.vue";
 import * as platformApi from "../api/platform";
 
+const remoteMocks = vi.hoisted(() => {
+  class FakeTerminal {
+    cols = 88;
+    rows = 24;
+    output = "";
+    dataCallbacks: Array<(data: string) => void> = [];
+
+    loadAddon() {}
+
+    open() {}
+
+    write(data: string) {
+      this.output += data;
+    }
+
+    writeln(data: string) {
+      this.output += `${data}\n`;
+    }
+
+    onData(callback: (data: string) => void) {
+      this.dataCallbacks.push(callback);
+      return { dispose() {} };
+    }
+
+    emitData(data: string) {
+      for (const callback of this.dataCallbacks) {
+        callback(data);
+      }
+    }
+
+    dispose() {}
+  }
+
+  class FakeFitAddon {
+    fit() {}
+    dispose() {}
+  }
+
+  class FakeRfb {
+    listeners: Record<string, Array<(event: Event) => void>> = {};
+    disconnected = false;
+
+    constructor(
+      public target: HTMLElement,
+      public url: string,
+      public options: Record<string, unknown>,
+    ) {}
+
+    addEventListener(type: string, callback: (event: Event) => void) {
+      this.listeners[type] ??= [];
+      this.listeners[type].push(callback);
+    }
+
+    emit(type: string) {
+      for (const callback of this.listeners[type] ?? []) {
+        callback(new Event(type));
+      }
+    }
+
+    disconnect() {
+      this.disconnected = true;
+      this.emit("disconnect");
+    }
+  }
+
+  return {
+    terminalInstances: [] as FakeTerminal[],
+    rfbInstances: [] as FakeRfb[],
+    FakeTerminal,
+    FakeFitAddon,
+    FakeRfb,
+  };
+});
+
+vi.mock("@xterm/xterm", () => ({
+  Terminal: class extends remoteMocks.FakeTerminal {
+    constructor() {
+      super();
+      remoteMocks.terminalInstances.push(this);
+    }
+  },
+}));
+
+vi.mock("@xterm/addon-fit", () => ({
+  FitAddon: remoteMocks.FakeFitAddon,
+}));
+
+vi.mock("@novnc/novnc", () => ({
+  default: class extends remoteMocks.FakeRfb {
+    constructor(target: HTMLElement, url: string, options: Record<string, unknown>) {
+      super(target, url, options);
+      remoteMocks.rfbInstances.push(this);
+    }
+  },
+}));
+
 vi.mock("../api/platform", () => ({
   clearAuthTokens: vi.fn(),
   buildApiWebSocketUrl: vi.fn((path: string, token: string) => `ws://test${path}?token=${token}`),
@@ -39,6 +135,48 @@ vi.mock("../api/platform", () => ({
 }));
 
 const api = vi.mocked(platformApi);
+
+class MockWebSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+
+  readyState = MockWebSocket.CONNECTING;
+  sent: string[] = [];
+  onopen: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
+
+  constructor(public url: string) {
+    mockWebSockets.push(this);
+  }
+
+  send(data: string) {
+    this.sent.push(data);
+  }
+
+  close() {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.(new CloseEvent("close"));
+  }
+
+  open() {
+    this.readyState = MockWebSocket.OPEN;
+    this.onopen?.(new Event("open"));
+  }
+
+  receive(data: unknown) {
+    this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(data) }));
+  }
+
+  fail() {
+    this.onerror?.(new Event("error"));
+  }
+}
+
+const mockWebSockets: MockWebSocket[] = [];
 
 function mockResolvedApiState() {
   api.loginAdmin.mockResolvedValue({
@@ -200,11 +338,35 @@ async function flushAsync() {
   }
 }
 
+async function waitUntil(assertion: () => void) {
+  let lastError: unknown;
+  for (let index = 0; index < 20; index += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await flushAsync();
+    }
+  }
+  throw lastError;
+}
+
 describe("App", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.clearAllMocks();
-    vi.stubGlobal("WebSocket", undefined);
+    mockWebSockets.length = 0;
+    remoteMocks.terminalInstances.length = 0;
+    remoteMocks.rfbInstances.length = 0;
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
     window.URL.createObjectURL = vi.fn();
     window.URL.revokeObjectURL = vi.fn();
     vi.spyOn(window.URL, "createObjectURL").mockReturnValue("blob:operation-logs");
@@ -660,7 +822,7 @@ describe("App", () => {
     expect(wrapper.text()).toContain("未配置设备凭据加密密钥");
   });
 
-  it("opens real remote session descriptors from the remote page", async () => {
+  it("opens SSH and VNC from the selected remote device workspace", async () => {
     const wrapper = mount(App, {
       global: {
         plugins: [ElementPlus],
@@ -674,17 +836,68 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
     await wrapper.find('[data-testid="nav-remote"]').trigger("click");
-    await wrapper.find('[data-testid="open-ssh-1"]').trigger("click");
+    await wrapper.find('[data-testid="select-remote-device-1"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="open-vnc-1"]').trigger("click");
+    await wrapper.find('[data-testid="open-ssh-1"]').trigger("click");
+    await waitUntil(() => expect(api.openSshSession).toHaveBeenCalledWith(1));
+    expect(mockWebSockets).toHaveLength(1);
+    expect(mockWebSockets[0].url).toBe("ws://test/api/ws/devices/1/ssh?token=access-token");
+
+    mockWebSockets[0].open();
+    await flushAsync();
+    mockWebSockets[0].receive({ type: "output", data: "shell-ready\n" });
+    await flushAsync();
+    remoteMocks.terminalInstances[0].emitData("whoami\n");
     await flushAsync();
 
-    expect(api.openSshSession).toHaveBeenCalledWith(1);
+    expect(mockWebSockets[0].sent).toContain(JSON.stringify({ type: "resize", columns: 88, rows: 24 }));
+    expect(mockWebSockets[0].sent).toContain(JSON.stringify({ type: "input", data: "whoami\n" }));
+    expect(remoteMocks.terminalInstances[0].output).toContain("shell-ready");
+    expect(wrapper.text()).toContain("shell-ready");
+
+    await wrapper.find('[data-testid="open-vnc-1"]').trigger("click");
+    await flushAsync();
     expect(api.openVncSession).toHaveBeenCalledWith(1);
-    expect(wrapper.text()).toContain("SSH");
-    expect(wrapper.text()).toContain("VNC");
-    expect(wrapper.text()).toContain("10000");
-    expect(wrapper.text()).toContain("10500");
+    expect(remoteMocks.rfbInstances).toHaveLength(1);
+    expect(remoteMocks.rfbInstances[0].url).toBe("ws://test/api/ws/devices/1/vnc?token=access-token");
+    remoteMocks.rfbInstances[0].emit("connect");
+    await flushAsync();
+    expect(wrapper.text()).toContain("VNC 已连接");
+
+    await wrapper.find('[data-testid="disconnect-ssh-1"]').trigger("click");
+    await wrapper.find('[data-testid="disconnect-vnc-1"]').trigger("click");
+    await flushAsync();
+    expect(wrapper.text()).toContain("SSH 已断开");
+    expect(wrapper.text()).toContain("VNC 已断开");
+  });
+
+  it("keeps the remote page visible when SSH session creation fails", async () => {
+    api.openSshSession.mockRejectedValueOnce(
+      Object.assign(new Error("bad gateway"), {
+        response: { status: 502 },
+      }),
+    );
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="nav-remote"]').trigger("click");
+    await wrapper.find('[data-testid="select-remote-device-1"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="open-ssh-1"]').trigger("click");
+    await waitUntil(() => expect(wrapper.text()).toContain("远程代理或后端服务暂不可达"));
+
+    expect(api.clearAuthTokens).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="login-submit"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain("远程代理或后端服务暂不可达");
   });
 
   it("cancels a pending update task", async () => {
