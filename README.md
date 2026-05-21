@@ -19,7 +19,7 @@
 - 设备分组、标签、项目号、状态筛选。
 - 设备状态、指标记录和监控总览。
 - 远程 SSH/VNC 会话描述接口、Web SSH WebSocket、内嵌 xterm 终端和 noVNC 画面入口。
-- 批量更新任务创建、演练执行、真实 SSH 命令执行、取消、单设备状态追踪和 WebSocket 进度快照。
+- 批量更新任务创建、目标设备预览、命令模板、演练执行、真实 SSH 命令执行、取消、单设备状态追踪、失败设备重试入口、结果 CSV 导出和 WebSocket 进度快照。
 - 操作日志查询和 CSV 导出。
 - 设备文件管理接口:列表、上传、下载、删除,支持本地开发后端与 SFTP 后端。
 - 定时任务接口:创建、列表、更新、删除、启停、执行和执行日志。
@@ -199,9 +199,15 @@ py -3.12 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key()
 
 - `GET /api/update-tasks`
 - `POST /api/update-tasks`
+- `POST /api/update-tasks/preview-targets`
 - `GET /api/update-tasks/{id}`
 - `POST /api/update-tasks/{id}/execute`
 - `POST /api/update-tasks/{id}/cancel`
+- `GET /api/update-tasks/{id}/export`
+- `GET /api/update-task-templates`
+- `POST /api/update-task-templates`
+- `PUT /api/update-task-templates/{id}`
+- `DELETE /api/update-task-templates/{id}`
 - `WS /api/ws/update-tasks/{id}?token=<access-token>`
 
 ### 定时任务
@@ -244,7 +250,7 @@ scripts/deploy/backup_sqlite.ps1
 - frps 导入会读取 Dashboard `/api/proxy/tcp`,按端口范围识别已有设备。当前默认规则是 SSH `12001-17000`,VNC `17001-22000`,VNC 端口与 SSH 端口一一对应且偏移 5000。
 - 设备文件管理默认使用本地存储后端,配置 `FILE_BACKEND=sftp` 后会通过 `paramiko` SFTP 访问真实设备。
 - 远程 SSH/VNC 已提供产品化入口:SSH 使用 xterm 和 JSON WebSocket 转发终端输入输出、resize 和断开;VNC 使用 noVNC 连接二进制 WebSocket-to-TCP 代理,支持内嵌连接、断开和全屏。
-- 批量更新任务默认使用演练模式;选择"真实 SSH 执行"后会通过设备级 SSH 凭据连接 frp SSH 端口并执行命令,记录退出码、标准输出摘要、错误输出摘要和失败原因。
+- 批量更新任务默认使用演练模式;选择"真实 SSH 执行"后会通过设备级 SSH 凭据连接 frp SSH 端口并执行命令,记录退出码、标准输出摘要、错误输出摘要和失败原因。任务创建区支持目标预览、手动选择设备和命令模板,执行结果支持失败设备新建重试任务和 CSV 导出。
 - 前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:8000`,可以用 `VITE_API_PROXY_TARGET` 覆盖代理目标。
 - 前端构建会出现 Vite 大 chunk 警告,原因是 Element Plus 被打进主 chunk;当前不影响构建产物。
 - 当前工作区是 Git 仓库;提交或推送前请确认没有暂存无关本地文档。
@@ -342,3 +348,12 @@ docs/postman/edge-platform.postman_collection.json
 - 新增"定时任务"前端页面,覆盖任务创建、编辑、删除、启停、手动执行和执行日志查看。本轮仍只做 API 管理闭环,不接入真实后台调度器。
 - 前端开始拆分独立组件,当前已拆出 `DeviceFilePanel.vue` 和 `ScheduledTaskPanel.vue`,降低主应用文件继续膨胀的风险。
 - Web SSH 收到 `{ "type": "close" }` 后会先关闭后端 shell,再返回 `{ "type": "status", "status": "closed" }`,方便客户端和测试确认资源已释放。
+
+## Wave 16 批量任务安全增强补充
+
+- 批量更新创建表单新增"目标设备"选择器,支持按项目号、分组、状态、标签筛选,也支持手动勾选设备。手动勾选会生成 `target_filter.device_ids`。
+- 新增 `POST /api/update-tasks/preview-targets`,用于在创建真实 SSH 任务前预览命中设备,并提示缺少 SSH 端口或凭据的风险。该接口不返回明文凭据。
+- 新增命令模板接口和前端模板面板:`GET/POST/PUT/DELETE /api/update-task-templates`。模板只保存命令、说明、任务类型和默认执行模式,不保存设备凭据。
+- 批量任务执行会在前端接入 `/api/ws/update-tasks/{id}?token=<access_token>` 快照,收到 `task.snapshot` 后刷新任务状态和单设备结果。
+- 设备结果区域拆为独立表格,可展开查看标准输出、错误输出和失败原因;失败设备可一键带入新任务作为重试范围。
+- 新增 `GET /api/update-tasks/{id}/export`,导出任务摘要和错误原因 CSV。导出内容带 CSV 注入防护,不会包含设备 SSH 明文密码。

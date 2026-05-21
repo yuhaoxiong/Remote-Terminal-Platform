@@ -165,3 +165,11 @@ curl "$BASE_URL/api/devices/$DEVICE_ID/metrics?limit=1" \
 - 文件下载走 `/api/devices/{id}/files/download`,请确认 Nginx 没有拦截 `Content-Disposition` 响应头,浏览器应直接下载文件。
 - 定时任务本轮只做 API 管理闭环,不会由后台调度器自动触发。部署验收时可在前端"定时任务"页点击"立即执行",确认操作日志中出现 `scheduled_task.execute`。
 - Web SSH 主动断开会发送 `{ "type": "close" }`,后端关闭 shell 后返回 `status=closed`;如果浏览器显示已断开但后端仍有长连接,优先检查 `/api/ws/` 的 WebSocket 升级和超时配置。
+
+## Wave 16 批量任务部署检查
+
+- 在前端"批量更新"页新建任务前,先点击"预览目标",确认 `POST /api/update-tasks/preview-targets` 能返回命中设备数量,且真实 SSH 模式下没有缺少端口或凭据的 warning。
+- 若预览接口或模板接口返回 502,先用 `curl -i http://127.0.0.1:8000/api/update-tasks/preview-targets` 验证后端是否可达;若后端可达但 Nginx 失败,检查 `/api/` 的 `proxy_pass`。
+- 执行任务时前端会连接 `/api/ws/update-tasks/{id}?token=<access_token>` 读取快照。若任务可执行但前端进度不刷新,优先检查 Nginx `/api/ws/` WebSocket 升级头和超时配置。
+- 结果导出走 `GET /api/update-tasks/{id}/export`,返回 `text/csv` 和 `Content-Disposition`。如果浏览器没有下载文件,检查 Nginx 是否拦截下载响应头。
+- 命令模板表 `update_task_templates` 会由后端启动时自动创建。若旧 SQLite 数据库升级后模板接口报表不存在,重启后端服务并确认 `Base.metadata.create_all` 已执行。

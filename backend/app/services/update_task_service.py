@@ -8,8 +8,15 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models.device import Device
-from app.models.update_task import UpdateTask, UpdateTaskDevice
-from app.schemas.update_task import UpdateTaskCreate, UpdateTaskRead
+from app.models.update_task import UpdateTask, UpdateTaskDevice, UpdateTaskTemplate
+from app.schemas.update_task import (
+    UpdateTaskCreate,
+    UpdateTaskRead,
+    UpdateTaskTargetDeviceRead,
+    UpdateTaskTargetPreviewResponse,
+    UpdateTaskTemplateCreate,
+    UpdateTaskTemplateUpdate,
+)
 from app.services.ssh_service import RemoteAuthenticationError, RemoteConnectionError, SshService
 
 
@@ -18,6 +25,10 @@ class UpdateTaskNotFoundError(RuntimeError):
 
 
 class UpdateTaskInvalidStateError(RuntimeError):
+    pass
+
+
+class UpdateTaskTemplateNotFoundError(RuntimeError):
     pass
 
 
@@ -32,7 +43,7 @@ class UpdateTaskService:
         task = UpdateTask(**payload.model_dump())
         session.add(task)
         session.flush()
-        for device in self._target_devices(session, payload.target_filter):
+        for device in self.target_devices(session, payload.target_filter):
             session.add(UpdateTaskDevice(task_id=task.id, device_id=device.id, status="pending"))
         session.flush()
         session.refresh(task)
@@ -110,7 +121,7 @@ class UpdateTaskService:
             "skipped": sum(1 for row in rows if row.status == "skipped"),
         }
 
-    def _target_devices(self, session: Session, target_filter: dict[str, Any] | None) -> list[Device]:
+    def target_devices(self, session: Session, target_filter: dict[str, Any] | None) -> list[Device]:
         target_filter = target_filter or {}
         statement = select(Device)
         if project_id := target_filter.get("project_id"):
@@ -130,6 +141,77 @@ class UpdateTaskService:
             required_tags = {str(tag) for tag in tags}
             devices = [device for device in devices if required_tags.issubset(set(device.tags or []))]
         return devices
+
+    def preview_targets(
+        self,
+        session: Session,
+        target_filter: dict[str, Any] | None,
+        *,
+        execution_mode: str = "dry_run",
+    ) -> UpdateTaskTargetPreviewResponse:
+        devices = self.target_devices(session, target_filter)
+        items = [
+            UpdateTaskTargetDeviceRead(
+                id=device.id,
+                name=device.name,
+                device_sn=device.device_sn,
+                project_id=device.project_id,
+                group_id=device.group_id,
+                status=device.status,
+                ssh_port=device.ssh_port,
+                ssh_credential_configured=device.ssh_credential_configured,
+                tags=device.tags,
+                location=device.location,
+            )
+            for device in devices
+        ]
+        warnings: list[str] = []
+        if not devices:
+            warnings.append("未匹配到目标设备")
+        if execution_mode == "ssh_command":
+            missing_port = sum(1 for device in devices if device.ssh_port is None)
+            missing_credential = sum(1 for device in devices if not device.ssh_credential_configured)
+            if missing_port:
+                warnings.append(f"{missing_port} 台设备缺少 SSH 端口，将无法执行真实 SSH 命令")
+            if missing_credential:
+                warnings.append(f"{missing_credential} 台设备缺少 SSH 凭据，将无法执行真实 SSH 命令")
+        return UpdateTaskTargetPreviewResponse(total=len(items), items=items, warnings=warnings)
+
+    def list_templates(self, session: Session) -> tuple[int, list[UpdateTaskTemplate]]:
+        statement = select(UpdateTaskTemplate).order_by(UpdateTaskTemplate.id.asc())
+        total = session.scalar(select(func.count(UpdateTaskTemplate.id))) or 0
+        return total, list(session.scalars(statement))
+
+    def get_template(self, session: Session, template_id: int) -> UpdateTaskTemplate:
+        template = session.get(UpdateTaskTemplate, template_id)
+        if template is None:
+            raise UpdateTaskTemplateNotFoundError(f"Update task template not found: {template_id}")
+        return template
+
+    def create_template(self, session: Session, payload: UpdateTaskTemplateCreate) -> UpdateTaskTemplate:
+        template = UpdateTaskTemplate(**payload.model_dump())
+        session.add(template)
+        session.flush()
+        session.refresh(template)
+        return template
+
+    def update_template(
+        self,
+        session: Session,
+        template_id: int,
+        payload: UpdateTaskTemplateUpdate,
+    ) -> UpdateTaskTemplate:
+        template = self.get_template(session, template_id)
+        for field, value in payload.model_dump(exclude_unset=True).items():
+            setattr(template, field, value)
+        session.flush()
+        session.refresh(template)
+        return template
+
+    def delete_template(self, session: Session, template_id: int) -> None:
+        template = self.get_template(session, template_id)
+        session.delete(template)
+        session.flush()
 
     def _execute_dry_run(self, task: UpdateTask, rows: list[UpdateTaskDevice]) -> None:
         now = datetime.now(timezone.utc)

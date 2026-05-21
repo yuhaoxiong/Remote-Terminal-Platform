@@ -27,6 +27,7 @@ import {
   deleteDevice,
   executeUpdateTask,
   exportLogs,
+  exportUpdateTaskResults,
   getAccessToken,
   getDeviceStatus,
   getDiagnosticsConfig,
@@ -41,6 +42,7 @@ import {
   loginAdmin,
   openSshSession,
   openVncSession,
+  type UpdateTaskTargetPreviewResponse,
   setAuthTokens,
   syncDeviceConfig,
   updateDevice,
@@ -61,9 +63,13 @@ import {
   type UpdateTaskCreateRequest,
   type UpdateTaskDeviceRead,
   type UpdateTaskRead,
+  type UpdateTaskTemplateRead,
 } from "./api/platform";
 import DeviceFilePanel from "./components/DeviceFilePanel.vue";
+import DeviceTargetSelector from "./components/DeviceTargetSelector.vue";
 import ScheduledTaskPanel from "./components/ScheduledTaskPanel.vue";
+import UpdateTaskResultTable from "./components/UpdateTaskResultTable.vue";
+import UpdateTaskTemplatePanel from "./components/UpdateTaskTemplatePanel.vue";
 
 type SectionId = "dashboard" | "devices" | "groups" | "remote" | "updates" | "scheduled" | "logs" | "diagnostics";
 type DeviceStatus = "online" | "offline" | "degraded" | "unknown";
@@ -105,8 +111,11 @@ interface UpdateTask {
   id: number;
   name: string;
   command: string;
+  target_filter: Record<string, unknown>;
   project_id: string;
   execution_mode: ExecutionMode;
+  failure_strategy: "continue" | "pause" | "rollback";
+  concurrency_limit: number;
   status: UpdateStatus;
   matched: number;
   completed: number;
@@ -222,7 +231,10 @@ const updateForm = reactive({
   name: "",
   command: "",
   project_id: "",
+  target_filter: {} as Record<string, unknown>,
   execution_mode: "dry_run" as ExecutionMode,
+  failure_strategy: "continue" as "continue" | "pause" | "rollback",
+  concurrency_limit: 5,
 });
 
 const frpsForm = reactive({
@@ -241,6 +253,7 @@ const frpsForm = reactive({
 const devices = ref<Device[]>([]);
 const groups = ref<Group[]>([]);
 const updateTasks = ref<UpdateTask[]>([]);
+const updateTargetPreview = ref<UpdateTaskTargetPreviewResponse | null>(null);
 const auditLogs = ref<AuditLog[]>([]);
 const auditLogsTotal = ref(0);
 const frpsImportItems = ref<FrpsDiscoveredDevice[]>([]);
@@ -252,6 +265,7 @@ const syncConfigTitle = ref("");
 const syncConfigText = ref("");
 const remoteSessions = reactive<Record<string, RemoteSessionUi>>({});
 const sshSockets = new Map<number, WebSocket>();
+const updateProgressSockets = new Map<number, WebSocket>();
 const sshTerminals = new Map<number, SshTerminalHandle>();
 const vncClients = new Map<number, VncClient>();
 
@@ -360,6 +374,10 @@ const selectedVncSession = computed(() =>
 const deviceFormTitle = computed(() => (deviceEditId.value === null ? "创建设备" : "编辑设备"));
 const groupFormTitle = computed(() => (groupEditId.value === null ? "创建分组" : "编辑分组"));
 const selectedGroupName = computed(() => groupNameFor(selectedGroupId.value));
+const updateInitialDeviceIds = computed(() => {
+  const deviceIds = updateForm.target_filter.device_ids;
+  return Array.isArray(deviceIds) ? deviceIds.filter((id): id is number => typeof id === "number") : [];
+});
 
 const overview = computed(() => {
   if (serverOverview.value) {
@@ -620,8 +638,11 @@ function mapUpdateTask(task: UpdateTaskRead): UpdateTask {
     id: task.id,
     name: task.name,
     command: task.command,
+    target_filter: targetFilter,
     project_id: projectId,
     execution_mode: task.execution_mode,
+    failure_strategy: task.failure_strategy as "continue" | "pause" | "rollback",
+    concurrency_limit: task.concurrency_limit,
     status: normalizeUpdateStatus(task.status),
     matched: task.device_count,
     completed,
@@ -1368,13 +1389,121 @@ async function importFromFrps() {
 }
 
 function openUpdateCreate() {
+  const defaultProjectId = devices.value[0]?.project_id ?? "";
   Object.assign(updateForm, {
     name: "",
     command: "hostname",
-    project_id: devices.value[0]?.project_id ?? "",
+    project_id: defaultProjectId,
+    target_filter: defaultProjectId ? { project_id: defaultProjectId } : {},
     execution_mode: "dry_run" as ExecutionMode,
+    failure_strategy: "continue" as "continue" | "pause" | "rollback",
+    concurrency_limit: 5,
   });
+  updateTargetPreview.value = null;
   updateCreateOpen.value = true;
+}
+
+function handleUpdateTargetChange(targetFilter: Record<string, unknown>) {
+  updateForm.target_filter = targetFilter;
+  updateForm.project_id = typeof targetFilter.project_id === "string" ? targetFilter.project_id : "";
+}
+
+function handleUpdateTargetPreview(preview: UpdateTaskTargetPreviewResponse | null) {
+  updateTargetPreview.value = preview;
+}
+
+function applyUpdateTemplate(template: UpdateTaskTemplateRead) {
+  updateForm.command = template.command;
+  updateForm.execution_mode = template.default_execution_mode;
+  if (!updateForm.name) {
+    updateForm.name = template.name;
+  }
+}
+
+function targetSummaryForFilter(targetFilter: Record<string, unknown>): string {
+  const deviceIds = Array.isArray(targetFilter.device_ids) ? targetFilter.device_ids : [];
+  if (deviceIds.length > 0) {
+    return `手动选择 ${deviceIds.length} 台设备`;
+  }
+  const parts: string[] = [];
+  if (typeof targetFilter.project_id === "string" && targetFilter.project_id) {
+    parts.push(`项目 ${targetFilter.project_id}`);
+  }
+  if (typeof targetFilter.group_id === "number") {
+    parts.push(`分组 ${groupNameFor(targetFilter.group_id)}`);
+  }
+  if (typeof targetFilter.status === "string" && targetFilter.status) {
+    parts.push(`状态 ${deviceStatusText[normalizeDeviceStatus(targetFilter.status)]}`);
+  }
+  const tags = Array.isArray(targetFilter.tags) ? targetFilter.tags.filter((tag): tag is string => typeof tag === "string") : [];
+  if (tags.length > 0) {
+    parts.push(`标签 ${tags.join(", ")}`);
+  }
+  return parts.length > 0 ? parts.join("，") : "全部设备";
+}
+
+function targetSummaryForTask(task: UpdateTask): string {
+  return `${targetSummaryForFilter(task.target_filter)}，匹配 ${task.matched} 台`;
+}
+
+function updateTaskFromSnapshot(snapshot: UpdateTaskRead) {
+  const mapped = mapUpdateTask(snapshot);
+  const index = updateTasks.value.findIndex((item) => item.id === mapped.id);
+  if (index >= 0) {
+    updateTasks.value[index] = mapped;
+  } else {
+    updateTasks.value.push(mapped);
+  }
+  if (mapped.status !== "running") {
+    stopUpdateProgress(mapped.id);
+  }
+}
+
+function startUpdateProgress(taskId: number) {
+  if (typeof WebSocket === "undefined") {
+    return;
+  }
+  stopUpdateProgress(taskId);
+  const token = getAccessToken();
+  if (!token) {
+    return;
+  }
+  const websocketUrl = buildApiWebSocketUrl(`/api/ws/update-tasks/${taskId}`, token);
+  const socket = new WebSocket(websocketUrl);
+  updateProgressSockets.set(taskId, socket);
+  socket.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(String(event.data)) as { type?: string; task?: UpdateTaskRead };
+      if (payload.type === "task.snapshot" && payload.task) {
+        updateTaskFromSnapshot(payload.task);
+      }
+    } catch {
+      const task = updateTasks.value.find((item) => item.id === taskId);
+      if (task) {
+        task.lastEvent = "更新任务进度消息解析失败";
+      }
+    }
+  };
+  socket.onerror = () => {
+    const task = updateTasks.value.find((item) => item.id === taskId);
+    if (task && task.status === "running") {
+      task.lastEvent = "实时进度连接异常，仍可刷新任务状态";
+    }
+  };
+  socket.onclose = () => {
+    if (updateProgressSockets.get(taskId) === socket) {
+      updateProgressSockets.delete(taskId);
+    }
+  };
+}
+
+function stopUpdateProgress(taskId: number) {
+  const socket = updateProgressSockets.get(taskId);
+  if (!socket) {
+    return;
+  }
+  updateProgressSockets.delete(taskId);
+  socket.close();
 }
 
 async function saveUpdate() {
@@ -1382,17 +1511,27 @@ async function saveUpdate() {
     prependLocalLog("更新任务校验", "新任务", "blocked", "任务名称和命令为必填项");
     return;
   }
+  const targetFilter = updateForm.target_filter && Object.keys(updateForm.target_filter).length > 0
+    ? updateForm.target_filter
+    : updateForm.project_id
+      ? { project_id: updateForm.project_id }
+      : {};
+  if (updateForm.execution_mode === "ssh_command" && updateTargetPreview.value?.total === 0) {
+    prependLocalLog("更新任务校验", "新任务", "blocked", "目标预览为空，未创建真实 SSH 任务。");
+    return;
+  }
   const payload: UpdateTaskCreateRequest = {
     name: updateForm.name,
     task_type: "command",
     command: updateForm.command,
-    target_filter: updateForm.project_id ? { project_id: updateForm.project_id } : {},
+    target_filter: targetFilter,
     execution_mode: updateForm.execution_mode,
-    failure_strategy: "continue",
-    concurrency_limit: 5,
+    failure_strategy: updateForm.failure_strategy,
+    concurrency_limit: Number(updateForm.concurrency_limit) || 1,
   };
   if (payload.execution_mode === "ssh_command") {
-    const confirmed = await confirmRealSshTask(updateForm.command, updateForm.project_id || "全部项目");
+    const targetSummary = `${targetSummaryForFilter(targetFilter)}，预览 ${updateTargetPreview.value?.total ?? "未确认"} 台`;
+    const confirmed = await confirmRealSshTask(updateForm.command, targetSummary);
     if (!confirmed) {
       return;
     }
@@ -1409,13 +1548,14 @@ async function saveUpdate() {
 
 async function executeUpdate(task: UpdateTask) {
   if (task.execution_mode === "ssh_command") {
-    const confirmed = await confirmRealSshTask(task.command, task.project_id);
+    const confirmed = await confirmRealSshTask(task.command, targetSummaryForTask(task));
     if (!confirmed) {
       return;
     }
   }
   task.status = "running";
   task.lastEvent = "正在请求后端执行";
+  startUpdateProgress(task.id);
   try {
     const executed = await executeUpdateTask(task.id);
     const mapped = mapUpdateTask(executed);
@@ -1423,10 +1563,12 @@ async function executeUpdate(task: UpdateTask) {
     if (index >= 0) {
       updateTasks.value[index] = mapped;
     }
+    startUpdateProgress(task.id);
     await refreshLogsAndOverview();
   } catch (error) {
     task.status = "partial_failed";
     task.lastEvent = "后端执行失败";
+    stopUpdateProgress(task.id);
     prependLocalLog("执行更新任务", `更新任务：${task.id}`, "blocked", "执行失败，请检查后端任务状态。");
   }
 }
@@ -1448,9 +1590,42 @@ async function cancelUpdate(task: UpdateTask) {
     if (index >= 0) {
       updateTasks.value[index] = mapped;
     }
+    stopUpdateProgress(task.id);
     await refreshLogsAndOverview();
   } catch (error) {
     prependLocalLog("取消更新任务", `更新任务：${task.id}`, "blocked", "取消任务失败，请检查后端任务状态。");
+  }
+}
+
+function openRetryFailedTask(task: UpdateTask, deviceIds: number[]) {
+  if (deviceIds.length === 0) {
+    prependLocalLog("更新任务重试", `更新任务：${task.id}`, "blocked", "当前任务没有失败设备。");
+    return;
+  }
+  Object.assign(updateForm, {
+    name: `${task.name} 失败重试`,
+    command: task.command,
+    project_id: "",
+    target_filter: { device_ids: deviceIds },
+    execution_mode: task.execution_mode,
+    failure_strategy: task.failure_strategy,
+    concurrency_limit: task.concurrency_limit,
+  });
+  updateTargetPreview.value = null;
+  updateCreateOpen.value = true;
+}
+
+async function downloadUpdateTaskResults(task: UpdateTask) {
+  try {
+    const blob = await exportUpdateTaskResults(task.id);
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `update_task_${task.id}_results.csv`;
+    anchor.click();
+    window.URL.revokeObjectURL(url);
+  } catch {
+    prependLocalLog("导出更新结果", `更新任务：${task.id}`, "blocked", "导出失败，请检查后端服务。");
   }
 }
 
@@ -1527,6 +1702,9 @@ onBeforeUnmount(() => {
   riskChart?.dispose();
   for (const deviceId of sshSockets.keys()) {
     disconnectSshSession(deviceId);
+  }
+  for (const taskId of updateProgressSockets.keys()) {
+    stopUpdateProgress(taskId);
   }
   for (const deviceId of vncClients.keys()) {
     disconnectVncSession(deviceId, false);
@@ -2075,7 +2253,6 @@ onBeforeUnmount(() => {
             </div>
             <div class="form-grid">
               <div data-testid="update-name" class="input-wrap"><el-input v-model="updateForm.name" placeholder="任务名称" /></div>
-              <div data-testid="update-project" class="input-wrap"><el-input v-model="updateForm.project_id" placeholder="目标项目" /></div>
               <label class="field-label">
                 <span>执行模式</span>
                 <select data-testid="update-execution-mode" v-model="updateForm.execution_mode" class="native-select">
@@ -2083,10 +2260,31 @@ onBeforeUnmount(() => {
                   <option value="ssh_command">真实 SSH 执行</option>
                 </select>
               </label>
+              <label class="field-label">
+                <span>失败策略</span>
+                <select data-testid="update-failure-strategy" v-model="updateForm.failure_strategy" class="native-select">
+                  <option value="continue">继续执行</option>
+                  <option value="pause">暂停后续</option>
+                  <option value="rollback">预留回滚</option>
+                </select>
+              </label>
+              <div data-testid="update-concurrency" class="input-wrap">
+                <el-input v-model.number="updateForm.concurrency_limit" type="number" min="1" placeholder="并发数量" />
+              </div>
               <div data-testid="update-command" class="input-wrap textarea-wrap">
                 <el-input v-model="updateForm.command" type="textarea" :rows="3" placeholder="命令或脚本" />
               </div>
             </div>
+            <UpdateTaskTemplatePanel @apply="applyUpdateTemplate" />
+            <DeviceTargetSelector
+              :devices="devices"
+              :groups="groups"
+              :execution-mode="updateForm.execution_mode"
+              :initial-project-id="updateForm.project_id"
+              :initial-device-ids="updateInitialDeviceIds"
+              @target-change="handleUpdateTargetChange"
+              @preview-change="handleUpdateTargetPreview"
+            />
             <p v-if="updateForm.execution_mode === 'ssh_command'" class="muted">
               真实 SSH 执行会连接目标设备。建议先使用 hostname、whoami、uptime 等只读命令验收。
             </p>
@@ -2113,19 +2311,10 @@ onBeforeUnmount(() => {
               <el-table-column prop="lastEvent" label="最新事件" min-width="190" />
               <el-table-column label="设备结果" min-width="260">
                 <template #default="{ row }">
-                  <div v-for="device in row.devices" :key="device.id" class="task-device-result">
-                    <el-tag size="small" :type="device.status === 'success' ? 'success' : device.status === 'failed' ? 'danger' : 'info'">
-                      {{ taskDeviceStatusText[device.status] ?? device.status }}
-                    </el-tag>
-                    <span>设备 {{ device.device_id }}</span>
-                    <small v-if="device.exit_code !== null">退出码 {{ device.exit_code }}</small>
-                    <small v-if="device.stdout_summary">{{ device.stdout_summary }}</small>
-                    <small v-if="device.stderr_summary">{{ device.stderr_summary }}</small>
-                    <small v-if="device.error_message">{{ device.error_message }}</small>
-                  </div>
+                  <UpdateTaskResultTable :devices="row.devices" @retry-failed="(deviceIds) => openRetryFailedTask(row, deviceIds)" />
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="190">
+              <el-table-column label="操作" width="250">
                 <template #default="{ row }">
                   <el-button
                     :data-testid="`execute-update-${row.id}`"
@@ -2135,6 +2324,9 @@ onBeforeUnmount(() => {
                     @click="executeUpdate(row)"
                   >
                     执行
+                  </el-button>
+                  <el-button :data-testid="`export-update-${row.id}`" size="small" @click="downloadUpdateTaskResults(row)">
+                    导出
                   </el-button>
                   <el-button
                     v-if="row.status === 'pending' || row.status === 'running'"

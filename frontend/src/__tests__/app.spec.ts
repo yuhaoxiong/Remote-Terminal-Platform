@@ -114,6 +114,7 @@ vi.mock("../api/platform", () => ({
   deleteDevice: vi.fn(),
   executeUpdateTask: vi.fn(),
   exportLogs: vi.fn(),
+  exportUpdateTaskResults: vi.fn(),
   listDeviceFiles: vi.fn(),
   uploadDeviceFile: vi.fn(),
   downloadDeviceFile: vi.fn(),
@@ -135,6 +136,11 @@ vi.mock("../api/platform", () => ({
   listGroups: vi.fn(),
   listLogs: vi.fn(),
   listUpdateTasks: vi.fn(),
+  previewUpdateTaskTargets: vi.fn(),
+  listUpdateTaskTemplates: vi.fn(),
+  createUpdateTaskTemplate: vi.fn(),
+  updateUpdateTaskTemplate: vi.fn(),
+  deleteUpdateTaskTemplate: vi.fn(),
   loginAdmin: vi.fn(),
   openSshSession: vi.fn(),
   openVncSession: vi.fn(),
@@ -251,6 +257,61 @@ function mockResolvedApiState() {
     ],
   });
   api.listUpdateTasks.mockResolvedValue({ total: 0, items: [] });
+  api.previewUpdateTaskTargets.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 1,
+        name: "装配边缘终端 01",
+        device_sn: "SN-EDGE-001",
+        project_id: "工厂-a",
+        group_id: 1,
+        status: "online",
+        ssh_port: 10000,
+        ssh_credential_configured: true,
+        tags: ["视觉", "生产"],
+        location: "北京",
+      },
+    ],
+    warnings: [],
+  });
+  api.listUpdateTaskTemplates.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 11,
+        name: "查看主机名",
+        description: "只读检查",
+        command: "hostname",
+        task_type: "command",
+        default_execution_mode: "dry_run",
+        created_at: "2026-05-19T00:00:00",
+        updated_at: "2026-05-19T00:00:00",
+      },
+    ],
+  });
+  api.createUpdateTaskTemplate.mockResolvedValue({
+    id: 12,
+    name: "新模板",
+    description: null,
+    command: "whoami",
+    task_type: "command",
+    default_execution_mode: "dry_run",
+    created_at: "2026-05-19T00:00:00",
+    updated_at: "2026-05-19T00:00:00",
+  });
+  api.updateUpdateTaskTemplate.mockResolvedValue({
+    id: 11,
+    name: "查看主机名",
+    description: "已更新",
+    command: "uptime",
+    task_type: "command",
+    default_execution_mode: "ssh_command",
+    created_at: "2026-05-19T00:00:00",
+    updated_at: "2026-05-19T00:00:00",
+  });
+  api.deleteUpdateTaskTemplate.mockResolvedValue(undefined);
+  api.exportUpdateTaskResults.mockResolvedValue(new Blob(["task_id,status\n1,success\n"], { type: "text/csv" }));
   api.getDeviceStatus.mockResolvedValue({
     id: 1,
     status: "offline",
@@ -1149,13 +1210,18 @@ describe("App", () => {
     await wrapper.find('[data-testid="open-update-create"]').trigger("click");
     await wrapper.find('[data-testid="update-name"] input').setValue("重启视觉服务");
     await wrapper.find('[data-testid="update-command"] textarea').setValue("sudo systemctl restart vision");
-    await wrapper.find('[data-testid="update-project"] input').setValue("工厂-a");
     await wrapper.find('[data-testid="update-execution-mode"]').setValue("ssh_command");
+    await wrapper.find('[data-testid="preview-update-targets"]').trigger("click");
+    await flushAsync();
     await wrapper.find('[data-testid="save-update"]').trigger("click");
     await flushAsync();
     await wrapper.find('[data-testid="execute-update-1"]').trigger("click");
     await flushAsync();
 
+    expect(api.previewUpdateTaskTargets).toHaveBeenCalledWith({
+      target_filter: { project_id: "工厂-a" },
+      execution_mode: "ssh_command",
+    });
     expect(api.createUpdateTask).toHaveBeenCalledWith({
       name: "重启视觉服务",
       task_type: "command",
@@ -1175,7 +1241,8 @@ describe("App", () => {
     expect(wrapper.text()).toContain("已完成");
     expect(wrapper.text()).toContain("1/1");
     expect(wrapper.text()).toContain("真实 SSH 执行");
-    expect(wrapper.text()).toContain("退出码 0");
+    expect(wrapper.text()).toContain("设备执行结果");
+    expect(mockWebSockets.at(-1)?.url).toBe("ws://test/api/ws/update-tasks/1?token=access-token");
   });
 
   it("manages device files from the device operation area", async () => {

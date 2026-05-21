@@ -41,3 +41,20 @@ class UpdateTaskDevice(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class UpdateTaskTemplate(Base):
+    __tablename__ = "update_task_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    command: Mapped[str] = mapped_column(Text)
+    task_type: Mapped[str] = mapped_column(String(32), default="command", index=True)
+    default_execution_mode: Mapped[str] = mapped_column(String(32), default="dry_run", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

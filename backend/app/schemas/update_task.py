@@ -37,6 +37,30 @@ class UpdateTaskDeviceRead(BaseModel):
     finished_at: datetime | None
 
 
+class UpdateTaskTargetPreviewRequest(BaseModel):
+    target_filter: dict[str, Any] | None = None
+    execution_mode: str = Field(default="dry_run", pattern="^(dry_run|ssh_command)$")
+
+
+class UpdateTaskTargetDeviceRead(BaseModel):
+    id: int
+    name: str
+    device_sn: str
+    project_id: str
+    group_id: int | None
+    status: str
+    ssh_port: int | None
+    ssh_credential_configured: bool
+    tags: list[str] | None = None
+    location: str | None = None
+
+
+class UpdateTaskTargetPreviewResponse(BaseModel):
+    total: int
+    items: list[UpdateTaskTargetDeviceRead]
+    warnings: list[str] = []
+
+
 class UpdateTaskRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -59,3 +83,37 @@ class UpdateTaskRead(BaseModel):
 class UpdateTaskListResponse(BaseModel):
     total: int
     items: list[UpdateTaskRead]
+
+
+class UpdateTaskTemplateCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    command: str = Field(min_length=1, max_length=4000)
+    task_type: str = Field(default="command", min_length=1, max_length=32)
+    default_execution_mode: str = Field(default="dry_run", pattern="^(dry_run|ssh_command)$")
+
+
+class UpdateTaskTemplateUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+    command: str | None = Field(default=None, min_length=1, max_length=4000)
+    task_type: str | None = Field(default=None, min_length=1, max_length=32)
+    default_execution_mode: str | None = Field(default=None, pattern="^(dry_run|ssh_command)$")
+
+
+class UpdateTaskTemplateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str | None
+    command: str
+    task_type: str
+    default_execution_mode: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class UpdateTaskTemplateListResponse(BaseModel):
+    total: int
+    items: list[UpdateTaskTemplateRead]

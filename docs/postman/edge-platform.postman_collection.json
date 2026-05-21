@@ -109,6 +109,10 @@
       "key": "scheduled_task_id",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "update_template_id",
+      "value": "1"
     }
   ],
   "item": [
@@ -434,6 +438,144 @@
             "method": "GET",
             "header": [],
             "url": "{{base_url}}/api/update-tasks/{{update_task_id}}"
+          },
+          "response": []
+        },
+        {
+          "name": "预览更新任务目标",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"target_filter\": {\n    \"project_id\": \"{{project_id}}\"\n  },\n  \"execution_mode\": \"ssh_command\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/update-tasks/preview-targets",
+            "description": "创建真实 SSH 任务前先预览目标设备；响应不包含设备凭据。"
+          },
+          "response": []
+        },
+        {
+          "name": "创建命令模板",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman hostname 模板\",\n  \"description\": \"Wave16 命令模板\",\n  \"command\": \"{{ssh_command}}\",\n  \"task_type\": \"command\",\n  \"default_execution_mode\": \"dry_run\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/update-task-templates",
+            "description": "模板只保存命令和说明，不保存设备凭据。"
+          },
+          "response": []
+        },
+        {
+          "name": "查询命令模板列表",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/update-task-templates",
+            "description": "查询可复用命令模板。"
+          },
+          "response": []
+        },
+        {
+          "name": "更新命令模板",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Postman Wave16 模板已更新\",\n  \"command\": \"whoami\",\n  \"default_execution_mode\": \"ssh_command\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/update-task-templates/{{update_template_id}}",
+            "description": "先创建模板并把返回 id 保存到 update_template_id 后再运行。"
+          },
+          "response": []
+        },
+        {
+          "name": "删除命令模板",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/update-task-templates/{{update_template_id}}",
+            "description": "删除指定模板。"
+          },
+          "response": []
+        },
+        {
+          "name": "导出当前更新任务结果",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/update-tasks/{{update_task_id}}/export",
+            "description": "导出 CSV，只包含摘要和错误原因。"
           },
           "response": []
         }

@@ -813,6 +813,68 @@ POST /api/update-tasks
 
 当前实现会按 `target_filter` 在创建时固化目标设备,并创建对应的 `update_task_devices` 记录。
 
+### 预览更新任务目标
+
+```http
+POST /api/update-tasks/preview-targets
+```
+
+认证:需要。
+
+请求体:
+
+```json
+{
+  "target_filter": {
+    "project_id": "factory-a",
+    "group_id": 1,
+    "status": "online",
+    "tags": ["vision"]
+  },
+  "execution_mode": "ssh_command"
+}
+```
+
+也可以传入手动设备集合:
+
+```json
+{
+  "target_filter": {
+    "device_ids": [1, 2, 3]
+  },
+  "execution_mode": "ssh_command"
+}
+```
+
+响应 `200`:
+
+```json
+{
+  "total": 1,
+  "items": [
+    {
+      "id": 1,
+      "name": "edge-01",
+      "device_sn": "SN-EDGE-001",
+      "project_id": "factory-a",
+      "group_id": 1,
+      "status": "online",
+      "ssh_port": 12001,
+      "ssh_credential_configured": true,
+      "tags": ["vision"],
+      "location": "shenzhen"
+    }
+  ],
+  "warnings": []
+}
+```
+
+说明:
+
+- 预览接口不会写入数据库。
+- `execution_mode=ssh_command` 时,若命中设备缺少 SSH 端口或 SSH 凭据,`warnings` 会返回中文提醒。
+- 响应不包含设备 SSH 密码、私钥、Token 或其他敏感字段。
+
 ### 查询更新任务列表
 
 ```http
@@ -884,6 +946,34 @@ POST /api/update-tasks/{task_id}/cancel
 
 - `409`:已完成任务不能取消。
 
+### 导出更新任务结果
+
+```http
+GET /api/update-tasks/{task_id}/export
+```
+
+认证:需要。
+
+响应 `200`: `text/csv`。
+
+导出字段:
+
+| 字段 | 说明 |
+| --- | --- |
+| `task_id` | 更新任务 ID |
+| `task_name` | 更新任务名称 |
+| `device_id` | 设备 ID |
+| `device_sn` | 设备序列号 |
+| `status` | 单设备执行状态 |
+| `exit_code` | SSH 命令退出码 |
+| `stdout_summary` | 标准输出摘要 |
+| `stderr_summary` | 错误输出摘要 |
+| `error_message` | 失败原因 |
+| `started_at` | 开始时间 |
+| `finished_at` | 结束时间 |
+
+导出内容只包含执行摘要和错误原因,不包含设备 SSH 明文密码。以 `=`、`+`、`-`、`@`、制表符或换行开头的单元格会加前导制表符,降低 CSV 公式注入风险。
+
 ### 更新任务进度 WebSocket
 
 ```text
@@ -910,6 +1000,76 @@ WS /api/ws/update-tasks/{task_id}?token=<access_token>
 错误:
 
 - token 缺失、无效、用户不存在或任务不存在时关闭连接,关闭码为 `1008`。
+
+### 更新任务命令模板
+
+模板只保存命令元数据,不保存设备目标、设备凭据或执行结果。
+
+#### 查询模板列表
+
+```http
+GET /api/update-task-templates
+```
+
+认证:需要。
+
+响应 `200`:
+
+```json
+{
+  "total": 1,
+  "items": [
+    {
+      "id": 1,
+      "name": "查看主机名",
+      "description": "只读检查",
+      "command": "hostname",
+      "task_type": "command",
+      "default_execution_mode": "dry_run",
+      "created_at": "2026-05-19T00:00:00",
+      "updated_at": "2026-05-19T00:00:00"
+    }
+  ]
+}
+```
+
+#### 创建模板
+
+```http
+POST /api/update-task-templates
+```
+
+请求体:
+
+```json
+{
+  "name": "查看主机名",
+  "description": "只读检查",
+  "command": "hostname",
+  "task_type": "command",
+  "default_execution_mode": "dry_run"
+}
+```
+
+响应 `201`:模板对象。
+
+#### 更新模板
+
+```http
+PUT /api/update-task-templates/{template_id}
+```
+
+请求体字段均可选,支持完整编辑模板名称、说明、命令、任务类型和默认执行模式。
+
+响应 `200`:模板对象。
+
+#### 删除模板
+
+```http
+DELETE /api/update-task-templates/{template_id}
+```
+
+响应 `204`:无响应体。
 
 ## 定时任务接口
 

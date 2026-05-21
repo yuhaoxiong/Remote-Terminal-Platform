@@ -109,7 +109,7 @@ def init_db(settings: Settings | None = None) -> None:
     from app.models.metric import DeviceMetric
     from app.models.port_pool import PortPool
     from app.models.scheduled_task import ScheduledTask
-    from app.models.update_task import UpdateTask, UpdateTaskDevice
+    from app.models.update_task import UpdateTask, UpdateTaskDevice, UpdateTaskTemplate
     from app.models.user import User
     from app.services.security import hash_password
 
@@ -133,4 +133,4 @@ def init_db(settings: Settings | None = None) -> None:
             for port in range(settings.vnc_port_start, settings.vnc_port_end + 1):
                 session.add(PortPool(service_type="vnc", port=port, status="available"))
 
-    _ = (Device, Group, OperationLog, DeviceMetric, ScheduledTask, UpdateTask, UpdateTaskDevice)
+    _ = (Device, Group, OperationLog, DeviceMetric, ScheduledTask, UpdateTask, UpdateTaskDevice, UpdateTaskTemplate)
