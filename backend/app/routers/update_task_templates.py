@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 
-from app.database import session_scope
-from app.dependencies import get_app_settings, get_current_user
+from app.dependencies import get_current_user, not_found_error, request_session
 from app.models.user import User
 from app.schemas.update_task import (
     UpdateTaskTemplateCreate,
@@ -15,18 +14,13 @@ from app.services.update_task_service import UpdateTaskService, UpdateTaskTempla
 router = APIRouter(prefix="/update-task-templates", tags=["update-task-templates"])
 
 
-def _not_found(exc: UpdateTaskTemplateNotFoundError) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-
-
 @router.get("", response_model=UpdateTaskTemplateListResponse)
 def list_update_task_templates(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> UpdateTaskTemplateListResponse:
-    settings = get_app_settings(request)
-    service = UpdateTaskService(settings)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = UpdateTaskService(settings)
         total, templates = service.list_templates(session)
         return UpdateTaskTemplateListResponse(total=total, items=[UpdateTaskTemplateRead.model_validate(item) for item in templates])
 
@@ -37,9 +31,8 @@ def create_update_task_template(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> UpdateTaskTemplateRead:
-    settings = get_app_settings(request)
-    service = UpdateTaskService(settings)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = UpdateTaskService(settings)
         template = service.create_template(session, payload)
         OperationLogService(settings).record(
             session,
@@ -60,13 +53,12 @@ def update_update_task_template(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> UpdateTaskTemplateRead:
-    settings = get_app_settings(request)
-    service = UpdateTaskService(settings)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = UpdateTaskService(settings)
         try:
             template = service.update_template(session, template_id, payload)
         except UpdateTaskTemplateNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -85,15 +77,14 @@ def delete_update_task_template(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> Response:
-    settings = get_app_settings(request)
-    service = UpdateTaskService(settings)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = UpdateTaskService(settings)
         try:
             template = service.get_template(session, template_id)
             name = template.name
             service.delete_template(session, template_id)
         except UpdateTaskTemplateNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,

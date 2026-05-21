@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Edge Platform API",
-    "description": "远程终端平台 API 验收集合。先运行“登录”，Tests 脚本会自动保存 access_token 和 refresh_token；后续接口继承集合级 Bearer Token。",
+    "description": "远程终端平台 API 验收集合。先运行“登录”，Tests 脚本会自动保存 access_token 和 refresh_token；后续接口继承集合级 Bearer Token。Wave 17 起可通过“治理、安全与维护”分组验证迁移状态、SSH 主机密钥策略和枚举校验。",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -1120,6 +1120,120 @@
             "method": "DELETE",
             "header": [],
             "url": "{{base_url}}/api/scheduled-tasks/{{scheduled_task_id}}"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Wave 17 治理、安全与维护",
+      "item": [
+        {
+          "name": "诊断治理摘要",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"诊断请求成功\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"包含迁移状态\", function () {",
+                  "  pm.expect(json.migration).to.have.property(\"current_revision\");",
+                  "  pm.expect(json.migration).to.have.property(\"head_revision\");",
+                  "  pm.expect(json.migration).to.have.property(\"has_pending_migrations\");",
+                  "});",
+                  "pm.test(\"包含 SSH 主机密钥策略\", function () {",
+                  "  pm.expect(json.ssh_host_key).to.have.property(\"policy\");",
+                  "  pm.expect(json.ssh_host_key).to.have.property(\"known_hosts_configured\");",
+                  "});",
+                  "pm.test(\"包含认证有效期和数据库状态\", function () {",
+                  "  pm.expect(json.auth_lifetime.access_expire_minutes).to.be.a(\"number\");",
+                  "  pm.expect(json.database_status.summary).to.be.a(\"string\");",
+                  "});",
+                  "pm.test(\"不返回敏感字段\", function () {",
+                  "  const body = JSON.stringify(json).toLowerCase();",
+                  "  pm.expect(body).to.not.include(\"password\");",
+                  "  pm.expect(body).to.not.include(\"token\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/diagnostics/config",
+            "description": "验证 Wave 17 迁移状态、SSH 主机密钥策略、认证有效期和数据库状态摘要。"
+          },
+          "response": []
+        },
+        {
+          "name": "非法设备状态应返回 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"非法枚举被拒绝\", function () { pm.response.to.have.status(422); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"retired\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/devices/{{device_id}}",
+            "description": "需要先通过设备列表或创建设备设置 device_id。"
+          },
+          "response": []
+        },
+        {
+          "name": "非法更新任务执行模式应返回 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"非法执行模式被拒绝\", function () { pm.response.to.have.status(422); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"非法执行模式验收\",\n  \"task_type\": \"command\",\n  \"command\": \"hostname\",\n  \"target_filter\": { \"device_ids\": [{{device_id}}] },\n  \"execution_mode\": \"danger\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/update-tasks"
           },
           "response": []
         }

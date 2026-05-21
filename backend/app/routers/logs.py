@@ -3,8 +3,7 @@ from io import StringIO
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 
-from app.database import session_scope
-from app.dependencies import get_app_settings, get_current_user
+from app.dependencies import get_current_user, request_session
 from app.models.user import User
 from app.schemas.log import OperationLogListResponse, OperationLogRead
 from app.services.operation_log import OperationLogService
@@ -30,8 +29,7 @@ def list_logs(
     target_type: str | None = None,
     status: str | None = None,
 ) -> OperationLogListResponse:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         total, logs = OperationLogService(settings).list(
             session,
             offset=offset,
@@ -51,8 +49,7 @@ def export_logs(
     target_type: str | None = None,
     status: str | None = None,
 ) -> Response:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         _total, logs = OperationLogService(settings).list(
             session,
             offset=0,

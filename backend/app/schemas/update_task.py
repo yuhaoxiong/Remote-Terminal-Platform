@@ -3,20 +3,22 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.enums import ExecutionMode, FailureStrategy, ScheduledTaskType
+
 
 class UpdateTaskCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    task_type: str = Field(min_length=1, max_length=32)
+    task_type: ScheduledTaskType
     command: str = Field(min_length=1)
     rollback_command: str | None = None
     target_filter: dict[str, Any] | None = None
-    execution_mode: str = Field(default="dry_run", pattern="^(dry_run|ssh_command)$")
-    failure_strategy: str = Field(default="continue", pattern="^(continue|pause|rollback)$")
+    execution_mode: ExecutionMode = ExecutionMode.dry_run
+    failure_strategy: FailureStrategy = FailureStrategy.continue_
     concurrency_limit: int = Field(default=5, ge=1, le=50)
 
     @model_validator(mode="after")
     def require_rollback_command(self) -> "UpdateTaskCreate":
-        if self.failure_strategy == "rollback" and not self.rollback_command:
+        if self.failure_strategy == FailureStrategy.rollback and not self.rollback_command:
             raise ValueError("rollback_command is required when failure_strategy is rollback")
         return self
 
@@ -39,7 +41,7 @@ class UpdateTaskDeviceRead(BaseModel):
 
 class UpdateTaskTargetPreviewRequest(BaseModel):
     target_filter: dict[str, Any] | None = None
-    execution_mode: str = Field(default="dry_run", pattern="^(dry_run|ssh_command)$")
+    execution_mode: ExecutionMode = ExecutionMode.dry_run
 
 
 class UpdateTaskTargetDeviceRead(BaseModel):
@@ -89,16 +91,16 @@ class UpdateTaskTemplateCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
     command: str = Field(min_length=1, max_length=4000)
-    task_type: str = Field(default="command", min_length=1, max_length=32)
-    default_execution_mode: str = Field(default="dry_run", pattern="^(dry_run|ssh_command)$")
+    task_type: ScheduledTaskType = ScheduledTaskType.command
+    default_execution_mode: ExecutionMode = ExecutionMode.dry_run
 
 
 class UpdateTaskTemplateUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
     command: str | None = Field(default=None, min_length=1, max_length=4000)
-    task_type: str | None = Field(default=None, min_length=1, max_length=32)
-    default_execution_mode: str | None = Field(default=None, pattern="^(dry_run|ssh_command)$")
+    task_type: ScheduledTaskType | None = None
+    default_execution_mode: ExecutionMode | None = None
 
 
 class UpdateTaskTemplateRead(BaseModel):

@@ -270,8 +270,8 @@ npm.cmd run build
 
 最近结果:
 
-- 后端:51 个测试通过。
-- 前端:17 个测试通过。
+- 后端:58 个测试通过。
+- 前端:18 个测试通过。
 - 前端构建:成功,仍有已知 Vite chunk size 警告。
 - Wave 7 联调:后端 `127.0.0.1:8010`、前端 `127.0.0.1:5179`,通过前端代理完成登录、更新任务列表、监控总览、设备创建、设备列表和设备删除验收。
 - Wave 8 自动化:通过 SSH/VNC WebSocket 鉴权与转发、SFTP 后端、远程页面会话入口测试;真实设备 SSH/VNC/SFTP 手工联调仍需要提供可访问的测试设备和凭据。
@@ -357,3 +357,12 @@ docs/postman/edge-platform.postman_collection.json
 - 批量任务执行会在前端接入 `/api/ws/update-tasks/{id}?token=<access_token>` 快照,收到 `task.snapshot` 后刷新任务状态和单设备结果。
 - 设备结果区域拆为独立表格,可展开查看标准输出、错误输出和失败原因;失败设备可一键带入新任务作为重试范围。
 - 新增 `GET /api/update-tasks/{id}/export`,导出任务摘要和错误原因 CSV。导出内容带 CSV 注入防护,不会包含设备 SSH 明文密码。
+
+## Wave 17 后端治理、安全与维护补充
+
+- 后端启动时会先执行 Alembic `upgrade head`,再保留 `create_all` 兼容兜底;`GET /api/diagnostics/config` 会返回 `migration` 摘要,用于确认当前 revision 是否等于 head。
+- 设备状态、SSH 凭据类型、批量任务执行模式、失败策略和定时任务类型已收敛为后端枚举校验,未知值会返回 `422`。
+- SSH 主机密钥策略新增 `SSH_HOST_KEY_POLICY`,默认保持 `auto_add`;可设置为 `warning` 或 `reject`,并通过 `SSH_KNOWN_HOSTS_FILE` 指定 known_hosts 文件。
+- Router 层统一使用共享请求会话和 404/409 错误 helper,减少接口间重复会话处理。
+- 前端 access token 过期后会自动使用 refresh token 重试一次;refresh 失败或缺失时会清理本地登录态并直接回到登录页。
+- 系统诊断页新增数据库迁移、SSH 主机密钥策略、认证有效期和数据库备份建议展示,仍只显示非敏感摘要。

@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.enums import ScheduledTaskType
+
 
 def _validate_schedule(value: str) -> str:
     if not (value.startswith("cron:") or value.startswith("interval:")):
@@ -12,7 +14,7 @@ def _validate_schedule(value: str) -> str:
 
 class ScheduledTaskCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    task_type: str = Field(min_length=1, max_length=32)
+    task_type: ScheduledTaskType
     schedule: str = Field(min_length=1, max_length=120)
     command: str | None = None
     target_filter: dict[str, Any] | None = None
@@ -26,7 +28,7 @@ class ScheduledTaskCreate(BaseModel):
 
 class ScheduledTaskUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    task_type: str | None = Field(default=None, min_length=1, max_length=32)
+    task_type: ScheduledTaskType | None = None
     schedule: str | None = Field(default=None, min_length=1, max_length=120)
     command: str | None = None
     target_filter: dict[str, Any] | None = None

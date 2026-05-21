@@ -2,10 +2,9 @@ import csv
 import json
 from io import StringIO
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 
-from app.database import session_scope
-from app.dependencies import get_app_settings, get_current_user
+from app.dependencies import conflict_error, get_current_user, not_found_error, request_session
 from app.models.device import Device
 from app.models.user import User
 from app.schemas.update_task import (
@@ -33,19 +32,14 @@ def _csv_safe(value: object) -> object:
     return value
 
 
-def _not_found(exc: UpdateTaskNotFoundError) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-
-
 @router.post("/preview-targets", response_model=UpdateTaskTargetPreviewResponse)
 def preview_update_task_targets(
     payload: UpdateTaskTargetPreviewRequest,
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> UpdateTaskTargetPreviewResponse:
-    settings = get_app_settings(request)
-    service = UpdateTaskService(settings)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = UpdateTaskService(settings)
         preview = service.preview_targets(session, payload.target_filter, execution_mode=payload.execution_mode)
         OperationLogService(settings).record(
             session,
@@ -65,9 +59,8 @@ def create_update_task(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> UpdateTaskRead:
-    settings = get_app_settings(request)
-    service = UpdateTaskService(settings)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = UpdateTaskService(settings)
         task = service.create(session, payload)
         OperationLogService(settings).record(
             session,
@@ -89,9 +82,8 @@ def list_update_tasks(
     limit: int = Query(default=50, ge=1, le=200),
     status: str | None = None,
 ) -> UpdateTaskListResponse:
-    settings = get_app_settings(request)
-    service = UpdateTaskService(settings)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = UpdateTaskService(settings)
         total, tasks = service.list(session, offset=offset, limit=limit, status=status)
         return UpdateTaskListResponse(total=total, items=[service.to_read(session, task) for task in tasks])
 
@@ -102,13 +94,12 @@ def get_update_task(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> UpdateTaskRead:
-    settings = get_app_settings(request)
-    service = UpdateTaskService(settings)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = UpdateTaskService(settings)
         try:
             return service.to_read(session, service.get(session, task_id))
         except UpdateTaskNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
 
 
 @router.post("/{task_id}/execute", response_model=UpdateTaskRead)
@@ -117,15 +108,14 @@ def execute_update_task(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> UpdateTaskRead:
-    settings = get_app_settings(request)
-    service = UpdateTaskService(settings, ssh_service=getattr(request.app.state, "ssh_service", None))
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = UpdateTaskService(settings, ssh_service=getattr(request.app.state, "ssh_service", None))
         try:
             task = service.execute(session, task_id)
         except UpdateTaskNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         except UpdateTaskInvalidStateError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            raise conflict_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -144,15 +134,14 @@ def cancel_update_task(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> UpdateTaskRead:
-    settings = get_app_settings(request)
-    service = UpdateTaskService(settings)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = UpdateTaskService(settings)
         try:
             task = service.cancel(session, task_id)
         except UpdateTaskNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         except UpdateTaskInvalidStateError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            raise conflict_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -171,14 +160,13 @@ def export_update_task_results(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> Response:
-    settings = get_app_settings(request)
-    service = UpdateTaskService(settings)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = UpdateTaskService(settings)
         try:
             task = service.get(session, task_id)
             rows = service.device_rows(session, task.id)
         except UpdateTaskNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         output = StringIO()
         writer = csv.writer(output)
         writer.writerow(

@@ -103,6 +103,7 @@ vi.mock("@novnc/novnc", () => ({
 }));
 
 vi.mock("../api/platform", () => ({
+  AUTH_EXPIRED_EVENT: "edge-platform-auth-expired",
   clearAuthTokens: vi.fn(),
   buildApiWebSocketUrl: vi.fn((path: string, token: string) => `ws://test${path}?token=${token}`),
   cancelUpdateTask: vi.fn(),
@@ -459,6 +460,26 @@ function mockResolvedApiState() {
       default_admin_password_in_use: false,
       default_device_ssh_password_in_use: true,
       warnings: ["未配置设备凭据加密密钥"],
+    },
+    migration: {
+      current_revision: "20260511_0001",
+      head_revision: "20260511_0001",
+      has_pending_migrations: false,
+      last_error: null,
+    },
+    ssh_host_key: {
+      policy: "auto_add",
+      known_hosts_configured: false,
+      warnings: ["SSH 主机密钥策略为 auto_add"],
+    },
+    auth_lifetime: {
+      access_expire_minutes: 30,
+      refresh_expire_minutes: 43200,
+      jwt_secret_configured: false,
+    },
+    database_status: {
+      summary: "sqlite:///edge-platform.db",
+      sqlite_backup_recommended: true,
     },
   });
   api.syncDeviceConfig.mockResolvedValue({
@@ -818,6 +839,29 @@ describe("App", () => {
     expect(wrapper.find('[data-testid="login-submit"]').exists()).toBe(true);
   });
 
+  it("returns to the login page when the API reports expired authentication", async () => {
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    expect(wrapper.find('[data-testid="login-submit"]').exists()).toBe(false);
+
+    window.dispatchEvent(new Event(platformApi.AUTH_EXPIRED_EVENT));
+    await nextTick();
+
+    expect(api.clearAuthTokens).toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="login-submit"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain("登录状态已过期，请重新登录。");
+  });
+
   it("creates, edits, filters, and deletes groups", async () => {
     api.createGroup.mockResolvedValueOnce({
       id: 2,
@@ -995,6 +1039,10 @@ describe("App", () => {
     expect(api.getDiagnosticsConfig).toHaveBeenCalled();
     expect(wrapper.text()).toContain("系统诊断");
     expect(wrapper.text()).toContain("未配置设备凭据加密密钥");
+    expect(wrapper.text()).toContain("数据库迁移");
+    expect(wrapper.text()).toContain("已同步");
+    expect(wrapper.text()).toContain("SSH 主机密钥");
+    expect(wrapper.text()).toContain("建议备份");
   });
 
   it("opens SSH and VNC from the selected remote device workspace", async () => {

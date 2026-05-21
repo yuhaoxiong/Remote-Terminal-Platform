@@ -7,8 +7,7 @@ from pydantic import ValidationError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from starlette.datastructures import UploadFile
 
-from app.dependencies import get_app_settings, get_current_user
-from app.database import session_scope
+from app.dependencies import conflict_error, get_current_user, not_found_error, request_session
 from app.models.user import User
 from app.schemas.device import (
     DeviceCreate,
@@ -38,10 +37,6 @@ def _read(device) -> DeviceRead:
     return DeviceRead.model_validate(device)
 
 
-def _not_found(exc: DeviceNotFoundError) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-
-
 def _file_error(exc: FilePathError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
@@ -52,15 +47,14 @@ def create_device(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> DeviceRead:
-    settings = get_app_settings(request)
-    service = DeviceService(settings)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = DeviceService(settings)
         try:
             device = service.create(session, payload)
         except DeviceDuplicateError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            raise conflict_error(exc) from exc
         except PortPoolExhaustedError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            raise conflict_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -85,8 +79,7 @@ def list_devices(
     tag: str | None = None,
     status: str | None = None,
 ) -> DeviceListResponse:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         total, devices = DeviceService(settings).list(
             session,
             offset=offset,
@@ -106,12 +99,11 @@ def get_device(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> DeviceRead:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             return _read(DeviceService(settings).get(session, device_id))
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
 
 
 @router.put("/{device_id}", response_model=DeviceRead)
@@ -121,12 +113,11 @@ def update_device(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> DeviceRead:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             device = DeviceService(settings).update(session, device_id, payload)
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -145,14 +136,13 @@ def delete_device(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> Response:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             device = DeviceService(settings).get(session, device_id)
             device_sn = device.device_sn
             DeviceService(settings).delete(session, device_id)
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -171,12 +161,11 @@ def get_device_status(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> DeviceStatusResponse:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             device = DeviceService(settings).get(session, device_id)
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         return DeviceStatusResponse(id=device.id, status=device.status, last_seen=device.last_seen)
 
 
@@ -186,12 +175,11 @@ def sync_device_config(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> SyncConfigResponse:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             device = DeviceService(settings).get(session, device_id)
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         config = FrpcConfigService().generate(device)
         OperationLogService(settings).record(
             session,
@@ -212,13 +200,12 @@ def list_device_files(
     current_user: User = Depends(get_current_user),
     path: str = Query(default="/"),
 ) -> FileListResponse:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             device = DeviceService(settings).get(session, device_id)
             items = FileService(settings).list_files(device, path)
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         except FilePathError as exc:
             raise _file_error(exc) from exc
         return FileListResponse(device_id=device.id, path=path, items=items)
@@ -231,13 +218,12 @@ async def upload_device_file(
     current_user: User = Depends(get_current_user),
 ) -> FileOperationResponse:
     remote_path, content = await _read_file_upload_request(request)
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             device = DeviceService(settings).get(session, device_id)
             size = FileService(settings).upload_bytes(device, remote_path, content)
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         except FilePathError as exc:
             raise _file_error(exc) from exc
         OperationLogService(settings).record(
@@ -276,13 +262,12 @@ def download_device_file(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> Response:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             device = DeviceService(settings).get(session, device_id)
             content = FileService(settings).download_bytes(device, remote_path)
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         except FilePathError as exc:
             raise _file_error(exc) from exc
         except RemoteFileNotFoundError as exc:
@@ -312,13 +297,12 @@ def delete_device_file(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> FileOperationResponse:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             device = DeviceService(settings).get(session, device_id)
             FileService(settings).delete(device, payload.remote_path)
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         except FilePathError as exc:
             raise _file_error(exc) from exc
         except RemoteFileNotFoundError as exc:
@@ -342,12 +326,11 @@ def record_device_metric(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> DeviceMetricRead:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             device, metric = MonitoringService(settings).record_metric(session, device_id, payload)
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -368,12 +351,11 @@ def list_device_metrics(
     current_user: User = Depends(get_current_user),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> DeviceMetricListResponse:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             total, metrics = MonitoringService(settings).list_metrics(session, device_id, limit=limit)
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         device = DeviceService(settings).get(session, device_id)
         return DeviceMetricListResponse(
             total=total,
@@ -387,13 +369,12 @@ def create_ssh_session(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> RemoteSessionResponse:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             device = DeviceService(settings).get(session, device_id)
             payload = RemoteAccessService().build_ssh_session(device)
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         except ValueError as exc:
             OperationLogService(settings).record(
                 session,
@@ -416,20 +397,18 @@ def create_ssh_session(
         )
         return RemoteSessionResponse(**payload)
 
-
 @router.post("/{device_id}/remote/vnc", response_model=RemoteSessionResponse)
 def create_vnc_session(
     device_id: int,
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> RemoteSessionResponse:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             device = DeviceService(settings).get(session, device_id)
             payload = RemoteAccessService().build_vnc_session(device)
         except DeviceNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         except ValueError as exc:
             OperationLogService(settings).record(
                 session,

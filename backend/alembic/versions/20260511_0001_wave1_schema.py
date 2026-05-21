@@ -14,7 +14,7 @@ from app.models.log import OperationLog
 from app.models.metric import DeviceMetric
 from app.models.port_pool import PortPool
 from app.models.scheduled_task import ScheduledTask
-from app.models.update_task import UpdateTask, UpdateTaskDevice
+from app.models.update_task import UpdateTask, UpdateTaskDevice, UpdateTaskTemplate
 from app.models.user import User
 
 revision = "20260511_0001"
@@ -22,7 +22,7 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
-_ = (Device, Group, OperationLog, DeviceMetric, PortPool, ScheduledTask, UpdateTask, UpdateTaskDevice, User)
+_ = (Device, Group, OperationLog, DeviceMetric, PortPool, ScheduledTask, UpdateTask, UpdateTaskDevice, UpdateTaskTemplate, User)
 
 
 def upgrade() -> None:

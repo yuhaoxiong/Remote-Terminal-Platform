@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.enums import DeviceStatus, SshAuthType
+
 
 class DeviceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
@@ -10,7 +12,7 @@ class DeviceCreate(BaseModel):
     location: str | None = Field(default=None, max_length=255)
     hardware_model: str | None = Field(default=None, max_length=120)
     ssh_user: str = Field(default="ztl", min_length=1, max_length=64)
-    ssh_auth_type: str = Field(default="password", min_length=1, max_length=32)
+    ssh_auth_type: SshAuthType = SshAuthType.password
     ssh_password: str | None = Field(default="123456", max_length=255)
     local_ip: str | None = Field(default=None, max_length=64)
     os_version: str | None = Field(default=None, max_length=120)
@@ -25,14 +27,14 @@ class DeviceUpdate(BaseModel):
     location: str | None = Field(default=None, max_length=255)
     hardware_model: str | None = Field(default=None, max_length=120)
     ssh_user: str | None = Field(default=None, min_length=1, max_length=64)
-    ssh_auth_type: str | None = Field(default=None, min_length=1, max_length=32)
+    ssh_auth_type: SshAuthType | None = None
     ssh_password: str | None = Field(default=None, max_length=255)
     local_ip: str | None = Field(default=None, max_length=64)
     os_version: str | None = Field(default=None, max_length=120)
     description: str | None = None
     tags: list[str] | None = None
     group_id: int | None = None
-    status: str | None = Field(default=None, min_length=1, max_length=32)
+    status: DeviceStatus | None = None
 
 
 class DeviceRead(BaseModel):
@@ -78,7 +80,7 @@ class SyncConfigResponse(BaseModel):
 
 
 class DeviceMetricCreate(BaseModel):
-    status: str = Field(default="online", min_length=1, max_length=32)
+    status: DeviceStatus = DeviceStatus.online
     cpu_percent: float | None = Field(default=None, ge=0, le=100)
     memory_percent: float | None = Field(default=None, ge=0, le=100)
     disk_percent: float | None = Field(default=None, ge=0, le=100)

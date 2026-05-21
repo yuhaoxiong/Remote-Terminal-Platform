@@ -27,6 +27,8 @@ class Settings(BaseModel):
     ssh_password: str | None = None
     ssh_key_filename: str | None = None
     ssh_key_passphrase: str | None = None
+    ssh_known_hosts_file: str | None = None
+    ssh_host_key_policy: str = "auto_add"
     file_backend: str = "local"
     default_device_ssh_user: str = "ztl"
     default_device_ssh_password: str = "123456"
@@ -44,6 +46,8 @@ def get_settings() -> Settings:
         ssh_password=os.getenv("SSH_PASSWORD"),
         ssh_key_filename=os.getenv("SSH_KEY_FILENAME"),
         ssh_key_passphrase=os.getenv("SSH_KEY_PASSPHRASE"),
+        ssh_known_hosts_file=os.getenv("SSH_KNOWN_HOSTS_FILE"),
+        ssh_host_key_policy=os.getenv("SSH_HOST_KEY_POLICY", "auto_add"),
         file_backend=os.getenv("FILE_BACKEND", "local"),
         default_device_ssh_user=os.getenv("DEFAULT_DEVICE_SSH_USER", "ztl"),
         default_device_ssh_password=os.getenv("DEFAULT_DEVICE_SSH_PASSWORD", "123456"),

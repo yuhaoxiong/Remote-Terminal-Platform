@@ -10,7 +10,7 @@ from app.models.log import OperationLog
 from app.models.metric import DeviceMetric
 from app.models.port_pool import PortPool
 from app.models.scheduled_task import ScheduledTask
-from app.models.update_task import UpdateTask, UpdateTaskDevice
+from app.models.update_task import UpdateTask, UpdateTaskDevice, UpdateTaskTemplate
 from app.models.user import User
 
 config = context.config
@@ -19,7 +19,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
-_ = (Device, Group, OperationLog, DeviceMetric, PortPool, ScheduledTask, UpdateTask, UpdateTaskDevice, User)
+_ = (Device, Group, OperationLog, DeviceMetric, PortPool, ScheduledTask, UpdateTask, UpdateTaskDevice, UpdateTaskTemplate, User)
 
 
 def run_migrations_offline() -> None:

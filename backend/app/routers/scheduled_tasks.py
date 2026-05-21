@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 
-from app.database import session_scope
-from app.dependencies import get_app_settings, get_current_user
+from app.dependencies import get_current_user, not_found_error, request_session
 from app.models.user import User
 from app.schemas.log import OperationLogListResponse, OperationLogRead
 from app.schemas.scheduled_task import (
@@ -17,18 +16,13 @@ from app.services.scheduled_task_service import ScheduledTaskNotFoundError, Sche
 router = APIRouter(prefix="/scheduled-tasks", tags=["scheduled-tasks"])
 
 
-def _not_found(exc: ScheduledTaskNotFoundError) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-
-
 @router.post("", response_model=ScheduledTaskRead, status_code=status.HTTP_201_CREATED)
 def create_scheduled_task(
     payload: ScheduledTaskCreate,
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> ScheduledTaskRead:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         task = ScheduledTaskService(settings).create(session, payload)
         OperationLogService(settings).record(
             session,
@@ -49,8 +43,7 @@ def list_scheduled_tasks(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> ScheduledTaskListResponse:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         total, tasks = ScheduledTaskService(settings).list(session, offset=offset, limit=limit)
         return ScheduledTaskListResponse(total=total, items=[ScheduledTaskRead.model_validate(task) for task in tasks])
 
@@ -62,12 +55,11 @@ def update_scheduled_task(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> ScheduledTaskRead:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             task = ScheduledTaskService(settings).update(session, task_id, payload)
         except ScheduledTaskNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -86,14 +78,13 @@ def delete_scheduled_task(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> Response:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             task = ScheduledTaskService(settings).get(session, task_id)
             name = task.name
             ScheduledTaskService(settings).delete(session, task_id)
         except ScheduledTaskNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -112,12 +103,11 @@ def toggle_scheduled_task(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> ScheduledTaskRead:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             task = ScheduledTaskService(settings).toggle(session, task_id)
         except ScheduledTaskNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -136,12 +126,11 @@ def execute_scheduled_task(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> ScheduledTaskExecuteResponse:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             summary = ScheduledTaskService(settings).execute(session, task_id, user_id=current_user.id)
         except ScheduledTaskNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         return ScheduledTaskExecuteResponse(task_id=task_id, status="success", output_summary=summary)
 
 
@@ -151,10 +140,9 @@ def scheduled_task_logs(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> OperationLogListResponse:
-    settings = get_app_settings(request)
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
         try:
             total, logs = ScheduledTaskService(settings).logs(session, task_id)
         except ScheduledTaskNotFoundError as exc:
-            raise _not_found(exc) from exc
+            raise not_found_error(exc) from exc
         return OperationLogListResponse(total=total, items=[OperationLogRead.model_validate(log) for log in logs])

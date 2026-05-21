@@ -16,10 +16,11 @@ import { ElMessageBox } from "element-plus";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
 import {
+  AUTH_EXPIRED_EVENT,
+  buildApiWebSocketUrl,
   cancelUpdateTask,
   changePassword,
   clearAuthTokens,
-  buildApiWebSocketUrl,
   createDevice,
   createGroup,
   createUpdateTask,
@@ -1103,6 +1104,12 @@ function logout() {
   metricLoadWarning.value = "";
 }
 
+function handleAuthExpired() {
+  logout();
+  operationError.value = "登录状态已过期，请重新登录。";
+  loginError.value = "登录状态已过期，请重新登录。";
+}
+
 function openPasswordChange() {
   Object.assign(passwordForm, {
     old_password: "",
@@ -1692,12 +1699,14 @@ function selectSection(section: SectionId) {
 }
 
 onMounted(() => {
+  window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
   if (authenticated.value) {
     void loadPlatformData();
   }
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
   statusChart?.dispose();
   riskChart?.dispose();
   for (const deviceId of sshSockets.keys()) {
@@ -2409,6 +2418,32 @@ onBeforeUnmount(() => {
                 <p>{{ diagnosticsConfig.default_device_ssh_user }}</p>
                 <el-tag type="info">{{ diagnosticsConfig.ssh_timeout_seconds }} 秒超时</el-tag>
               </div>
+              <div class="item-card">
+                <h3>数据库迁移</h3>
+                <p>{{ diagnosticsConfig.migration.current_revision ?? "未初始化" }}</p>
+                <el-tag :type="diagnosticsConfig.migration.has_pending_migrations ? 'warning' : 'success'">
+                  {{ diagnosticsConfig.migration.has_pending_migrations ? "待迁移" : "已同步" }}
+                </el-tag>
+              </div>
+              <div class="item-card">
+                <h3>SSH 主机密钥</h3>
+                <p>{{ diagnosticsConfig.ssh_host_key.policy }}</p>
+                <el-tag :type="diagnosticsConfig.ssh_host_key.known_hosts_configured ? 'success' : 'warning'">
+                  {{ diagnosticsConfig.ssh_host_key.known_hosts_configured ? "已配置 known_hosts" : "未配置 known_hosts" }}
+                </el-tag>
+              </div>
+              <div class="item-card">
+                <h3>认证有效期</h3>
+                <p>访问 {{ diagnosticsConfig.auth_lifetime.access_expire_minutes }} 分钟</p>
+                <p>刷新 {{ diagnosticsConfig.auth_lifetime.refresh_expire_minutes }} 分钟</p>
+              </div>
+              <div class="item-card">
+                <h3>数据库状态</h3>
+                <p>{{ diagnosticsConfig.database_status.summary }}</p>
+                <el-tag :type="diagnosticsConfig.database_status.sqlite_backup_recommended ? 'warning' : 'success'">
+                  {{ diagnosticsConfig.database_status.sqlite_backup_recommended ? "建议备份" : "无需 SQLite 备份" }}
+                </el-tag>
+              </div>
             </div>
             <el-empty v-else description="暂无诊断数据" />
           </section>
@@ -2462,6 +2497,15 @@ onBeforeUnmount(() => {
             </div>
             <el-alert
               v-for="warning in diagnosticsConfig.security.warnings"
+              :key="warning"
+              class="validation-alert"
+              type="warning"
+              show-icon
+              :closable="false"
+              :title="warning"
+            />
+            <el-alert
+              v-for="warning in diagnosticsConfig.ssh_host_key.warnings"
               :key="warning"
               class="validation-alert"
               type="warning"

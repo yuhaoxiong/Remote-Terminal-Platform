@@ -1,7 +1,13 @@
-import axios from "axios";
+import axios, { AxiosHeaders, type AxiosError, type InternalAxiosRequestConfig } from "axios";
 
 const ACCESS_TOKEN_KEY = "edge-platform-access-token";
 const REFRESH_TOKEN_KEY = "edge-platform-refresh-token";
+export const AUTH_EXPIRED_EVENT = "edge-platform-auth-expired";
+
+type AuthRequestConfig = InternalAxiosRequestConfig & {
+  _retry?: boolean;
+  skipAuthRefresh?: boolean;
+};
 
 const api = axios.create({
   baseURL: "/api",
@@ -14,6 +20,66 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+let refreshPromise: Promise<TokenResponse> | null = null;
+
+function getRefreshToken(): string | null {
+  return window.localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+function isAuthEndpoint(url: string | undefined): boolean {
+  return Boolean(url?.includes("/auth/login") || url?.includes("/auth/refresh"));
+}
+
+function notifyAuthExpired() {
+  clearAuthTokens();
+  window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
+}
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError) => {
+    const status = error.response?.status;
+    const originalRequest = error.config as AuthRequestConfig | undefined;
+    if (
+      status !== 401 ||
+      !originalRequest ||
+      originalRequest._retry ||
+      originalRequest.skipAuthRefresh ||
+      isAuthEndpoint(originalRequest.url)
+    ) {
+      throw error;
+    }
+
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) {
+      notifyAuthExpired();
+      throw error;
+    }
+
+    originalRequest._retry = true;
+    try {
+      refreshPromise ??= api
+        .post<TokenResponse>(
+          "/auth/refresh",
+          { refresh_token: refreshToken },
+          { skipAuthRefresh: true } as AuthRequestConfig,
+        )
+        .then((response) => response.data)
+        .finally(() => {
+          refreshPromise = null;
+        });
+      const token = await refreshPromise;
+      setAuthTokens(token.access_token, token.refresh_token);
+      originalRequest.headers = AxiosHeaders.from(originalRequest.headers);
+      originalRequest.headers.set("Authorization", `Bearer ${token.access_token}`);
+      return api(originalRequest);
+    } catch (refreshError) {
+      notifyAuthExpired();
+      throw refreshError;
+    }
+  },
+);
 
 export interface TokenResponse {
   access_token: string;
@@ -318,6 +384,30 @@ export interface DiagnosticsSecuritySummary {
   warnings: string[];
 }
 
+export interface DiagnosticsMigrationSummary {
+  current_revision: string | null;
+  head_revision: string | null;
+  has_pending_migrations: boolean;
+  last_error: string | null;
+}
+
+export interface DiagnosticsSshHostKeySummary {
+  policy: string;
+  known_hosts_configured: boolean;
+  warnings: string[];
+}
+
+export interface DiagnosticsAuthLifetimeSummary {
+  access_expire_minutes: number;
+  refresh_expire_minutes: number;
+  jwt_secret_configured: boolean;
+}
+
+export interface DiagnosticsDatabaseSummary {
+  summary: string;
+  sqlite_backup_recommended: boolean;
+}
+
 export interface DiagnosticsConfigResponse {
   service_name: string;
   version: string;
@@ -330,6 +420,10 @@ export interface DiagnosticsConfigResponse {
   vnc_timeout_seconds: number;
   default_device_ssh_user: string;
   security: DiagnosticsSecuritySummary;
+  migration: DiagnosticsMigrationSummary;
+  ssh_host_key: DiagnosticsSshHostKeySummary;
+  auth_lifetime: DiagnosticsAuthLifetimeSummary;
+  database_status: DiagnosticsDatabaseSummary;
 }
 
 export interface FrpsImportRequest {

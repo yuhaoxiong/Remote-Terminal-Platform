@@ -1438,6 +1438,37 @@ GET /api/diagnostics/config
 
 `credential_encryption_configured=false` 表示后端未配置 `CREDENTIAL_ENCRYPTION_KEY`,新增设备凭据会按兼容模式保存。配置后,新写入的设备 SSH 密码会以 Fernet 密文保存;旧明文凭据仍兼容读取,避免升级后已有设备失联。
 
+Wave 17 起,诊断响应额外包含治理和运维摘要:
+
+```json
+{
+  "migration": {
+    "current_revision": "20260511_0001_wave1_schema",
+    "head_revision": "20260511_0001_wave1_schema",
+    "has_pending_migrations": false,
+    "last_error": null
+  },
+  "ssh_host_key": {
+    "policy": "auto_add",
+    "known_hosts_configured": false,
+    "warnings": [
+      "SSH 主机密钥策略为 auto_add，生产环境建议配置 known_hosts 并使用 warning 或 reject"
+    ]
+  },
+  "auth_lifetime": {
+    "access_expire_minutes": 30,
+    "refresh_expire_minutes": 43200,
+    "jwt_secret_configured": true
+  },
+  "database_status": {
+    "summary": "sqlite:///platform.db",
+    "sqlite_backup_recommended": true
+  }
+}
+```
+
+这些字段只暴露 revision、策略名、有效期和数据库摘要,不返回密码、Token、私钥、known_hosts 内容或密钥材料。
+
 ### 设备级 SSH 凭据
 
 设备创建和更新请求支持:
@@ -1644,7 +1675,25 @@ GET /api/diagnostics/config
 Authorization: Bearer <access_token>
 ```
 
-前端"系统诊断"页展示服务名、版本、API 前缀、数据库摘要、文件后端、远程网关、默认 SSH 用户和 `security` 摘要。该接口和页面只展示非敏感摘要,不返回密码、Token、私钥内容、密钥或解密后的设备凭据。
+前端"系统诊断"页展示服务名、版本、API 前缀、数据库摘要、文件后端、远程网关、默认 SSH 用户、`security`、`migration`、`ssh_host_key`、`auth_lifetime` 和 `database_status` 摘要。该接口和页面只展示非敏感摘要,不返回密码、Token、私钥内容、密钥或解密后的设备凭据。
+
+## Wave 17 治理约束
+
+### 枚举字段
+
+以下字段由后端枚举校验,未知值返回 `422`:
+
+| 字段 | 允许值 |
+| --- | --- |
+| `DeviceCreate.ssh_auth_type` / `DeviceUpdate.ssh_auth_type` | `password`, `key` |
+| `DeviceUpdate.status` / `DeviceMetricCreate.status` | `online`, `offline`, `degraded`, `unknown` |
+| `UpdateTaskCreate.execution_mode` / 预览请求 `execution_mode` | `dry_run`, `ssh_command` |
+| `UpdateTaskCreate.failure_strategy` | `continue`, `pause`, `rollback` |
+| `UpdateTaskCreate.task_type` / 定时任务 `task_type` / 更新模板 `task_type` | `command`, `script`, `config`, `health_check` |
+
+### 前端 Token 刷新
+
+前端请求收到 `401` 后会使用本地 refresh token 调用 `POST /api/auth/refresh` 重试一次原请求。刷新成功后会更新本地 access/refresh token;刷新失败、refresh token 缺失或刷新接口返回 `401` 时,前端会清理本地登录态并回到登录页。
 
 ## Wave 13 监控指标与仪表盘展示规则
 

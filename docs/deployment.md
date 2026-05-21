@@ -10,6 +10,8 @@
 export JWT_SECRET_KEY='replace-with-a-long-random-secret'
 export CREDENTIAL_ENCRYPTION_KEY="$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 export DEFAULT_ADMIN_PASSWORD='replace-admin-password'
+export SSH_HOST_KEY_POLICY='auto_add'
+# export SSH_KNOWN_HOSTS_FILE='/etc/edge-platform/known_hosts'
 ```
 
 4. Place the generated service at `/etc/systemd/system/edge-platform.service`, then run:
@@ -104,6 +106,8 @@ On Debian 11 edge devices, run `scripts/deploy/edge_bootstrap.sh` to check `ssh`
 - Start with a harmless command such as `hostname` or `whoami`, then inspect each task device result for `exit_code`, `stdout_summary`, `stderr_summary`, and `error_message`.
 - If the backend runs behind Nginx, keep long-running API calls and WebSocket locations on the same single-domain reverse proxy, and raise `proxy_read_timeout` when commands may take longer than the default timeout.
 - Check `GET /api/diagnostics/config` after deployment. Any `security.warnings` should be resolved before testing real SSH tasks against production-like devices.
+- Check `migration.has_pending_migrations=false` in `GET /api/diagnostics/config` after every deploy. The backend runs Alembic `upgrade head` on startup, but a persistent error here means the service should not be used for production-like testing.
+- `SSH_HOST_KEY_POLICY` defaults to `auto_add` for compatibility. For stricter environments, set it to `warning` or `reject` and configure `SSH_KNOWN_HOSTS_FILE` with the backend service user's readable known_hosts file.
 
 ## Wave 14 远程连接部署检查
 
@@ -173,3 +177,16 @@ curl "$BASE_URL/api/devices/$DEVICE_ID/metrics?limit=1" \
 - 执行任务时前端会连接 `/api/ws/update-tasks/{id}?token=<access_token>` 读取快照。若任务可执行但前端进度不刷新,优先检查 Nginx `/api/ws/` WebSocket 升级头和超时配置。
 - 结果导出走 `GET /api/update-tasks/{id}/export`,返回 `text/csv` 和 `Content-Disposition`。如果浏览器没有下载文件,检查 Nginx 是否拦截下载响应头。
 - 命令模板表 `update_task_templates` 会由后端启动时自动创建。若旧 SQLite 数据库升级后模板接口报表不存在,重启后端服务并确认 `Base.metadata.create_all` 已执行。
+
+## Wave 17 治理与认证刷新检查
+
+- 重启后端后先访问 `GET /api/diagnostics/config`,确认 `migration.current_revision` 等于 `migration.head_revision`,且 `migration.has_pending_migrations=false`。
+- 如果要从 `auto_add` 切到更严格的 SSH 主机密钥策略,先在后端服务器准备 known_hosts 文件,再设置:
+
+```bash
+export SSH_HOST_KEY_POLICY='warning'
+export SSH_KNOWN_HOSTS_FILE='/etc/edge-platform/known_hosts'
+```
+
+- 前端登录态过期时会自动调用 refresh 接口重试一次。若 refresh token 也过期或后端返回 `401`,页面会直接回到登录页;部署验收时可通过缩短 token 有效期或清空 `edge-platform-refresh-token` 验证。
+- 若某个接口因为枚举值返回 `422`,检查请求中的 `status`、`ssh_auth_type`、`execution_mode`、`failure_strategy` 或 `task_type` 是否在接口文档列出的允许值内。

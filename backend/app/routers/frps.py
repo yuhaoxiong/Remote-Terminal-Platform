@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.database import session_scope
-from app.dependencies import get_app_settings, get_current_user
+from app.dependencies import get_current_user, request_session
 from app.models.user import User
 from app.schemas.frps import FrpsImportRequest, FrpsImportResponse
 from app.services.frps_import import FrpsDashboardError, FrpsImportService
@@ -16,9 +15,8 @@ def discover_frps_devices(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> FrpsImportResponse:
-    settings = get_app_settings(request)
-    service = FrpsImportService(settings, dashboard_client=getattr(request.app.state, "frps_dashboard_client", None))
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = FrpsImportService(settings, dashboard_client=getattr(request.app.state, "frps_dashboard_client", None))
         try:
             return service.discover(session, payload)
         except FrpsDashboardError as exc:
@@ -31,9 +29,8 @@ def import_frps_devices(
     request: Request,
     current_user: User = Depends(get_current_user),
 ) -> FrpsImportResponse:
-    settings = get_app_settings(request)
-    service = FrpsImportService(settings, dashboard_client=getattr(request.app.state, "frps_dashboard_client", None))
-    with session_scope(settings) as session:
+    with request_session(request) as (settings, session):
+        service = FrpsImportService(settings, dashboard_client=getattr(request.app.state, "frps_dashboard_client", None))
         try:
             result = service.import_devices(session, payload)
         except FrpsDashboardError as exc:

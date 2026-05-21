@@ -9,6 +9,30 @@ class DiagnosticsSecuritySummary(BaseModel):
     warnings: list[str] = []
 
 
+class DiagnosticsMigrationSummary(BaseModel):
+    current_revision: str | None
+    head_revision: str | None
+    has_pending_migrations: bool
+    last_error: str | None = None
+
+
+class DiagnosticsSshHostKeySummary(BaseModel):
+    policy: str
+    known_hosts_configured: bool
+    warnings: list[str] = []
+
+
+class DiagnosticsAuthLifetimeSummary(BaseModel):
+    access_expire_minutes: int
+    refresh_expire_minutes: int
+    jwt_secret_configured: bool
+
+
+class DiagnosticsDatabaseSummary(BaseModel):
+    summary: str
+    sqlite_backup_recommended: bool
+
+
 class DiagnosticsConfigResponse(BaseModel):
     service_name: str
     version: str
@@ -21,3 +45,7 @@ class DiagnosticsConfigResponse(BaseModel):
     vnc_timeout_seconds: int
     default_device_ssh_user: str
     security: DiagnosticsSecuritySummary
+    migration: DiagnosticsMigrationSummary
+    ssh_host_key: DiagnosticsSshHostKeySummary
+    auth_lifetime: DiagnosticsAuthLifetimeSummary
+    database_status: DiagnosticsDatabaseSummary

@@ -113,7 +113,17 @@ class SshService:
 
         client = paramiko.SSHClient()
         client.load_system_host_keys()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        if self.settings.ssh_known_hosts_file:
+            try:
+                client.load_host_keys(self.settings.ssh_known_hosts_file)
+            except OSError as exc:
+                raise RemoteConnectionError(f"SSH known_hosts 文件不可用: {exc}") from exc
+        if self.settings.ssh_host_key_policy == "reject":
+            client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        elif self.settings.ssh_host_key_policy == "warning":
+            client.set_missing_host_key_policy(paramiko.WarningPolicy())
+        else:
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
             client.connect(
                 hostname=self.settings.remote_gateway_host,

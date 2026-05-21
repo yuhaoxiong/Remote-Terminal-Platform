@@ -103,6 +103,7 @@ def _ensure_sqlite_schema(settings: Settings) -> None:
 
 
 def init_db(settings: Settings | None = None) -> None:
+    from app.migrations import upgrade_to_head
     from app.models.device import Device
     from app.models.group import Group
     from app.models.log import OperationLog
@@ -114,6 +115,7 @@ def init_db(settings: Settings | None = None) -> None:
     from app.services.security import hash_password
 
     settings = settings or get_settings()
+    upgrade_to_head(settings)
     Base.metadata.create_all(get_engine(settings))
     _ensure_sqlite_schema(settings)
 
