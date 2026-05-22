@@ -56,3 +56,15 @@ class ScheduledTaskType(StrEnum):
     script = "script"
     config = "config"
     health_check = "health_check"
+
+
+class ScheduledTaskRunTriggerType(StrEnum):
+    manual = "manual"
+    scheduled = "scheduled"
+
+
+class ScheduledTaskRunStatus(StrEnum):
+    running = "running"
+    success = "success"
+    failed = "failed"
+    skipped = "skipped"

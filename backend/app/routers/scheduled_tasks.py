@@ -8,6 +8,8 @@ from app.schemas.scheduled_task import (
     ScheduledTaskExecuteResponse,
     ScheduledTaskListResponse,
     ScheduledTaskRead,
+    ScheduledTaskRunListResponse,
+    ScheduledTaskRunRead,
     ScheduledTaskUpdate,
 )
 from app.services.operation_log import OperationLogService
@@ -128,10 +130,40 @@ def execute_scheduled_task(
 ) -> ScheduledTaskExecuteResponse:
     with request_session(request) as (settings, session):
         try:
-            summary = ScheduledTaskService(settings).execute(session, task_id, user_id=current_user.id)
+            run = ScheduledTaskService(settings).run_now(session, task_id, user_id=current_user.id, trigger_type="manual")
         except ScheduledTaskNotFoundError as exc:
             raise not_found_error(exc) from exc
-        return ScheduledTaskExecuteResponse(task_id=task_id, status="success", output_summary=summary)
+        return ScheduledTaskExecuteResponse(
+            task_id=task_id,
+            status=run.status,
+            output_summary=run.output_summary or run.error_message or run.status,
+            run_id=run.id,
+        )
+
+
+@router.post("/{task_id}/run-now", response_model=ScheduledTaskExecuteResponse)
+def run_scheduled_task_now(
+    task_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> ScheduledTaskExecuteResponse:
+    return execute_scheduled_task(task_id, request, current_user)
+
+
+@router.get("/{task_id}/runs", response_model=ScheduledTaskRunListResponse)
+def scheduled_task_runs(
+    task_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> ScheduledTaskRunListResponse:
+    with request_session(request) as (settings, session):
+        try:
+            total, runs = ScheduledTaskService(settings).list_runs(session, task_id, offset=offset, limit=limit)
+        except ScheduledTaskNotFoundError as exc:
+            raise not_found_error(exc) from exc
+        return ScheduledTaskRunListResponse(total=total, items=[ScheduledTaskRunRead.model_validate(run) for run in runs])
 
 
 @router.get("/{task_id}/logs", response_model=OperationLogListResponse)

@@ -22,7 +22,7 @@
 - 批量更新任务创建、目标设备预览、命令模板、演练执行、真实 SSH 命令执行、取消、单设备状态追踪、失败设备重试入口、结果 CSV 导出和 WebSocket 进度快照。
 - 操作日志查询和 CSV 导出。
 - 设备文件管理接口:列表、上传、下载、删除,支持本地开发后端与 SFTP 后端。
-- 定时任务接口:创建、列表、更新、删除、启停、执行和执行日志。
+- 定时任务接口:创建、列表、更新、删除、启停、手动执行、自动调度、执行记录和执行日志。
 - 前端操作界面:登录、仪表盘、设备、分组、远程连接、更新任务、日志和系统诊断。
 - 部署辅助资产:后端安装、边缘设备引导、SQLite 备份和部署文档。
 
@@ -137,6 +137,8 @@ $env:SSH_KEY_FILENAME='C:\path\to\id_ed25519'
 $env:SSH_KEY_PASSPHRASE='<私钥口令>'
 $env:FILE_BACKEND='sftp'
 $env:CREDENTIAL_ENCRYPTION_KEY='<Fernet 密钥>'
+$env:SCHEDULER_ENABLED='true'
+$env:SCHEDULER_POLL_INTERVAL_SECONDS='30'
 ```
 
 `FILE_BACKEND` 默认是 `local`,用于没有真实设备的本地开发;设置为 `sftp` 后,文件列表、上传、下载和删除会通过设备 frp SSH 端口访问真实设备。远程 SSH/VNC 连接依赖设备记录中的代理端口、设备级 SSH 凭据、frpc/frps 可达性和 Nginx WebSocket 代理。
@@ -218,7 +220,10 @@ py -3.12 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key()
 - `DELETE /api/scheduled-tasks/{id}`
 - `POST /api/scheduled-tasks/{id}/toggle`
 - `POST /api/scheduled-tasks/{id}/execute`
+- `POST /api/scheduled-tasks/{id}/run-now`
+- `GET /api/scheduled-tasks/{id}/runs`
 - `GET /api/scheduled-tasks/{id}/logs`
+- `GET /api/scheduler/status`
 
 ### 监控和日志
 
@@ -251,6 +256,7 @@ scripts/deploy/backup_sqlite.ps1
 - 设备文件管理默认使用本地存储后端,配置 `FILE_BACKEND=sftp` 后会通过 `paramiko` SFTP 访问真实设备。
 - 远程 SSH/VNC 已提供产品化入口:SSH 使用 xterm 和 JSON WebSocket 转发终端输入输出、resize 和断开;VNC 使用 noVNC 连接二进制 WebSocket-to-TCP 代理,支持内嵌连接、断开和全屏。
 - 批量更新任务默认使用演练模式;选择"真实 SSH 执行"后会通过设备级 SSH 凭据连接 frp SSH 端口并执行命令,记录退出码、标准输出摘要、错误输出摘要和失败原因。任务创建区支持目标预览、手动选择设备和命令模板,执行结果支持失败设备新建重试任务和 CSV 导出。
+- 定时任务支持 `interval:N` 和 5 位 `cron:` 表达式。后台调度器默认启用,会计算 `next_run_at`,到期后复用批量任务执行链路生成独立执行记录;真实 SSH 调度必须显式选择 `execution_mode=ssh_command`。
 - 前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:8000`,可以用 `VITE_API_PROXY_TARGET` 覆盖代理目标。
 - 前端构建会出现 Vite 大 chunk 警告,原因是 Element Plus 被打进主 chunk;当前不影响构建产物。
 - 当前工作区是 Git 仓库;提交或推送前请确认没有暂存无关本地文档。
@@ -270,7 +276,7 @@ npm.cmd run build
 
 最近结果:
 
-- 后端:58 个测试通过。
+- 后端:64 个测试通过。
 - 前端:18 个测试通过。
 - 前端构建:成功,仍有已知 Vite chunk size 警告。
 - Wave 7 联调:后端 `127.0.0.1:8010`、前端 `127.0.0.1:5179`,通过前端代理完成登录、更新任务列表、监控总览、设备创建、设备列表和设备删除验收。
@@ -297,6 +303,8 @@ docs/postman/edge-platform.postman_collection.json
 常见错误:如果出现 `Cannot read property 'json' of undefined`,说明脚本被放到了 Pre-request Script。保存 Token 的脚本必须放在登录请求的 Tests 中。
 
 集合中的"批量 SSH 任务"文件夹提供演练任务、真实 SSH 任务、执行任务和查询任务详情请求。运行真实 SSH 任务前先确认 `project_id` 命中的设备已导入并能通过 frp SSH 端口访问。
+
+集合中的"Wave 18 定时任务调度"文件夹提供调度器状态、立即执行、执行记录和非法 cron 校验请求。
 
 ## Wave 10 补充说明
 
@@ -345,7 +353,7 @@ docs/postman/edge-platform.postman_collection.json
 - 设备管理表新增"文件"入口,点击后在设备操作区打开文件管理面板,支持目录浏览、返回上级、任意文件类型上传、下载和删除。
 - 文件上传前端使用 `multipart/form-data`,字段为 `remote_path` 和 `file`;后端仍兼容旧 JSON 文本上传格式,便于已有脚本平滑迁移。
 - 文件下载接口现在返回二进制响应,并带 `Content-Disposition` 下载头;`Content-Type` 会按文件名推断,无法推断时使用 `application/octet-stream`。
-- 新增"定时任务"前端页面,覆盖任务创建、编辑、删除、启停、手动执行和执行日志查看。本轮仍只做 API 管理闭环,不接入真实后台调度器。
+- 新增"定时任务"前端页面,覆盖任务创建、编辑、删除、启停、手动执行和执行日志查看。Wave 18 已在该页面继续补齐调度器状态、最近执行结果和执行记录。
 - 前端开始拆分独立组件,当前已拆出 `DeviceFilePanel.vue` 和 `ScheduledTaskPanel.vue`,降低主应用文件继续膨胀的风险。
 - Web SSH 收到 `{ "type": "close" }` 后会先关闭后端 shell,再返回 `{ "type": "status", "status": "closed" }`,方便客户端和测试确认资源已释放。
 
@@ -366,3 +374,11 @@ docs/postman/edge-platform.postman_collection.json
 - Router 层统一使用共享请求会话和 404/409 错误 helper,减少接口间重复会话处理。
 - 前端 access token 过期后会自动使用 refresh token 重试一次;refresh 失败或缺失时会清理本地登录态并直接回到登录页。
 - 系统诊断页新增数据库迁移、SSH 主机密钥策略、认证有效期和数据库备份建议展示,仍只显示非敏感摘要。
+
+## Wave 18 定时任务真实调度补充
+
+- 后端新增 APScheduler 调度服务,通过 `SCHEDULER_ENABLED` 控制是否启用,通过 `SCHEDULER_POLL_INTERVAL_SECONDS` 控制到期任务扫描间隔。
+- 定时任务表达式仅支持 `interval:N` 和 5 位 `cron:`;创建、更新、启停后会同步刷新 `next_run_at`。
+- `POST /api/scheduled-tasks/{id}/execute` 继续保留,并新增 `POST /api/scheduled-tasks/{id}/run-now`;两者都会写入执行记录,可通过 `GET /api/scheduled-tasks/{id}/runs` 查看。
+- `task_type=command` 的任务会复用批量更新任务执行链路。`execution_mode=dry_run` 只做演练,`execution_mode=ssh_command` 才会连接设备执行真实 SSH 命令。
+- 新增 `GET /api/scheduler/status`,系统诊断页也会展示调度器启停状态、扫描间隔、最近扫描、失败执行数量和告警摘要。

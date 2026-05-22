@@ -126,7 +126,10 @@ vi.mock("../api/platform", () => ({
   deleteScheduledTask: vi.fn(),
   toggleScheduledTask: vi.fn(),
   executeScheduledTask: vi.fn(),
+  runScheduledTaskNow: vi.fn(),
+  listScheduledTaskRuns: vi.fn(),
   listScheduledTaskLogs: vi.fn(),
+  getSchedulerStatus: vi.fn(),
   getAccessToken: vi.fn(() => "access-token"),
   getDeviceStatus: vi.fn(),
   getDiagnosticsConfig: vi.fn(),
@@ -384,6 +387,14 @@ function mockResolvedApiState() {
         command: "hostname",
         target_filter: { project_id: "frps-import" },
         enabled: true,
+        execution_mode: "dry_run",
+        failure_strategy: "continue",
+        concurrency_limit: 5,
+        last_run_at: "2026-05-19T00:00:00",
+        last_status: "success",
+        last_error: null,
+        next_run_at: "2026-05-19T00:05:00",
+        running: false,
         created_at: "2026-05-19T00:00:00",
         updated_at: "2026-05-19T00:00:00",
       },
@@ -397,6 +408,14 @@ function mockResolvedApiState() {
     command: "whoami",
     target_filter: { project_id: "frps-import" },
     enabled: true,
+    execution_mode: "dry_run",
+    failure_strategy: "continue",
+    concurrency_limit: 5,
+    last_run_at: null,
+    last_status: null,
+    last_error: null,
+    next_run_at: "2026-05-19T00:10:00",
+    running: false,
     created_at: "2026-05-19T00:00:00",
     updated_at: "2026-05-19T00:00:00",
   });
@@ -408,6 +427,14 @@ function mockResolvedApiState() {
     command: "hostname",
     target_filter: { project_id: "frps-import" },
     enabled: true,
+    execution_mode: "dry_run",
+    failure_strategy: "continue",
+    concurrency_limit: 5,
+    last_run_at: "2026-05-19T00:00:00",
+    last_status: "success",
+    last_error: null,
+    next_run_at: "2026-05-19T00:05:00",
+    running: false,
     created_at: "2026-05-19T00:00:00",
     updated_at: "2026-05-19T00:00:00",
   });
@@ -420,6 +447,14 @@ function mockResolvedApiState() {
     command: "hostname",
     target_filter: { project_id: "frps-import" },
     enabled: false,
+    execution_mode: "dry_run",
+    failure_strategy: "continue",
+    concurrency_limit: 5,
+    last_run_at: "2026-05-19T00:00:00",
+    last_status: "success",
+    last_error: null,
+    next_run_at: null,
+    running: false,
     created_at: "2026-05-19T00:00:00",
     updated_at: "2026-05-19T00:00:00",
   });
@@ -427,6 +462,39 @@ function mockResolvedApiState() {
     task_id: 7,
     status: "success",
     output_summary: "simulated scheduled task execution: hostname",
+    run_id: 10,
+  });
+  api.runScheduledTaskNow.mockResolvedValue({
+    task_id: 7,
+    status: "success",
+    output_summary: "simulated scheduled task execution: hostname",
+    run_id: 11,
+  });
+  api.listScheduledTaskRuns.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 11,
+        scheduled_task_id: 7,
+        trigger_type: "manual",
+        status: "success",
+        started_at: "2026-05-19T00:00:00",
+        finished_at: "2026-05-19T00:00:02",
+        duration_ms: 2000,
+        output_summary: "simulated scheduled task execution: hostname",
+        error_message: null,
+        created_update_task_id: 18,
+        created_at: "2026-05-19T00:00:00",
+      },
+    ],
+  });
+  api.getSchedulerStatus.mockResolvedValue({
+    enabled: true,
+    running: true,
+    poll_interval_seconds: 30,
+    last_scan_at: "2026-05-19T00:00:00",
+    last_error: null,
+    job_count: 1,
   });
   api.listScheduledTaskLogs.mockResolvedValue({
     total: 1,
@@ -480,6 +548,16 @@ function mockResolvedApiState() {
     database_status: {
       summary: "sqlite:///edge-platform.db",
       sqlite_backup_recommended: true,
+    },
+    scheduler: {
+      enabled: true,
+      running: true,
+      poll_interval_seconds: 30,
+      last_scan_at: "2026-05-19T00:00:00",
+      last_error: null,
+      enabled_task_count: 1,
+      failed_run_count: 0,
+      warnings: [],
     },
   });
   api.syncDeviceConfig.mockResolvedValue({
@@ -1354,6 +1432,8 @@ describe("App", () => {
 
     expect(wrapper.text()).toContain("定时任务");
     expect(wrapper.text()).toContain("巡检任务");
+    expect(wrapper.text()).toContain("运行中");
+    expect(wrapper.text()).toContain("success");
 
     await wrapper.find('[data-testid="open-scheduled-create"]').trigger("click");
     await wrapper.find('[data-testid="scheduled-name"] input').setValue("新建巡检");
@@ -1370,6 +1450,9 @@ describe("App", () => {
       command: "whoami",
       target_filter: { project_id: "frps-import" },
       enabled: true,
+      execution_mode: "dry_run",
+      failure_strategy: "continue",
+      concurrency_limit: 5,
     });
     expect(wrapper.text()).toContain("新建巡检");
 
@@ -1384,6 +1467,9 @@ describe("App", () => {
       command: "hostname",
       target_filter: { project_id: "frps-import" },
       enabled: true,
+      execution_mode: "dry_run",
+      failure_strategy: "continue",
+      concurrency_limit: 5,
     });
     expect(wrapper.text()).toContain("巡检任务已更新");
 
@@ -1394,8 +1480,14 @@ describe("App", () => {
 
     await wrapper.find('[data-testid="execute-scheduled-7"]').trigger("click");
     await flushAsync();
-    expect(api.executeScheduledTask).toHaveBeenCalledWith(7);
+    expect(api.runScheduledTaskNow).toHaveBeenCalledWith(7);
+    expect(api.listScheduledTaskRuns).toHaveBeenCalledWith(7);
     expect(wrapper.text()).toContain("simulated scheduled task execution: hostname");
+    expect(wrapper.text()).toContain("手动");
+
+    await wrapper.find('[data-testid="runs-scheduled-7"]').trigger("click");
+    await flushAsync();
+    expect(api.listScheduledTaskRuns).toHaveBeenCalledWith(7);
 
     await wrapper.find('[data-testid="logs-scheduled-7"]').trigger("click");
     await flushAsync();

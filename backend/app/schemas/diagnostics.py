@@ -33,6 +33,17 @@ class DiagnosticsDatabaseSummary(BaseModel):
     sqlite_backup_recommended: bool
 
 
+class DiagnosticsSchedulerSummary(BaseModel):
+    enabled: bool
+    running: bool
+    poll_interval_seconds: int
+    last_scan_at: str | None
+    last_error: str | None
+    enabled_task_count: int
+    failed_run_count: int
+    warnings: list[str] = []
+
+
 class DiagnosticsConfigResponse(BaseModel):
     service_name: str
     version: str
@@ -49,3 +60,4 @@ class DiagnosticsConfigResponse(BaseModel):
     ssh_host_key: DiagnosticsSshHostKeySummary
     auth_lifetime: DiagnosticsAuthLifetimeSummary
     database_status: DiagnosticsDatabaseSummary
+    scheduler: DiagnosticsSchedulerSummary

@@ -1,16 +1,21 @@
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy import func, select
 
+from app.database import session_scope
 from app.dependencies import get_app_settings, get_current_user
 from app.migrations import migration_status
+from app.models.scheduled_task import ScheduledTask, ScheduledTaskRun
 from app.models.user import User
 from app.schemas.diagnostics import (
     DiagnosticsConfigResponse,
     DiagnosticsAuthLifetimeSummary,
     DiagnosticsDatabaseSummary,
     DiagnosticsMigrationSummary,
+    DiagnosticsSchedulerSummary,
     DiagnosticsSecuritySummary,
     DiagnosticsSshHostKeySummary,
 )
+from app.services.scheduler_service import SchedulerService
 
 router = APIRouter(prefix="/diagnostics", tags=["diagnostics"])
 
@@ -71,6 +76,31 @@ def _ssh_host_key_summary(settings) -> DiagnosticsSshHostKeySummary:
     )
 
 
+def _scheduler_summary(request: Request, settings) -> DiagnosticsSchedulerSummary:
+    scheduler = getattr(request.app.state, "scheduler_service", None)
+    if not isinstance(scheduler, SchedulerService):
+        scheduler = SchedulerService(settings)
+    status = scheduler.status()
+    with session_scope(settings) as session:
+        enabled_task_count = session.scalar(select(func.count(ScheduledTask.id)).where(ScheduledTask.enabled.is_(True))) or 0
+        failed_run_count = session.scalar(select(func.count(ScheduledTaskRun.id)).where(ScheduledTaskRun.status == "failed")) or 0
+    warnings: list[str] = []
+    if not status.enabled:
+        warnings.append("后台调度器已关闭，定时任务不会自动触发")
+    if status.last_error:
+        warnings.append("后台调度器最近一次扫描失败，请检查后端日志")
+    return DiagnosticsSchedulerSummary(
+        enabled=status.enabled,
+        running=status.running,
+        poll_interval_seconds=status.poll_interval_seconds,
+        last_scan_at=status.last_scan_at.isoformat() if status.last_scan_at else None,
+        last_error=status.last_error,
+        enabled_task_count=enabled_task_count,
+        failed_run_count=failed_run_count,
+        warnings=warnings,
+    )
+
+
 @router.get("/config", response_model=DiagnosticsConfigResponse)
 def get_diagnostics_config(
     request: Request,
@@ -100,4 +130,5 @@ def get_diagnostics_config(
             summary=_database_summary(settings.database_url),
             sqlite_backup_recommended=settings.database_url.startswith("sqlite"),
         ),
+        scheduler=_scheduler_summary(request, settings),
     )

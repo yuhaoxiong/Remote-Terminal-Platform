@@ -49,7 +49,7 @@ def test_scheduled_task_crud_toggle_execute_and_logs(client) -> None:
     logs = client.get(f"/api/scheduled-tasks/{task_id}/logs", headers=headers)
     assert logs.status_code == 200
     assert logs.json()["total"] >= 1
-    assert logs.json()["items"][0]["action"] == "scheduled_task.execute"
+    assert logs.json()["items"][0]["action"] == "scheduled_task.run.manual"
 
     deleted = client.delete(f"/api/scheduled-tasks/{task_id}", headers=headers)
     assert deleted.status_code == 204

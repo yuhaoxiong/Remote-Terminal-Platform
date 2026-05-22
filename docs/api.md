@@ -1092,7 +1092,10 @@ POST /api/scheduled-tasks
   "target_filter": {
     "project_id": "factory-a"
   },
-  "enabled": true
+  "enabled": true,
+  "execution_mode": "dry_run",
+  "failure_strategy": "continue",
+  "concurrency_limit": 5
 }
 ```
 
@@ -1100,9 +1103,11 @@ POST /api/scheduled-tasks
 
 校验规则:
 
-- `schedule` 必须以 `cron:` 或 `interval:` 开头。
+- `schedule` 仅支持 `interval:N` 和 5 位 `cron:` 表达式。
+- `execution_mode` 支持 `dry_run` 和 `ssh_command`;只有 `ssh_command` 会连接设备执行真实 SSH 命令。
+- `concurrency_limit` 范围为 `1-50`。
 
-当前实现只保存定时任务配置,不包含后台调度器自动触发。
+`ScheduledTask` 响应会包含 `last_run_at`、`last_status`、`last_error`、`next_run_at` 和 `running`。后台调度器启用时,到期任务会自动生成执行记录。
 
 ### 查询定时任务列表
 
@@ -1174,11 +1179,62 @@ POST /api/scheduled-tasks/{task_id}/execute
 {
   "task_id": 1,
   "status": "success",
-  "output_summary": "simulated scheduled task execution: echo ok"
+  "output_summary": "scheduled task dry-run created update task 7",
+  "run_id": 3
 }
 ```
 
-当前实现为模拟执行,只记录一条 `scheduled_task.execute` 操作日志。
+该接口保留兼容入口,会写入一条手动执行记录。命令任务会复用批量更新任务执行链路:`dry_run` 只演练,`ssh_command` 执行真实 SSH 命令。
+
+### 立即执行定时任务
+
+```http
+POST /api/scheduled-tasks/{task_id}/run-now
+```
+
+认证:需要。
+
+响应 `200` 与 `POST /api/scheduled-tasks/{task_id}/execute` 一致。
+
+### 查询定时任务执行记录
+
+```http
+GET /api/scheduled-tasks/{task_id}/runs
+```
+
+认证:需要。
+
+查询参数:
+
+| 参数 | 类型 | 默认值 | 约束 |
+| --- | --- | --- | --- |
+| `offset` | integer | `0` | 大于等于 0 |
+| `limit` | integer | `50` | 1-200 |
+
+响应 `200`:
+
+```json
+{
+  "total": 1,
+  "items": [
+    {
+      "id": 3,
+      "scheduled_task_id": 1,
+      "trigger_type": "manual",
+      "status": "success",
+      "started_at": "2026-05-21T10:00:00",
+      "finished_at": "2026-05-21T10:00:01",
+      "duration_ms": 1000,
+      "output_summary": "scheduled task dry-run created update task 7",
+      "error_message": null,
+      "created_update_task_id": 7,
+      "created_at": "2026-05-21T10:00:00"
+    }
+  ]
+}
+```
+
+`trigger_type` 支持 `manual` 和 `scheduled`;`status` 支持 `running`、`success`、`failed` 和 `skipped`。
 
 ### 查询定时任务日志
 
@@ -1189,6 +1245,27 @@ GET /api/scheduled-tasks/{task_id}/logs
 认证:需要。
 
 响应 `200`:`OperationLogListResponse`。
+
+### 查询调度器状态
+
+```http
+GET /api/scheduler/status
+```
+
+认证:需要。
+
+响应 `200`:
+
+```json
+{
+  "enabled": true,
+  "running": true,
+  "poll_interval_seconds": 30,
+  "last_scan_at": "2026-05-21T10:00:00",
+  "last_error": null,
+  "job_count": 1
+}
+```
 
 ## 监控接口
 

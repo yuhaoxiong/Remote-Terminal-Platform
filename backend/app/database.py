@@ -101,6 +101,25 @@ def _ensure_sqlite_schema(settings: Settings) -> None:
                 connection.execute(text("ALTER TABLE devices ADD COLUMN ssh_key_encrypted TEXT"))
             connection.execute(text("UPDATE devices SET ssh_password_encrypted = '123456' WHERE ssh_password_encrypted IS NULL OR ssh_password_encrypted = ''"))
 
+        if "scheduled_tasks" in table_names:
+            scheduled_task_columns = {column["name"] for column in inspector.get_columns("scheduled_tasks")}
+            if "execution_mode" not in scheduled_task_columns:
+                connection.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN execution_mode VARCHAR(32) NOT NULL DEFAULT 'dry_run'"))
+            if "failure_strategy" not in scheduled_task_columns:
+                connection.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN failure_strategy VARCHAR(32) NOT NULL DEFAULT 'continue'"))
+            if "concurrency_limit" not in scheduled_task_columns:
+                connection.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN concurrency_limit INTEGER NOT NULL DEFAULT 5"))
+            if "last_run_at" not in scheduled_task_columns:
+                connection.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN last_run_at DATETIME"))
+            if "last_status" not in scheduled_task_columns:
+                connection.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN last_status VARCHAR(32)"))
+            if "last_error" not in scheduled_task_columns:
+                connection.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN last_error TEXT"))
+            if "next_run_at" not in scheduled_task_columns:
+                connection.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN next_run_at DATETIME"))
+            if "running" not in scheduled_task_columns:
+                connection.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN running BOOLEAN NOT NULL DEFAULT 0"))
+
 
 def init_db(settings: Settings | None = None) -> None:
     from app.migrations import upgrade_to_head
@@ -109,7 +128,7 @@ def init_db(settings: Settings | None = None) -> None:
     from app.models.log import OperationLog
     from app.models.metric import DeviceMetric
     from app.models.port_pool import PortPool
-    from app.models.scheduled_task import ScheduledTask
+    from app.models.scheduled_task import ScheduledTask, ScheduledTaskRun
     from app.models.update_task import UpdateTask, UpdateTaskDevice, UpdateTaskTemplate
     from app.models.user import User
     from app.services.security import hash_password
@@ -135,4 +154,4 @@ def init_db(settings: Settings | None = None) -> None:
             for port in range(settings.vnc_port_start, settings.vnc_port_end + 1):
                 session.add(PortPool(service_type="vnc", port=port, status="available"))
 
-    _ = (Device, Group, OperationLog, DeviceMetric, ScheduledTask, UpdateTask, UpdateTaskDevice, UpdateTaskTemplate)
+    _ = (Device, Group, OperationLog, DeviceMetric, ScheduledTask, ScheduledTaskRun, UpdateTask, UpdateTaskDevice, UpdateTaskTemplate)

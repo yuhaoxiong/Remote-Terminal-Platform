@@ -1052,10 +1052,10 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Postman 巡检任务\",\n  \"task_type\": \"command\",\n  \"schedule\": \"interval:300\",\n  \"command\": \"hostname\",\n  \"target_filter\": {\n    \"project_id\": \"{{project_id}}\"\n  },\n  \"enabled\": true\n}"
+              "raw": "{\n  \"name\": \"Postman 巡检任务\",\n  \"task_type\": \"command\",\n  \"schedule\": \"interval:300\",\n  \"command\": \"hostname\",\n  \"target_filter\": {\n    \"project_id\": \"{{project_id}}\"\n  },\n  \"enabled\": true,\n  \"execution_mode\": \"dry_run\",\n  \"failure_strategy\": \"continue\",\n  \"concurrency_limit\": 5\n}"
             },
             "url": "{{base_url}}/api/scheduled-tasks",
-            "description": "本轮只创建 API 配置,不会接入真实后台调度器。"
+            "description": "创建一个 dry-run 定时任务。Wave 18 后调度器会按表达式自动扫描到期任务。"
           },
           "response": []
         },
@@ -1101,7 +1101,7 @@
             "method": "POST",
             "header": [],
             "url": "{{base_url}}/api/scheduled-tasks/{{scheduled_task_id}}/execute",
-            "description": "当前为模拟执行,会记录 scheduled_task.execute 操作日志。"
+            "description": "兼容手动执行入口,会生成执行记录并记录 scheduled_task.run.manual。"
           },
           "response": []
         },
@@ -1234,6 +1234,122 @@
               }
             },
             "url": "{{base_url}}/api/update-tasks"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Wave 18 定时任务调度",
+      "item": [
+        {
+          "name": "查询调度器状态",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"调度器状态请求成功\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"包含调度器状态字段\", function () {",
+                  "  pm.expect(json).to.have.property(\"enabled\");",
+                  "  pm.expect(json).to.have.property(\"running\");",
+                  "  pm.expect(json).to.have.property(\"poll_interval_seconds\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/scheduler/status",
+            "description": "查看调度器启停、扫描间隔、最近扫描和最近错误。"
+          },
+          "response": []
+        },
+        {
+          "name": "立即执行定时任务",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"立即执行请求成功\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"返回执行记录 ID\", function () { pm.expect(json.run_id).to.be.a(\"number\"); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/scheduled-tasks/{{scheduled_task_id}}/run-now",
+            "description": "run-now 与旧 execute 入口一致,均会生成 scheduled_task_runs 记录。"
+          },
+          "response": []
+        },
+        {
+          "name": "查询定时任务执行记录",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"执行记录请求成功\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"返回分页结构\", function () {",
+                  "  pm.expect(json.total).to.be.a(\"number\");",
+                  "  pm.expect(json.items).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/scheduled-tasks/{{scheduled_task_id}}/runs",
+            "description": "查看手动触发和自动调度生成的执行记录。"
+          },
+          "response": []
+        },
+        {
+          "name": "非法 cron 表达式应返回 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"非法调度表达式被拒绝\", function () { pm.response.to.have.status(422); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"非法 cron 验收\",\n  \"task_type\": \"command\",\n  \"schedule\": \"cron:* * *\",\n  \"command\": \"hostname\",\n  \"execution_mode\": \"dry_run\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/scheduled-tasks",
+            "description": "Wave 18 仅支持 interval:N 和 5 位 cron。"
           },
           "response": []
         }

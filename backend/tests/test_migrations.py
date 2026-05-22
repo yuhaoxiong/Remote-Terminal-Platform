@@ -22,5 +22,6 @@ def test_alembic_upgrade_head_creates_wave1_schema(tmp_path: Path) -> None:
         "update_tasks",
         "update_task_devices",
         "scheduled_tasks",
+        "scheduled_task_runs",
         "port_pool",
     }

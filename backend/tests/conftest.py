@@ -19,6 +19,7 @@ def settings(tmp_path: Path) -> Settings:
         jwt_secret_key="test-secret-key",
         default_admin_username="admin",
         default_admin_password="admin-pass",
+        scheduler_enabled=False,
     )
 
 

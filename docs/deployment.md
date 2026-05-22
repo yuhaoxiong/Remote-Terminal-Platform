@@ -167,7 +167,7 @@ curl "$BASE_URL/api/devices/$DEVICE_ID/metrics?limit=1" \
 - 若需要访问真实设备文件,后端必须配置 `FILE_BACKEND=sftp`,并保证设备记录已有 `ssh_port` 和可用 SSH 凭据;否则文件接口会使用本地存储后端,只适合开发测试。
 - 文件上传使用 `multipart/form-data`,Nginx 默认允许 1 MB 请求体。若需要上传更大的文件,在 `server` 或 `location /api/` 中增加 `client_max_body_size`,例如 `client_max_body_size 100m;`。
 - 文件下载走 `/api/devices/{id}/files/download`,请确认 Nginx 没有拦截 `Content-Disposition` 响应头,浏览器应直接下载文件。
-- 定时任务本轮只做 API 管理闭环,不会由后台调度器自动触发。部署验收时可在前端"定时任务"页点击"立即执行",确认操作日志中出现 `scheduled_task.execute`。
+- 定时任务前端页面仍可用于创建、编辑、启停和手动执行任务;Wave 18 之后后台调度器也会自动扫描到期任务并生成执行记录。
 - Web SSH 主动断开会发送 `{ "type": "close" }`,后端关闭 shell 后返回 `status=closed`;如果浏览器显示已断开但后端仍有长连接,优先检查 `/api/ws/` 的 WebSocket 升级和超时配置。
 
 ## Wave 16 批量任务部署检查
@@ -190,3 +190,12 @@ export SSH_KNOWN_HOSTS_FILE='/etc/edge-platform/known_hosts'
 
 - 前端登录态过期时会自动调用 refresh 接口重试一次。若 refresh token 也过期或后端返回 `401`,页面会直接回到登录页;部署验收时可通过缩短 token 有效期或清空 `edge-platform-refresh-token` 验证。
 - 若某个接口因为枚举值返回 `422`,检查请求中的 `status`、`ssh_auth_type`、`execution_mode`、`failure_strategy` 或 `task_type` 是否在接口文档列出的允许值内。
+
+## Wave 18 定时任务调度检查
+
+- 后端默认启用调度器。需要暂停自动调度时设置 `SCHEDULER_ENABLED=false`;需要调整扫描间隔时设置 `SCHEDULER_POLL_INTERVAL_SECONDS`,默认值为 `30` 秒。
+- 升级旧 SQLite 库后先检查 `GET /api/diagnostics/config` 的 `migration` 摘要,再访问 `GET /api/scheduler/status`,确认调度器 `enabled`、`running` 和最近扫描状态符合预期。
+- 表达式只支持 `interval:N` 和 5 位 `cron:`。如果创建或更新任务返回 `422`,先检查表达式格式,再检查 `execution_mode`、`failure_strategy` 和 `concurrency_limit`。
+- `dry_run` 定时任务只生成演练链路;真实设备自动执行必须显式选择 `execution_mode=ssh_command`,并提前确认目标设备已有可用 SSH 端口、设备级凭据和 frp 连通性。
+- 部署验收建议先在前端创建一个短周期 `dry_run` 任务,确认页面出现 `next_run_at` 和执行记录;再按需创建真实 SSH 任务,并复核 `GET /api/scheduled-tasks/{id}/runs` 中的输出摘要、失败原因和关联批量任务 ID。
+- Nginx 无需为调度器增加独立转发规则。调度状态、执行记录和立即执行仍走 `/api/`,前端按现有单域名反向代理访问。

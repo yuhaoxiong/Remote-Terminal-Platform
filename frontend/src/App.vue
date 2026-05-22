@@ -2444,6 +2444,18 @@ onBeforeUnmount(() => {
                   {{ diagnosticsConfig.database_status.sqlite_backup_recommended ? "建议备份" : "无需 SQLite 备份" }}
                 </el-tag>
               </div>
+              <div class="item-card">
+                <h3>定时调度器</h3>
+                <p>{{ diagnosticsConfig.scheduler.enabled ? "已启用" : "已关闭" }}</p>
+                <el-tag :type="diagnosticsConfig.scheduler.running ? 'success' : 'warning'">
+                  {{ diagnosticsConfig.scheduler.running ? "运行中" : "未运行" }}
+                </el-tag>
+              </div>
+              <div class="item-card">
+                <h3>调度摘要</h3>
+                <p>启用任务 {{ diagnosticsConfig.scheduler.enabled_task_count }} 个</p>
+                <p>失败执行 {{ diagnosticsConfig.scheduler.failed_run_count }} 次</p>
+              </div>
             </div>
             <el-empty v-else description="暂无诊断数据" />
           </section>
@@ -2506,6 +2518,15 @@ onBeforeUnmount(() => {
             />
             <el-alert
               v-for="warning in diagnosticsConfig.ssh_host_key.warnings"
+              :key="warning"
+              class="validation-alert"
+              type="warning"
+              show-icon
+              :closable="false"
+              :title="warning"
+            />
+            <el-alert
+              v-for="warning in diagnosticsConfig.scheduler.warnings"
               :key="warning"
               class="validation-alert"
               type="warning"

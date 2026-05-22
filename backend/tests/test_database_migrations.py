@@ -14,6 +14,7 @@ def _settings(db_path: Path) -> Settings:
         jwt_secret_key="test-secret-key",
         default_admin_username="admin",
         default_admin_password="admin-pass",
+        scheduler_enabled=False,
     )
 
 
@@ -112,3 +113,46 @@ def test_init_db_migrates_legacy_device_credential_columns(tmp_path: Path) -> No
 
     assert {"ssh_user", "ssh_auth_type", "ssh_password_encrypted", "ssh_key_encrypted"}.issubset(columns)
     assert device == ("ztl", "password", "123456")
+
+
+def test_init_db_migrates_legacy_scheduled_task_columns(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy-scheduled.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE scheduled_tasks (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR(120) NOT NULL,
+                task_type VARCHAR(32) NOT NULL,
+                schedule VARCHAR(120) NOT NULL,
+                command TEXT,
+                target_filter JSON,
+                enabled BOOLEAN NOT NULL DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+    init_db(_settings(db_path))
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(scheduled_tasks)").fetchall()}
+        run_tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'scheduled_task_runs'"
+            ).fetchall()
+        }
+
+    assert {
+        "execution_mode",
+        "failure_strategy",
+        "concurrency_limit",
+        "last_run_at",
+        "last_status",
+        "last_error",
+        "next_run_at",
+        "running",
+    }.issubset(columns)
+    assert run_tables == {"scheduled_task_runs"}
