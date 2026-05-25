@@ -44,6 +44,14 @@ class DiagnosticsSchedulerSummary(BaseModel):
     warnings: list[str] = []
 
 
+class DiagnosticsAlertSummary(BaseModel):
+    enabled: bool
+    active_count: int
+    critical_count: int
+    latest_alert_at: str | None
+    warnings: list[str] = []
+
+
 class DiagnosticsConfigResponse(BaseModel):
     service_name: str
     version: str
@@ -61,3 +69,4 @@ class DiagnosticsConfigResponse(BaseModel):
     auth_lifetime: DiagnosticsAuthLifetimeSummary
     database_status: DiagnosticsDatabaseSummary
     scheduler: DiagnosticsSchedulerSummary
+    alerts: DiagnosticsAlertSummary

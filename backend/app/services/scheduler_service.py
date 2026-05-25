@@ -8,6 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from app.config import Settings
 from app.database import session_scope
 from app.enums import ScheduledTaskRunTriggerType
+from app.services.alert_service import AlertService
 from app.services.scheduled_task_service import ScheduledTaskService
 from app.services.ssh_service import SshService
 
@@ -78,6 +79,7 @@ class SchedulerService:
                         user_id=None,
                         trigger_type=ScheduledTaskRunTriggerType.scheduled,
                     )
+                AlertService(self.settings).evaluate_metrics_staleness(session, self.last_scan_at)
                 self.last_error = None
                 return len(due_tasks)
         except Exception as exc:

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Edge Platform API",
-    "description": "远程终端平台 API 验收集合。先运行“登录”，Tests 脚本会自动保存 access_token 和 refresh_token；后续接口继承集合级 Bearer Token。Wave 17 起可通过“治理、安全与维护”分组验证迁移状态、SSH 主机密钥策略和枚举校验。",
+    "description": "远程终端平台 API 验收集合。先运行“登录”，Tests 脚本会自动保存 access_token 和 refresh_token；后续接口继承集合级 Bearer Token。Wave 19 起可通过“告警中心”分组验证告警摘要、确认/恢复和规则阈值编辑。",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -113,6 +113,16 @@
     {
       "key": "update_template_id",
       "value": "1"
+    },
+    {
+      "key": "alert_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "alert_rule_id",
+      "value": "1",
+      "type": "string"
     }
   ],
   "item": [
@@ -1350,6 +1360,194 @@
             },
             "url": "{{base_url}}/api/scheduled-tasks",
             "description": "Wave 18 仅支持 interval:N 和 5 位 cron。"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Wave 19 告警中心",
+      "item": [
+        {
+          "name": "查询告警摘要",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"告警摘要请求成功\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"包含告警摘要字段\", function () {",
+                  "  pm.expect(json).to.have.property(\"active_count\");",
+                  "  pm.expect(json).to.have.property(\"critical_count\");",
+                  "  pm.expect(json).to.have.property(\"unacknowledged_count\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/alerts/summary",
+            "description": "查询活跃告警、严重告警、未确认告警和最近告警时间。"
+          },
+          "response": []
+        },
+        {
+          "name": "查询活跃告警列表",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"告警列表请求成功\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"返回分页结构\", function () {",
+                  "  pm.expect(json.total).to.be.a(\"number\");",
+                  "  pm.expect(json.items).to.be.an(\"array\");",
+                  "});",
+                  "if (json.items.length > 0) { pm.collectionVariables.set(\"alert_id\", json.items[0].id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/alerts?status=open&limit=50",
+            "description": "查询未处理告警。若存在结果,Tests 会保存第一条 alert_id。"
+          },
+          "response": []
+        },
+        {
+          "name": "确认告警",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"确认告警请求成功\", function () { pm.expect(pm.response.code).to.be.oneOf([200, 404]); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Postman 确认\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/alerts/{{alert_id}}/acknowledge",
+            "description": "确认告警并写入操作日志。若 alert_id 不存在会返回 404。"
+          },
+          "response": []
+        },
+        {
+          "name": "恢复告警",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"恢复告警请求成功\", function () { pm.expect(pm.response.code).to.be.oneOf([200, 404]); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Postman 手动恢复\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/alerts/{{alert_id}}/resolve",
+            "description": "手动恢复告警并写入操作日志。若 alert_id 不存在会返回 404。"
+          },
+          "response": []
+        },
+        {
+          "name": "查询告警规则",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"告警规则请求成功\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"返回规则列表\", function () { pm.expect(json.items).to.be.an(\"array\"); });",
+                  "if (json.items.length > 0) { pm.collectionVariables.set(\"alert_rule_id\", json.items[0].id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/alert-rules",
+            "description": "查询默认告警规则。Tests 会保存第一条 alert_rule_id。"
+          },
+          "response": []
+        },
+        {
+          "name": "更新告警规则",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"更新规则请求成功\", function () { pm.expect(pm.response.code).to.be.oneOf([200, 404]); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true,\n  \"severity\": \"warning\",\n  \"threshold_value\": 85,\n  \"window_minutes\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{base_url}}/api/alert-rules/{{alert_rule_id}}",
+            "description": "更新告警规则启用状态、级别、阈值或窗口。若规则 ID 不存在会返回 404。"
           },
           "response": []
         }

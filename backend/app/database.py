@@ -123,6 +123,7 @@ def _ensure_sqlite_schema(settings: Settings) -> None:
 
 def init_db(settings: Settings | None = None) -> None:
     from app.migrations import upgrade_to_head
+    from app.models.alert import Alert, AlertRule
     from app.models.device import Device
     from app.models.group import Group
     from app.models.log import OperationLog
@@ -131,6 +132,7 @@ def init_db(settings: Settings | None = None) -> None:
     from app.models.scheduled_task import ScheduledTask, ScheduledTaskRun
     from app.models.update_task import UpdateTask, UpdateTaskDevice, UpdateTaskTemplate
     from app.models.user import User
+    from app.services.alert_service import AlertService
     from app.services.security import hash_password
 
     settings = settings or get_settings()
@@ -154,4 +156,6 @@ def init_db(settings: Settings | None = None) -> None:
             for port in range(settings.vnc_port_start, settings.vnc_port_end + 1):
                 session.add(PortPool(service_type="vnc", port=port, status="available"))
 
-    _ = (Device, Group, OperationLog, DeviceMetric, ScheduledTask, ScheduledTaskRun, UpdateTask, UpdateTaskDevice, UpdateTaskTemplate)
+        AlertService(settings).ensure_default_rules(session)
+
+    _ = (Alert, AlertRule, Device, Group, OperationLog, DeviceMetric, ScheduledTask, ScheduledTaskRun, UpdateTask, UpdateTaskDevice, UpdateTaskTemplate)

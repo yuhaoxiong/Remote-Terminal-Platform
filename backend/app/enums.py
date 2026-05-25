@@ -68,3 +68,31 @@ class ScheduledTaskRunStatus(StrEnum):
     success = "success"
     failed = "failed"
     skipped = "skipped"
+
+
+class AlertSeverity(StrEnum):
+    warning = "warning"
+    critical = "critical"
+
+
+class AlertStatus(StrEnum):
+    open = "open"
+    acknowledged = "acknowledged"
+    resolved = "resolved"
+
+
+class AlertSourceType(StrEnum):
+    device = "device"
+    metric = "metric"
+    scheduled_task = "scheduled_task"
+    update_task = "update_task"
+
+
+class AlertRuleType(StrEnum):
+    device_status = "device_status"
+    cpu_high = "cpu_high"
+    memory_high = "memory_high"
+    disk_high = "disk_high"
+    metrics_stale = "metrics_stale"
+    scheduled_task_failed = "scheduled_task_failed"
+    update_task_failed = "update_task_failed"

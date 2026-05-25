@@ -8,6 +8,7 @@ Create Date: 2026-05-11
 from alembic import op
 
 from app.database import Base
+from app.models.alert import Alert, AlertRule
 from app.models.device import Device
 from app.models.group import Group
 from app.models.log import OperationLog
@@ -24,6 +25,8 @@ depends_on = None
 
 _ = (
     Device,
+    Alert,
+    AlertRule,
     Group,
     OperationLog,
     DeviceMetric,

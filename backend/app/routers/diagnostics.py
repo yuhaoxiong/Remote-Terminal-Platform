@@ -7,6 +7,7 @@ from app.migrations import migration_status
 from app.models.scheduled_task import ScheduledTask, ScheduledTaskRun
 from app.models.user import User
 from app.schemas.diagnostics import (
+    DiagnosticsAlertSummary,
     DiagnosticsConfigResponse,
     DiagnosticsAuthLifetimeSummary,
     DiagnosticsDatabaseSummary,
@@ -15,6 +16,7 @@ from app.schemas.diagnostics import (
     DiagnosticsSecuritySummary,
     DiagnosticsSshHostKeySummary,
 )
+from app.services.alert_service import AlertService
 from app.services.scheduler_service import SchedulerService
 
 router = APIRouter(prefix="/diagnostics", tags=["diagnostics"])
@@ -101,6 +103,21 @@ def _scheduler_summary(request: Request, settings) -> DiagnosticsSchedulerSummar
     )
 
 
+def _alert_summary(settings) -> DiagnosticsAlertSummary:
+    warnings: list[str] = []
+    with session_scope(settings) as session:
+        summary = AlertService(settings).summary(session)
+    if summary["critical_count"]:
+        warnings.append("存在严重告警，请进入告警中心处理")
+    return DiagnosticsAlertSummary(
+        enabled=True,
+        active_count=summary["active_count"],
+        critical_count=summary["critical_count"],
+        latest_alert_at=summary["latest_alert_at"].isoformat() if summary["latest_alert_at"] else None,
+        warnings=warnings,
+    )
+
+
 @router.get("/config", response_model=DiagnosticsConfigResponse)
 def get_diagnostics_config(
     request: Request,
@@ -131,4 +148,5 @@ def get_diagnostics_config(
             sqlite_backup_recommended=settings.database_url.startswith("sqlite"),
         ),
         scheduler=_scheduler_summary(request, settings),
+        alerts=_alert_summary(settings),
     )

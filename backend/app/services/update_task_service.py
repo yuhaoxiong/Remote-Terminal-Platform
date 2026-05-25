@@ -17,6 +17,7 @@ from app.schemas.update_task import (
     UpdateTaskTemplateCreate,
     UpdateTaskTemplateUpdate,
 )
+from app.services.alert_service import AlertService
 from app.services.ssh_service import RemoteAuthenticationError, RemoteConnectionError, SshService
 
 
@@ -84,6 +85,7 @@ class UpdateTaskService:
             self._execute_dry_run(task, rows)
         task.status = self._final_task_status(rows, dry_run=task.execution_mode != "ssh_command")
         session.flush()
+        AlertService(self.settings).handle_update_task_completed(session, task)
         session.refresh(task)
         return task
 

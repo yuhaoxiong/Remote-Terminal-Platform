@@ -11,6 +11,7 @@ from app.models.log import OperationLog
 from app.models.scheduled_task import ScheduledTask, ScheduledTaskRun
 from app.schemas.scheduled_task import ScheduledTaskCreate, ScheduledTaskUpdate
 from app.schemas.update_task import UpdateTaskCreate
+from app.services.alert_service import AlertService
 from app.services.operation_log import OperationLogService
 from app.services.schedule_parser import next_run_time
 from app.services.ssh_service import SshService
@@ -231,6 +232,7 @@ class ScheduledTaskService:
         task.last_error = error_message
         task.next_run_at = self.calculate_next_run_at(task) if task.enabled else None
         session.flush()
+        AlertService(self.settings).handle_scheduled_task_run(session, task, run)
 
     def _record_run_log(
         self,

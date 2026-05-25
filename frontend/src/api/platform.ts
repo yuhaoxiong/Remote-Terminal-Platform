@@ -459,6 +459,13 @@ export interface DiagnosticsSchedulerSummary {
   warnings: string[];
 }
 
+export interface DiagnosticsAlertSummary {
+  active_count: number;
+  critical_count: number;
+  latest_alert_at: string | null;
+  warnings: string[];
+}
+
 export interface DiagnosticsConfigResponse {
   service_name: string;
   version: string;
@@ -476,6 +483,84 @@ export interface DiagnosticsConfigResponse {
   auth_lifetime: DiagnosticsAuthLifetimeSummary;
   database_status: DiagnosticsDatabaseSummary;
   scheduler: DiagnosticsSchedulerSummary;
+  alerts: DiagnosticsAlertSummary;
+}
+
+export type AlertSeverity = "warning" | "critical";
+export type AlertStatus = "open" | "acknowledged" | "resolved";
+export type AlertSourceType = "device" | "metric" | "scheduled_task" | "update_task";
+
+export interface AlertRead {
+  id: number;
+  title: string;
+  message: string;
+  severity: AlertSeverity;
+  status: AlertStatus;
+  source_type: AlertSourceType;
+  alert_type: string;
+  device_id: number | null;
+  scheduled_task_id: number | null;
+  update_task_id: number | null;
+  metric_name: string | null;
+  metric_value: number | null;
+  threshold_value: number | null;
+  dedupe_key: string;
+  acknowledged_by_user_id: number | null;
+  acknowledged_at: string | null;
+  resolved_at: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AlertListResponse {
+  total: number;
+  items: AlertRead[];
+}
+
+export interface AlertSummaryResponse {
+  active_count: number;
+  critical_count: number;
+  unacknowledged_count: number;
+  latest_alert_at: string | null;
+  by_source: Record<string, number>;
+  by_severity: Record<string, number>;
+}
+
+export interface AlertAcknowledgeRequest {
+  note?: string | null;
+}
+
+export interface AlertResolveRequest {
+  note?: string | null;
+}
+
+export interface AlertRuleRead {
+  id: number;
+  rule_type: string;
+  enabled: boolean;
+  severity: AlertSeverity;
+  threshold_value: number | null;
+  window_minutes: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AlertRuleUpdateRequest = Partial<Pick<AlertRuleRead, "enabled" | "severity" | "threshold_value" | "window_minutes">>;
+
+export interface AlertRuleListResponse {
+  total: number;
+  items: AlertRuleRead[];
+}
+
+export interface ListAlertsParams {
+  offset?: number;
+  limit?: number;
+  status?: AlertStatus | "";
+  severity?: AlertSeverity | "";
+  source_type?: AlertSourceType | "";
+  device_id?: number;
+  alert_type?: string;
 }
 
 export interface FrpsImportRequest {
@@ -728,6 +813,36 @@ export async function listScheduledTaskLogs(taskId: number): Promise<OperationLo
 
 export async function getSchedulerStatus(): Promise<SchedulerStatusResponse> {
   const response = await api.get<SchedulerStatusResponse>("/scheduler/status");
+  return response.data;
+}
+
+export async function listAlerts(params?: ListAlertsParams): Promise<AlertListResponse> {
+  const response = await api.get<AlertListResponse>("/alerts", { params });
+  return response.data;
+}
+
+export async function getAlertSummary(): Promise<AlertSummaryResponse> {
+  const response = await api.get<AlertSummaryResponse>("/alerts/summary");
+  return response.data;
+}
+
+export async function acknowledgeAlert(alertId: number, payload: AlertAcknowledgeRequest = {}): Promise<AlertRead> {
+  const response = await api.post<AlertRead>(`/alerts/${alertId}/acknowledge`, payload);
+  return response.data;
+}
+
+export async function resolveAlert(alertId: number, payload: AlertResolveRequest = {}): Promise<AlertRead> {
+  const response = await api.post<AlertRead>(`/alerts/${alertId}/resolve`, payload);
+  return response.data;
+}
+
+export async function listAlertRules(): Promise<AlertRuleListResponse> {
+  const response = await api.get<AlertRuleListResponse>("/alert-rules");
+  return response.data;
+}
+
+export async function updateAlertRule(ruleId: number, payload: AlertRuleUpdateRequest): Promise<AlertRuleRead> {
+  const response = await api.put<AlertRuleRead>(`/alert-rules/${ruleId}`, payload);
   return response.data;
 }
 

@@ -17,13 +17,14 @@
 - 支持从 frps Dashboard 自动发现并导入已有 TCP 代理设备。
 - 生成设备 `frpc` 配置片段,并提供配置同步接口。
 - 设备分组、标签、项目号、状态筛选。
-- 设备状态、指标记录和监控总览。
+- 设备状态、指标记录、监控总览和告警中心。
 - 远程 SSH/VNC 会话描述接口、Web SSH WebSocket、内嵌 xterm 终端和 noVNC 画面入口。
 - 批量更新任务创建、目标设备预览、命令模板、演练执行、真实 SSH 命令执行、取消、单设备状态追踪、失败设备重试入口、结果 CSV 导出和 WebSocket 进度快照。
 - 操作日志查询和 CSV 导出。
 - 设备文件管理接口:列表、上传、下载、删除,支持本地开发后端与 SFTP 后端。
 - 定时任务接口:创建、列表、更新、删除、启停、手动执行、自动调度、执行记录和执行日志。
-- 前端操作界面:登录、仪表盘、设备、分组、远程连接、更新任务、日志和系统诊断。
+- 告警中心:设备离线/未知、CPU/内存/磁盘阈值、指标冻结、定时任务失败和批量更新失败告警,支持确认、恢复、规则启停和阈值编辑。
+- 前端操作界面:登录、仪表盘、设备、分组、远程连接、更新任务、定时任务、告警中心、日志和系统诊断。
 - 部署辅助资产:后端安装、边缘设备引导、SQLite 备份和部署文档。
 
 ## 项目结构
@@ -225,6 +226,15 @@ py -3.12 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key()
 - `GET /api/scheduled-tasks/{id}/logs`
 - `GET /api/scheduler/status`
 
+### 告警中心
+
+- `GET /api/alerts`
+- `GET /api/alerts/summary`
+- `POST /api/alerts/{id}/acknowledge`
+- `POST /api/alerts/{id}/resolve`
+- `GET /api/alert-rules`
+- `PUT /api/alert-rules/{id}`
+
 ### 监控和日志
 
 - `GET /api/monitoring/overview`
@@ -257,6 +267,7 @@ scripts/deploy/backup_sqlite.ps1
 - 远程 SSH/VNC 已提供产品化入口:SSH 使用 xterm 和 JSON WebSocket 转发终端输入输出、resize 和断开;VNC 使用 noVNC 连接二进制 WebSocket-to-TCP 代理,支持内嵌连接、断开和全屏。
 - 批量更新任务默认使用演练模式;选择"真实 SSH 执行"后会通过设备级 SSH 凭据连接 frp SSH 端口并执行命令,记录退出码、标准输出摘要、错误输出摘要和失败原因。任务创建区支持目标预览、手动选择设备和命令模板,执行结果支持失败设备新建重试任务和 CSV 导出。
 - 定时任务支持 `interval:N` 和 5 位 `cron:` 表达式。后台调度器默认启用,会计算 `next_run_at`,到期后复用批量任务执行链路生成独立执行记录;真实 SSH 调度必须显式选择 `execution_mode=ssh_command`。
+- 告警规则启动时会自动初始化。指标阈值默认 CPU/内存 85%、磁盘 90%、指标冻结 10 分钟;设备恢复在线或指标回落后会自动恢复对应活跃告警。
 - 前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:8000`,可以用 `VITE_API_PROXY_TARGET` 覆盖代理目标。
 - 前端构建会出现 Vite 大 chunk 警告,原因是 Element Plus 被打进主 chunk;当前不影响构建产物。
 - 当前工作区是 Git 仓库;提交或推送前请确认没有暂存无关本地文档。
@@ -276,8 +287,8 @@ npm.cmd run build
 
 最近结果:
 
-- 后端:64 个测试通过。
-- 前端:18 个测试通过。
+- 后端:74 个测试通过。
+- 前端:19 个测试通过。
 - 前端构建:成功,仍有已知 Vite chunk size 警告。
 - Wave 7 联调:后端 `127.0.0.1:8010`、前端 `127.0.0.1:5179`,通过前端代理完成登录、更新任务列表、监控总览、设备创建、设备列表和设备删除验收。
 - Wave 8 自动化:通过 SSH/VNC WebSocket 鉴权与转发、SFTP 后端、远程页面会话入口测试;真实设备 SSH/VNC/SFTP 手工联调仍需要提供可访问的测试设备和凭据。
@@ -382,3 +393,11 @@ docs/postman/edge-platform.postman_collection.json
 - `POST /api/scheduled-tasks/{id}/execute` 继续保留,并新增 `POST /api/scheduled-tasks/{id}/run-now`;两者都会写入执行记录,可通过 `GET /api/scheduled-tasks/{id}/runs` 查看。
 - `task_type=command` 的任务会复用批量更新任务执行链路。`execution_mode=dry_run` 只做演练,`execution_mode=ssh_command` 才会连接设备执行真实 SSH 命令。
 - 新增 `GET /api/scheduler/status`,系统诊断页也会展示调度器启停状态、扫描间隔、最近扫描、失败执行数量和告警摘要。
+
+## Wave 19 告警中心与设备健康闭环补充
+
+- 新增告警模型和默认规则表,后端启动会初始化设备状态、指标阈值、指标冻结、定时任务失败和批量更新失败规则。
+- 设备状态变为 `offline`/`unknown`、指标超过阈值、指标超过 10 分钟未更新、定时任务失败或批量任务失败时会创建去重告警;状态恢复、指标回落或后续任务成功时会自动恢复对应告警。
+- 新增告警 API:`GET /api/alerts`、`GET /api/alerts/summary`、`POST /api/alerts/{id}/acknowledge`、`POST /api/alerts/{id}/resolve`、`GET /api/alert-rules`、`PUT /api/alert-rules/{id}`。
+- 前端新增"告警中心"导航,展示活跃/严重/未确认摘要、告警列表、确认/恢复操作和规则启停/阈值编辑。
+- `GET /api/diagnostics/config` 新增 `alerts` 非敏感摘要,系统诊断页会显示活跃告警、严重告警和风险提示。

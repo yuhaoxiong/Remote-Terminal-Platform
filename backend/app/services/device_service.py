@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.models.device import Device
 from app.schemas.device import DeviceCreate, DeviceUpdate
+from app.services.alert_service import AlertService
 from app.services.encryption import EncryptionService
 from app.services.port_pool import PortPoolService
 
@@ -37,6 +38,7 @@ class DeviceService:
         device.ssh_port = self.port_pool.allocate(session, "ssh", device.id)
         device.vnc_port = self.port_pool.allocate(session, "vnc", device.id)
         session.flush()
+        AlertService(self.settings).evaluate_device_status(session, device)
         session.refresh(device)
         return device
 
@@ -90,6 +92,7 @@ class DeviceService:
                 continue
             setattr(device, field, value)
         session.flush()
+        AlertService(self.settings).evaluate_device_status(session, device)
         session.refresh(device)
         return device
 

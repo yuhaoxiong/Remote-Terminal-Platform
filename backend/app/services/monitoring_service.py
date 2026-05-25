@@ -7,6 +7,7 @@ from app.config import Settings
 from app.models.device import Device
 from app.models.metric import DeviceMetric
 from app.schemas.device import DeviceMetricCreate
+from app.services.alert_service import AlertService
 from app.services.device_service import DeviceNotFoundError
 
 
@@ -31,6 +32,7 @@ class MonitoringService:
         )
         session.add(metric)
         session.flush()
+        AlertService(self.settings).evaluate_device_metrics(session, device, metric)
         session.refresh(metric)
         session.refresh(device)
         return device, metric
@@ -61,4 +63,3 @@ class MonitoringService:
             "offline_devices": offline,
             "unknown_devices": unknown,
         }
-

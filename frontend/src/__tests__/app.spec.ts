@@ -130,6 +130,12 @@ vi.mock("../api/platform", () => ({
   listScheduledTaskRuns: vi.fn(),
   listScheduledTaskLogs: vi.fn(),
   getSchedulerStatus: vi.fn(),
+  listAlerts: vi.fn(),
+  getAlertSummary: vi.fn(),
+  acknowledgeAlert: vi.fn(),
+  resolveAlert: vi.fn(),
+  listAlertRules: vi.fn(),
+  updateAlertRule: vi.fn(),
   getAccessToken: vi.fn(() => "access-token"),
   getDeviceStatus: vi.fn(),
   getDiagnosticsConfig: vi.fn(),
@@ -326,6 +332,110 @@ function mockResolvedApiState() {
     online_devices: 1,
     offline_devices: 0,
     unknown_devices: 0,
+  });
+  api.getAlertSummary.mockResolvedValue({
+    active_count: 1,
+    critical_count: 1,
+    unacknowledged_count: 1,
+    latest_alert_at: "2026-05-22T10:00:00",
+    by_source: { metric: 1 },
+    by_severity: { critical: 1 },
+  });
+  api.listAlerts.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 31,
+        title: "CPU 高负载",
+        message: "装配边缘终端 01 CPU 94% 超过阈值 85%",
+        severity: "critical",
+        status: "open",
+        source_type: "metric",
+        alert_type: "cpu_high",
+        device_id: 1,
+        scheduled_task_id: null,
+        update_task_id: null,
+        metric_name: "cpu_percent",
+        metric_value: 94,
+        threshold_value: 85,
+        dedupe_key: "metric:cpu_high:1",
+        acknowledged_by_user_id: null,
+        acknowledged_at: null,
+        resolved_at: null,
+        note: null,
+        created_at: "2026-05-22T10:00:00",
+        updated_at: "2026-05-22T10:00:00",
+      },
+    ],
+  });
+  api.acknowledgeAlert.mockResolvedValue({
+    id: 31,
+    title: "CPU 高负载",
+    message: "装配边缘终端 01 CPU 94% 超过阈值 85%",
+    severity: "critical",
+    status: "acknowledged",
+    source_type: "metric",
+    alert_type: "cpu_high",
+    device_id: 1,
+    scheduled_task_id: null,
+    update_task_id: null,
+    metric_name: "cpu_percent",
+    metric_value: 94,
+    threshold_value: 85,
+    dedupe_key: "metric:cpu_high:1",
+    acknowledged_by_user_id: 1,
+    acknowledged_at: "2026-05-22T10:01:00",
+    resolved_at: null,
+    note: "前端确认",
+    created_at: "2026-05-22T10:00:00",
+    updated_at: "2026-05-22T10:01:00",
+  });
+  api.resolveAlert.mockResolvedValue({
+    id: 31,
+    title: "CPU 高负载",
+    message: "装配边缘终端 01 CPU 94% 超过阈值 85%",
+    severity: "critical",
+    status: "resolved",
+    source_type: "metric",
+    alert_type: "cpu_high",
+    device_id: 1,
+    scheduled_task_id: null,
+    update_task_id: null,
+    metric_name: "cpu_percent",
+    metric_value: 94,
+    threshold_value: 85,
+    dedupe_key: "metric:cpu_high:1",
+    acknowledged_by_user_id: 1,
+    acknowledged_at: "2026-05-22T10:01:00",
+    resolved_at: "2026-05-22T10:02:00",
+    note: "前端手动恢复",
+    created_at: "2026-05-22T10:00:00",
+    updated_at: "2026-05-22T10:02:00",
+  });
+  api.listAlertRules.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 3,
+        rule_type: "cpu_high",
+        enabled: true,
+        severity: "warning",
+        threshold_value: 85,
+        window_minutes: null,
+        created_at: "2026-05-22T00:00:00",
+        updated_at: "2026-05-22T00:00:00",
+      },
+    ],
+  });
+  api.updateAlertRule.mockResolvedValue({
+    id: 3,
+    rule_type: "cpu_high",
+    enabled: true,
+    severity: "critical",
+    threshold_value: 90,
+    window_minutes: null,
+    created_at: "2026-05-22T00:00:00",
+    updated_at: "2026-05-22T10:00:00",
   });
   api.listDeviceMetrics.mockResolvedValue({
     total: 1,
@@ -558,6 +668,12 @@ function mockResolvedApiState() {
       enabled_task_count: 1,
       failed_run_count: 0,
       warnings: [],
+    },
+    alerts: {
+      active_count: 1,
+      critical_count: 1,
+      latest_alert_at: "2026-05-22T10:00:00",
+      warnings: ["存在 1 条严重告警"],
     },
   });
   api.syncDeviceConfig.mockResolvedValue({
@@ -1121,6 +1237,46 @@ describe("App", () => {
     expect(wrapper.text()).toContain("已同步");
     expect(wrapper.text()).toContain("SSH 主机密钥");
     expect(wrapper.text()).toContain("建议备份");
+    expect(wrapper.text()).toContain("告警中心");
+    expect(wrapper.text()).toContain("存在 1 条严重告警");
+  });
+
+  it("shows alert center and manages alert rules", async () => {
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="nav-alerts"]').trigger("click");
+    await waitUntil(() => expect(api.listAlerts).toHaveBeenCalled());
+
+    expect(wrapper.text()).toContain("活跃告警");
+    expect(wrapper.text()).toContain("CPU 高负载");
+    expect(wrapper.text()).toContain("告警规则");
+
+    const acknowledgeButton = wrapper.findAll("button").find((button) => button.text().includes("确认"));
+    expect(acknowledgeButton).toBeTruthy();
+    await acknowledgeButton!.trigger("click");
+    await flushAsync();
+    expect(api.acknowledgeAlert).toHaveBeenCalledWith(31, { note: "前端确认" });
+
+    const saveRuleButton = wrapper.findAll("button").find((button) => button.text().includes("保存"));
+    expect(saveRuleButton).toBeTruthy();
+    await saveRuleButton!.trigger("click");
+    await flushAsync();
+    expect(api.updateAlertRule).toHaveBeenCalledWith(3, {
+      enabled: true,
+      severity: "warning",
+      threshold_value: 85,
+      window_minutes: null,
+    });
   });
 
   it("opens SSH and VNC from the selected remote device workspace", async () => {

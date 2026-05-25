@@ -177,6 +177,44 @@ Authorization: Bearer <access_token>
 | `detail` | string/null | 详情 |
 | `created_at` | datetime | 创建时间 |
 
+### Alert
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | integer | 告警 ID |
+| `title` | string | 告警标题 |
+| `message` | string | 告警描述 |
+| `severity` | string | `warning` 或 `critical` |
+| `status` | string | `open`、`acknowledged` 或 `resolved` |
+| `source_type` | string | `device`、`metric`、`scheduled_task` 或 `update_task` |
+| `alert_type` | string | 规则类型,例如 `cpu_high`、`metrics_stale` |
+| `device_id` | integer/null | 关联设备 ID |
+| `scheduled_task_id` | integer/null | 关联定时任务 ID |
+| `update_task_id` | integer/null | 关联批量任务 ID |
+| `metric_name` | string/null | 关联指标名 |
+| `metric_value` | number/null | 触发时指标值 |
+| `threshold_value` | number/null | 触发阈值 |
+| `dedupe_key` | string | 去重键 |
+| `acknowledged_by_user_id` | integer/null | 确认人 |
+| `acknowledged_at` | datetime/null | 确认时间 |
+| `resolved_at` | datetime/null | 恢复时间 |
+| `note` | string/null | 确认或恢复备注 |
+| `created_at` | datetime | 创建时间 |
+| `updated_at` | datetime | 更新时间 |
+
+### AlertRule
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | integer | 规则 ID |
+| `rule_type` | string | 规则类型 |
+| `enabled` | boolean | 是否启用 |
+| `severity` | string | `warning` 或 `critical` |
+| `threshold_value` | number/null | 阈值,用于 CPU/内存/磁盘等指标规则 |
+| `window_minutes` | integer/null | 时间窗口,用于指标冻结等规则 |
+| `created_at` | datetime | 创建时间 |
+| `updated_at` | datetime | 更新时间 |
+
 ## 系统接口
 
 ### 健康检查
@@ -1288,6 +1326,185 @@ GET /api/monitoring/overview
 }
 ```
 
+## 告警接口
+
+### 查询告警列表
+
+```http
+GET /api/alerts?status=open&severity=critical&source_type=metric&limit=50
+```
+
+认证:需要。
+
+查询参数:
+
+| 参数 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `offset` | integer | `0` | 分页偏移 |
+| `limit` | integer | `50` | 每页数量,最大 200 |
+| `status` | string | 无 | `open`、`acknowledged`、`resolved` |
+| `severity` | string | 无 | `warning`、`critical` |
+| `source_type` | string | 无 | `device`、`metric`、`scheduled_task`、`update_task` |
+| `device_id` | integer | 无 | 按设备筛选 |
+| `alert_type` | string | 无 | 按规则类型筛选 |
+
+响应 `200`:
+
+```json
+{
+  "total": 1,
+  "items": [
+    {
+      "id": 1,
+      "title": "CPU 高负载",
+      "message": "设备 edge-01 CPU 94% 超过阈值 85%",
+      "severity": "critical",
+      "status": "open",
+      "source_type": "metric",
+      "alert_type": "cpu_high",
+      "device_id": 1,
+      "scheduled_task_id": null,
+      "update_task_id": null,
+      "metric_name": "cpu_percent",
+      "metric_value": 94,
+      "threshold_value": 85,
+      "dedupe_key": "metric:cpu_high:1",
+      "acknowledged_by_user_id": null,
+      "acknowledged_at": null,
+      "resolved_at": null,
+      "note": null,
+      "created_at": "2026-05-25T10:00:00",
+      "updated_at": "2026-05-25T10:00:00"
+    }
+  ]
+}
+```
+
+### 查询告警摘要
+
+```http
+GET /api/alerts/summary
+```
+
+认证:需要。
+
+响应 `200`:
+
+```json
+{
+  "active_count": 1,
+  "critical_count": 1,
+  "unacknowledged_count": 1,
+  "latest_alert_at": "2026-05-25T10:00:00",
+  "by_source": {
+    "metric": 1
+  },
+  "by_severity": {
+    "critical": 1
+  }
+}
+```
+
+### 确认告警
+
+```http
+POST /api/alerts/{alert_id}/acknowledge
+Content-Type: application/json
+```
+
+认证:需要。
+
+请求体:
+
+```json
+{
+  "note": "已联系现场确认"
+}
+```
+
+响应 `200`:`Alert`。该操作会写入操作日志 `alert.acknowledge`。
+
+### 手动恢复告警
+
+```http
+POST /api/alerts/{alert_id}/resolve
+Content-Type: application/json
+```
+
+认证:需要。
+
+请求体:
+
+```json
+{
+  "note": "现场恢复后手动关闭"
+}
+```
+
+响应 `200`:`Alert`。该操作会写入操作日志 `alert.resolve`。
+
+### 查询告警规则
+
+```http
+GET /api/alert-rules
+```
+
+认证:需要。
+
+响应 `200`:
+
+```json
+{
+  "total": 3,
+  "items": [
+    {
+      "id": 1,
+      "rule_type": "cpu_high",
+      "enabled": true,
+      "severity": "warning",
+      "threshold_value": 85,
+      "window_minutes": null,
+      "created_at": "2026-05-25T09:00:00",
+      "updated_at": "2026-05-25T09:00:00"
+    }
+  ]
+}
+```
+
+默认规则:
+
+| `rule_type` | 默认含义 |
+| --- | --- |
+| `device_status` | 设备离线或未知 |
+| `cpu_high` | CPU 使用率超过阈值,默认 85 |
+| `memory_high` | 内存使用率超过阈值,默认 85 |
+| `disk_high` | 磁盘使用率超过阈值,默认 90 |
+| `metrics_stale` | 最新指标超过窗口未更新,默认 10 分钟 |
+| `scheduled_task_failed` | 定时任务执行失败 |
+| `update_task_failed` | 批量更新任务失败或部分失败 |
+
+### 更新告警规则
+
+```http
+PUT /api/alert-rules/{rule_id}
+Content-Type: application/json
+```
+
+认证:需要。
+
+请求体可包含以下字段中的一个或多个:
+
+```json
+{
+  "enabled": true,
+  "severity": "critical",
+  "threshold_value": 90,
+  "window_minutes": 10
+}
+```
+
+响应 `200`:`AlertRule`。空请求体或无可更新字段会返回 `422`。
+
 ## 日志接口
 
 ### 查询操作日志
@@ -1859,3 +2076,30 @@ Postman Collection 的"Wave 14 远程连接"分组提供创建 SSH/VNC 会话描
 ws://<host>/api/ws/devices/{{device_id}}/ssh?token={{access_token}}
 ws://<host>/api/ws/devices/{{device_id}}/vnc?token={{access_token}}
 ```
+
+## Wave 19 告警中心与自动恢复规则
+
+### 触发与恢复
+
+- `device_status`:设备更新为 `offline` 或 `unknown` 时触发;设备恢复为 `online` 或 `degraded` 时自动恢复。
+- `cpu_high`、`memory_high`、`disk_high`:设备指标上报超过启用规则阈值时触发;后续指标低于阈值时自动恢复。
+- `metrics_stale`:调度扫描时发现设备最近指标早于规则窗口时触发;新指标上报后自动恢复。
+- `scheduled_task_failed`:定时任务执行记录为 `failed` 时触发;后续同一任务执行成功时自动恢复。
+- `update_task_failed`:批量任务状态为 `partial_failed` 或 `canceled` 时触发;后续同一任务完成成功时自动恢复。
+
+### 诊断摘要
+
+`GET /api/diagnostics/config` 的响应新增 `alerts` 字段:
+
+```json
+{
+  "alerts": {
+    "active_count": 1,
+    "critical_count": 1,
+    "latest_alert_at": "2026-05-25T10:00:00",
+    "warnings": ["存在 1 条严重告警"]
+  }
+}
+```
+
+该字段只返回计数、最近时间和风险提示,不返回设备凭据、Token 或敏感配置。

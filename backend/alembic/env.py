@@ -4,6 +4,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.database import Base
+from app.models.alert import Alert, AlertRule
 from app.models.device import Device
 from app.models.group import Group
 from app.models.log import OperationLog
@@ -21,6 +22,8 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 _ = (
     Device,
+    Alert,
+    AlertRule,
     Group,
     OperationLog,
     DeviceMetric,

@@ -234,8 +234,16 @@ textarea {
   border-left-color: #d97706;
 }
 
+.stat-tile.danger {
+  border-left-color: #dc2626;
+}
+
 .stat-tile.info {
   border-left-color: #2563eb;
+}
+
+.stat-time {
+  font-size: 18px;
 }
 
 .two-column {
@@ -277,12 +285,29 @@ textarea {
   gap: 16px;
 }
 
+.panel-copy,
+.table-subtitle,
+.table-footnote {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
 .toolbar {
   flex-wrap: wrap;
 }
 
 .toolbar .el-input {
   max-width: 430px;
+}
+
+.alert-toolbar {
+  justify-content: flex-start;
+  margin: 14px 0;
+}
+
+.rule-select {
+  width: 100%;
 }
 
 .metric-row,

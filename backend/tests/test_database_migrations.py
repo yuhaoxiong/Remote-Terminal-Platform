@@ -156,3 +156,28 @@ def test_init_db_migrates_legacy_scheduled_task_columns(tmp_path: Path) -> None:
         "running",
     }.issubset(columns)
     assert run_tables == {"scheduled_task_runs"}
+
+
+def test_init_db_creates_default_alert_rules(tmp_path: Path) -> None:
+    db_path = tmp_path / "alerts.db"
+    init_db(_settings(db_path))
+
+    with sqlite3.connect(db_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('alerts', 'alert_rules')"
+            ).fetchall()
+        }
+        rules = {row[0]: row[1] for row in connection.execute("SELECT rule_type, enabled FROM alert_rules").fetchall()}
+
+    assert tables == {"alerts", "alert_rules"}
+    assert {
+        "device_status",
+        "cpu_high",
+        "memory_high",
+        "disk_high",
+        "metrics_stale",
+        "scheduled_task_failed",
+        "update_task_failed",
+    }.issubset(rules)

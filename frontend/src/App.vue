@@ -29,6 +29,7 @@ import {
   executeUpdateTask,
   exportLogs,
   exportUpdateTaskResults,
+  getAlertSummary,
   getAccessToken,
   getDeviceStatus,
   getDiagnosticsConfig,
@@ -48,6 +49,7 @@ import {
   syncDeviceConfig,
   updateDevice,
   updateGroup,
+  type AlertSummaryResponse,
   type DiagnosticsConfigResponse,
   type DeviceCreateRequest,
   type DeviceMetricRead,
@@ -66,13 +68,14 @@ import {
   type UpdateTaskRead,
   type UpdateTaskTemplateRead,
 } from "./api/platform";
+import AlertCenterPanel from "./components/AlertCenterPanel.vue";
 import DeviceFilePanel from "./components/DeviceFilePanel.vue";
 import DeviceTargetSelector from "./components/DeviceTargetSelector.vue";
 import ScheduledTaskPanel from "./components/ScheduledTaskPanel.vue";
 import UpdateTaskResultTable from "./components/UpdateTaskResultTable.vue";
 import UpdateTaskTemplatePanel from "./components/UpdateTaskTemplatePanel.vue";
 
-type SectionId = "dashboard" | "devices" | "groups" | "remote" | "updates" | "scheduled" | "logs" | "diagnostics";
+type SectionId = "dashboard" | "devices" | "groups" | "remote" | "updates" | "scheduled" | "alerts" | "logs" | "diagnostics";
 type DeviceStatus = "online" | "offline" | "degraded" | "unknown";
 type UpdateStatus = "pending" | "running" | "completed" | "canceled" | "partial_failed";
 type ExecutionMode = "dry_run" | "ssh_command";
@@ -177,6 +180,7 @@ const navItems: Array<{ id: SectionId; label: string; icon: unknown }> = [
   { id: "remote", label: "远程连接", icon: VideoPlay },
   { id: "updates", label: "批量更新", icon: Finished },
   { id: "scheduled", label: "定时任务", icon: Operation },
+  { id: "alerts", label: "告警中心", icon: WarningFilled },
   { id: "logs", label: "操作日志", icon: Document },
   { id: "diagnostics", label: "系统诊断", icon: WarningFilled },
 ];
@@ -259,6 +263,7 @@ const auditLogs = ref<AuditLog[]>([]);
 const auditLogsTotal = ref(0);
 const frpsImportItems = ref<FrpsDiscoveredDevice[]>([]);
 const serverOverview = ref<MonitoringOverviewResponse | null>(null);
+const alertSummary = ref<AlertSummaryResponse | null>(null);
 const diagnosticsConfig = ref<DiagnosticsConfigResponse | null>(null);
 const diagnosticsLoading = ref(false);
 const syncConfigOpen = ref(false);
@@ -1026,12 +1031,13 @@ async function loadPlatformData() {
   loading.value = true;
   operationError.value = "";
   try {
-    const [groupResponse, deviceResponse, logResponse, updateResponse, overviewResponse] = await Promise.all([
+    const [groupResponse, deviceResponse, logResponse, updateResponse, overviewResponse, alertSummaryResponse] = await Promise.all([
       listGroups(),
       listDevices(),
       listLogs(logQueryParams()),
       listUpdateTasks(),
       getMonitoringOverview(),
+      getAlertSummary(),
     ]);
     const mappedGroups = groupResponse.items.map((group) => mapGroup(group, []));
     const mappedDevices = deviceResponse.items.map((device) => mapDevice(device, mappedGroups));
@@ -1041,6 +1047,7 @@ async function loadPlatformData() {
     auditLogsTotal.value = logResponse.total;
     updateTasks.value = updateResponse.items.map(mapUpdateTask);
     serverOverview.value = overviewResponse;
+    alertSummary.value = alertSummaryResponse;
     void renderDashboardCharts();
   } catch (error) {
     if (isAuthFailure(error)) {
@@ -1056,10 +1063,15 @@ async function loadPlatformData() {
 }
 
 async function refreshLogsAndOverview() {
-  const [logResponse, overviewResponse] = await Promise.all([listLogs(logQueryParams()), getMonitoringOverview()]);
+  const [logResponse, overviewResponse, alertSummaryResponse] = await Promise.all([
+    listLogs(logQueryParams()),
+    getMonitoringOverview(),
+    getAlertSummary(),
+  ]);
   auditLogs.value = logResponse.items.map(mapLog);
   auditLogsTotal.value = logResponse.total;
   serverOverview.value = overviewResponse;
+  alertSummary.value = alertSummaryResponse;
 }
 
 async function loadLogs() {
@@ -1100,6 +1112,7 @@ function logout() {
   auditLogs.value = [];
   auditLogsTotal.value = 0;
   serverOverview.value = null;
+  alertSummary.value = null;
   diagnosticsConfig.value = null;
   metricLoadWarning.value = "";
 }
@@ -1828,6 +1841,10 @@ onBeforeUnmount(() => {
               <span>异常/未知</span>
               <strong>{{ overview.degraded }}</strong>
             </div>
+            <div class="stat-tile danger">
+              <span>活跃告警</span>
+              <strong>{{ alertSummary?.active_count ?? 0 }}</strong>
+            </div>
             <div class="stat-tile info">
               <span>已完成更新</span>
               <strong>{{ overview.updates }}</strong>
@@ -2354,6 +2371,8 @@ onBeforeUnmount(() => {
 
         <ScheduledTaskPanel v-if="activeSection === 'scheduled'" />
 
+        <AlertCenterPanel v-if="activeSection === 'alerts'" />
+
         <section v-if="activeSection === 'logs'" class="page-section">
           <div class="toolbar">
             <h3>操作日志</h3>
@@ -2456,6 +2475,13 @@ onBeforeUnmount(() => {
                 <p>启用任务 {{ diagnosticsConfig.scheduler.enabled_task_count }} 个</p>
                 <p>失败执行 {{ diagnosticsConfig.scheduler.failed_run_count }} 次</p>
               </div>
+              <div class="item-card">
+                <h3>告警中心</h3>
+                <p>活跃告警 {{ diagnosticsConfig.alerts.active_count }} 条</p>
+                <el-tag :type="diagnosticsConfig.alerts.critical_count ? 'danger' : 'success'">
+                  {{ diagnosticsConfig.alerts.critical_count ? `严重 ${diagnosticsConfig.alerts.critical_count} 条` : "无严重告警" }}
+                </el-tag>
+              </div>
             </div>
             <el-empty v-else description="暂无诊断数据" />
           </section>
@@ -2527,6 +2553,15 @@ onBeforeUnmount(() => {
             />
             <el-alert
               v-for="warning in diagnosticsConfig.scheduler.warnings"
+              :key="warning"
+              class="validation-alert"
+              type="warning"
+              show-icon
+              :closable="false"
+              :title="warning"
+            />
+            <el-alert
+              v-for="warning in diagnosticsConfig.alerts.warnings"
               :key="warning"
               class="validation-alert"
               type="warning"

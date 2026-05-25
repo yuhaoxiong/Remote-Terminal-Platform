@@ -199,3 +199,12 @@ export SSH_KNOWN_HOSTS_FILE='/etc/edge-platform/known_hosts'
 - `dry_run` 定时任务只生成演练链路;真实设备自动执行必须显式选择 `execution_mode=ssh_command`,并提前确认目标设备已有可用 SSH 端口、设备级凭据和 frp 连通性。
 - 部署验收建议先在前端创建一个短周期 `dry_run` 任务,确认页面出现 `next_run_at` 和执行记录;再按需创建真实 SSH 任务,并复核 `GET /api/scheduled-tasks/{id}/runs` 中的输出摘要、失败原因和关联批量任务 ID。
 - Nginx 无需为调度器增加独立转发规则。调度状态、执行记录和立即执行仍走 `/api/`,前端按现有单域名反向代理访问。
+
+## Wave 19 告警中心部署检查
+
+- 升级后端后先检查 Alembic 是否已创建 `alerts` 和 `alert_rules` 表。`GET /api/diagnostics/config` 中 `migration.has_pending_migrations` 应为 `false`。
+- 登录前端后进入"告警中心",确认告警摘要、告警列表和告警规则能正常加载;若页面空白,先用 `GET /api/alerts/summary` 和 `GET /api/alert-rules` 验证后端接口。
+- 规则表会在后端启动时自动初始化。默认阈值为 CPU/内存 85%、磁盘 90%、指标冻结 10 分钟;前端可直接启停规则或编辑阈值。
+- 部署验收建议先用 Postman 或 `curl` 上报一条超过阈值的设备指标,确认告警出现;再上报低于阈值的指标,确认同一告警自动恢复。
+- 若调度器停用,指标冻结告警不会按后台扫描自动触发。需要验证冻结告警时保持 `SCHEDULER_ENABLED=true`,并等待一次调度扫描。
+- Nginx 不需要新增 location。告警 REST API 均走既有 `/api/` 反向代理,没有独立 WebSocket。
