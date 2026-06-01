@@ -208,3 +208,14 @@ export SSH_KNOWN_HOSTS_FILE='/etc/edge-platform/known_hosts'
 - 部署验收建议先用 Postman 或 `curl` 上报一条超过阈值的设备指标,确认告警出现;再上报低于阈值的指标,确认同一告警自动恢复。
 - 若调度器停用,指标冻结告警不会按后台扫描自动触发。需要验证冻结告警时保持 `SCHEDULER_ENABLED=true`,并等待一次调度扫描。
 - Nginx 不需要新增 location。告警 REST API 均走既有 `/api/` 反向代理,没有独立 WebSocket。
+
+## Wave 20 告警外部通知部署检查
+
+- 升级后端后先确认 Alembic 已创建 `alert_notification_channels`、`alert_notification_policies` 和 `alert_notification_deliveries` 三张表,并确认 `GET /api/diagnostics/config` 中 `migration.has_pending_migrations=false`。
+- 创建或更新 Webhook 通道前必须配置 `CREDENTIAL_ENCRYPTION_KEY`。该密钥用于加密 Webhook URL 和请求头;丢失后已保存的通知敏感配置无法解密,需要重新配置通道。
+- Nginx 不需要新增 location。Webhook 配置、策略、投递记录和重试接口均走现有 `/api/` 反向代理。
+- 后端发起 Webhook 出站请求时,服务器必须能访问目标通知地址。若投递失败,先在后端服务器上用 `curl -i <webhook-url>` 验证网络、DNS、防火墙和目标服务状态。
+- 推荐先在前端"告警中心 -> 外部通知"创建一个测试 Webhook 通道,点击"测试",确认目标服务收到测试 payload,再创建通知策略。
+- 生产-like 测试建议先使用默认策略:最低级别 `critical`,事件只选"触发"。确认无噪声后再按需开放确认、手动恢复或自动恢复通知。
+- 删除 Webhook 通道前需要先删除引用该通道的通知策略。若直接删除通道返回 `409`,属于预期保护。
+- 系统诊断页会展示启用通道、启用策略、失败投递和待重试投递计数。存在失败投递时,优先进入告警中心查看最近投递错误原因并手动重试。

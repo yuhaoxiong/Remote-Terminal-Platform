@@ -2482,6 +2482,18 @@ onBeforeUnmount(() => {
                   {{ diagnosticsConfig.alerts.critical_count ? `严重 ${diagnosticsConfig.alerts.critical_count} 条` : "无严重告警" }}
                 </el-tag>
               </div>
+              <div class="item-card">
+                <h3>告警通知</h3>
+                <p>启用通道 {{ diagnosticsConfig.notifications.enabled_channel_count }} 个</p>
+                <p>启用策略 {{ diagnosticsConfig.notifications.enabled_policy_count }} 个</p>
+                <el-tag :type="diagnosticsConfig.notifications.failed_delivery_count ? 'danger' : 'success'">
+                  {{
+                    diagnosticsConfig.notifications.failed_delivery_count
+                      ? `失败 ${diagnosticsConfig.notifications.failed_delivery_count} 条`
+                      : "投递正常"
+                  }}
+                </el-tag>
+              </div>
             </div>
             <el-empty v-else description="暂无诊断数据" />
           </section>
@@ -2562,6 +2574,15 @@ onBeforeUnmount(() => {
             />
             <el-alert
               v-for="warning in diagnosticsConfig.alerts.warnings"
+              :key="warning"
+              class="validation-alert"
+              type="warning"
+              show-icon
+              :closable="false"
+              :title="warning"
+            />
+            <el-alert
+              v-for="warning in diagnosticsConfig.notifications.warnings"
               :key="warning"
               class="validation-alert"
               type="warning"

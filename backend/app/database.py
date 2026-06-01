@@ -124,6 +124,7 @@ def _ensure_sqlite_schema(settings: Settings) -> None:
 def init_db(settings: Settings | None = None) -> None:
     from app.migrations import upgrade_to_head
     from app.models.alert import Alert, AlertRule
+    from app.models.alert_notification import AlertNotificationChannel, AlertNotificationDelivery, AlertNotificationPolicy
     from app.models.device import Device
     from app.models.group import Group
     from app.models.log import OperationLog
@@ -158,4 +159,19 @@ def init_db(settings: Settings | None = None) -> None:
 
         AlertService(settings).ensure_default_rules(session)
 
-    _ = (Alert, AlertRule, Device, Group, OperationLog, DeviceMetric, ScheduledTask, ScheduledTaskRun, UpdateTask, UpdateTaskDevice, UpdateTaskTemplate)
+    _ = (
+        Alert,
+        AlertRule,
+        AlertNotificationChannel,
+        AlertNotificationDelivery,
+        AlertNotificationPolicy,
+        Device,
+        Group,
+        OperationLog,
+        DeviceMetric,
+        ScheduledTask,
+        ScheduledTaskRun,
+        UpdateTask,
+        UpdateTaskDevice,
+        UpdateTaskTemplate,
+    )

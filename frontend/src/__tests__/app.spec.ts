@@ -136,6 +136,18 @@ vi.mock("../api/platform", () => ({
   resolveAlert: vi.fn(),
   listAlertRules: vi.fn(),
   updateAlertRule: vi.fn(),
+  listAlertNotificationChannels: vi.fn(),
+  createAlertNotificationChannel: vi.fn(),
+  updateAlertNotificationChannel: vi.fn(),
+  deleteAlertNotificationChannel: vi.fn(),
+  testAlertNotificationChannel: vi.fn(),
+  listAlertNotificationPolicies: vi.fn(),
+  createAlertNotificationPolicy: vi.fn(),
+  updateAlertNotificationPolicy: vi.fn(),
+  deleteAlertNotificationPolicy: vi.fn(),
+  listAlertNotificationDeliveries: vi.fn(),
+  retryAlertNotificationDelivery: vi.fn(),
+  getAlertNotificationSummary: vi.fn(),
   getAccessToken: vi.fn(() => "access-token"),
   getDeviceStatus: vi.fn(),
   getDiagnosticsConfig: vi.fn(),
@@ -437,6 +449,165 @@ function mockResolvedApiState() {
     created_at: "2026-05-22T00:00:00",
     updated_at: "2026-05-22T10:00:00",
   });
+  api.listAlertNotificationChannels.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 41,
+        name: "生产告警 Webhook",
+        channel_type: "webhook",
+        enabled: true,
+        webhook_url_preview: "https://notify.example.com/***",
+        timeout_seconds: 5,
+        header_keys: ["Authorization"],
+        secret_configured: true,
+        last_test_status: "success",
+        last_test_at: "2026-05-22T10:03:00",
+        last_error: null,
+        created_at: "2026-05-22T00:00:00",
+        updated_at: "2026-05-22T00:00:00",
+      },
+    ],
+  });
+  api.createAlertNotificationChannel.mockResolvedValue({
+    id: 42,
+    name: "新增 Webhook",
+    channel_type: "webhook",
+    enabled: true,
+    webhook_url_preview: "https://notify.example.com/***",
+    timeout_seconds: 5,
+    header_keys: [],
+    secret_configured: true,
+    last_test_status: null,
+    last_test_at: null,
+    last_error: null,
+    created_at: "2026-05-22T00:00:00",
+    updated_at: "2026-05-22T00:00:00",
+  });
+  api.updateAlertNotificationChannel.mockResolvedValue({
+    id: 41,
+    name: "生产告警 Webhook",
+    channel_type: "webhook",
+    enabled: true,
+    webhook_url_preview: "https://notify.example.com/***",
+    timeout_seconds: 5,
+    header_keys: ["Authorization"],
+    secret_configured: true,
+    last_test_status: "success",
+    last_test_at: "2026-05-22T10:03:00",
+    last_error: null,
+    created_at: "2026-05-22T00:00:00",
+    updated_at: "2026-05-22T00:00:00",
+  });
+  api.deleteAlertNotificationChannel.mockResolvedValue(undefined);
+  api.testAlertNotificationChannel.mockResolvedValue({
+    id: 41,
+    name: "生产告警 Webhook",
+    channel_type: "webhook",
+    enabled: true,
+    webhook_url_preview: "https://notify.example.com/***",
+    timeout_seconds: 5,
+    header_keys: ["Authorization"],
+    secret_configured: true,
+    last_test_status: "success",
+    last_test_at: "2026-05-22T10:03:00",
+    last_error: null,
+    created_at: "2026-05-22T00:00:00",
+    updated_at: "2026-05-22T00:00:00",
+  });
+  api.listAlertNotificationPolicies.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 51,
+        name: "严重告警触发通知",
+        enabled: true,
+        channel_id: 41,
+        min_severity: "critical",
+        source_types: [],
+        alert_statuses: ["open"],
+        event_types: ["triggered"],
+        created_at: "2026-05-22T00:00:00",
+        updated_at: "2026-05-22T00:00:00",
+      },
+    ],
+  });
+  api.createAlertNotificationPolicy.mockResolvedValue({
+    id: 52,
+    name: "新增策略",
+    enabled: true,
+    channel_id: 41,
+    min_severity: "critical",
+    source_types: [],
+    alert_statuses: ["open"],
+    event_types: ["triggered"],
+    created_at: "2026-05-22T00:00:00",
+    updated_at: "2026-05-22T00:00:00",
+  });
+  api.updateAlertNotificationPolicy.mockResolvedValue({
+    id: 51,
+    name: "严重告警触发通知",
+    enabled: true,
+    channel_id: 41,
+    min_severity: "critical",
+    source_types: [],
+    alert_statuses: ["open"],
+    event_types: ["triggered"],
+    created_at: "2026-05-22T00:00:00",
+    updated_at: "2026-05-22T00:00:00",
+  });
+  api.deleteAlertNotificationPolicy.mockResolvedValue(undefined);
+  api.listAlertNotificationDeliveries.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 61,
+        alert_id: 31,
+        channel_id: 41,
+        policy_id: 51,
+        event_type: "triggered",
+        status: "failed",
+        attempt_count: 1,
+        last_attempt_at: "2026-05-22T10:04:00",
+        next_retry_at: "2026-05-22T10:05:00",
+        response_status_code: 500,
+        response_summary: null,
+        error_message: "服务端错误",
+        alert_title: "CPU 高负载",
+        channel_name: "生产告警 Webhook",
+        policy_name: "严重告警触发通知",
+        created_at: "2026-05-22T10:04:00",
+        updated_at: "2026-05-22T10:04:00",
+      },
+    ],
+  });
+  api.retryAlertNotificationDelivery.mockResolvedValue({
+    id: 61,
+    alert_id: 31,
+    channel_id: 41,
+    policy_id: 51,
+    event_type: "triggered",
+    status: "success",
+    attempt_count: 2,
+    last_attempt_at: "2026-05-22T10:06:00",
+    next_retry_at: null,
+    response_status_code: 200,
+    response_summary: "ok",
+    error_message: null,
+    alert_title: "CPU 高负载",
+    channel_name: "生产告警 Webhook",
+    policy_name: "严重告警触发通知",
+    created_at: "2026-05-22T10:04:00",
+    updated_at: "2026-05-22T10:06:00",
+  });
+  api.getAlertNotificationSummary.mockResolvedValue({
+    enabled_channel_count: 1,
+    enabled_policy_count: 1,
+    failed_delivery_count: 1,
+    retrying_delivery_count: 0,
+    last_delivery_at: "2026-05-22T10:04:00",
+    warnings: ["存在 1 条失败通知投递"],
+  });
   api.listDeviceMetrics.mockResolvedValue({
     total: 1,
     items: [
@@ -674,6 +845,13 @@ function mockResolvedApiState() {
       critical_count: 1,
       latest_alert_at: "2026-05-22T10:00:00",
       warnings: ["存在 1 条严重告警"],
+    },
+    notifications: {
+      enabled_channel_count: 1,
+      enabled_policy_count: 1,
+      failed_delivery_count: 1,
+      retrying_delivery_count: 0,
+      warnings: ["存在 1 条失败通知投递"],
     },
   });
   api.syncDeviceConfig.mockResolvedValue({
@@ -1260,6 +1438,9 @@ describe("App", () => {
     expect(wrapper.text()).toContain("活跃告警");
     expect(wrapper.text()).toContain("CPU 高负载");
     expect(wrapper.text()).toContain("告警规则");
+    expect(wrapper.text()).toContain("外部通知");
+    expect(wrapper.text()).toContain("生产告警 Webhook");
+    expect(wrapper.text()).toContain("严重告警触发通知");
 
     const acknowledgeButton = wrapper.findAll("button").find((button) => button.text().includes("确认"));
     expect(acknowledgeButton).toBeTruthy();
@@ -1277,6 +1458,18 @@ describe("App", () => {
       threshold_value: 85,
       window_minutes: null,
     });
+
+    const testButton = wrapper.findAll("button").find((button) => button.text().includes("测试"));
+    expect(testButton).toBeTruthy();
+    await testButton!.trigger("click");
+    await flushAsync();
+    expect(api.testAlertNotificationChannel).toHaveBeenCalledWith(41);
+
+    const retryButton = wrapper.findAll("button").find((button) => button.text().includes("重试"));
+    expect(retryButton).toBeTruthy();
+    await retryButton!.trigger("click");
+    await flushAsync();
+    expect(api.retryAlertNotificationDelivery).toHaveBeenCalledWith(61);
   });
 
   it("opens SSH and VNC from the selected remote device workspace", async () => {

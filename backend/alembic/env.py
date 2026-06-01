@@ -5,6 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.database import Base
 from app.models.alert import Alert, AlertRule
+from app.models.alert_notification import AlertNotificationChannel, AlertNotificationDelivery, AlertNotificationPolicy
 from app.models.device import Device
 from app.models.group import Group
 from app.models.log import OperationLog
@@ -24,6 +25,9 @@ _ = (
     Device,
     Alert,
     AlertRule,
+    AlertNotificationChannel,
+    AlertNotificationDelivery,
+    AlertNotificationPolicy,
     Group,
     OperationLog,
     DeviceMetric,

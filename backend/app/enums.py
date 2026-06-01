@@ -96,3 +96,22 @@ class AlertRuleType(StrEnum):
     metrics_stale = "metrics_stale"
     scheduled_task_failed = "scheduled_task_failed"
     update_task_failed = "update_task_failed"
+
+
+class AlertNotificationChannelType(StrEnum):
+    webhook = "webhook"
+
+
+class AlertNotificationEventType(StrEnum):
+    triggered = "triggered"
+    acknowledged = "acknowledged"
+    resolved = "resolved"
+    auto_resolved = "auto_resolved"
+
+
+class AlertNotificationDeliveryStatus(StrEnum):
+    pending = "pending"
+    success = "success"
+    failed = "failed"
+    retrying = "retrying"
+    skipped = "skipped"

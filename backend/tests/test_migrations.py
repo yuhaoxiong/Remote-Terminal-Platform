@@ -7,7 +7,9 @@ from sqlalchemy import create_engine, inspect
 
 def test_alembic_upgrade_head_creates_wave1_schema(tmp_path: Path) -> None:
     db_path = tmp_path / "migration.db"
-    config = Config("alembic.ini")
+    backend_dir = Path(__file__).resolve().parents[1]
+    config = Config(str(backend_dir / "alembic.ini"))
+    config.set_main_option("script_location", str(backend_dir / "alembic"))
     config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
 
     command.upgrade(config, "head")
@@ -25,5 +27,8 @@ def test_alembic_upgrade_head_creates_wave1_schema(tmp_path: Path) -> None:
         "scheduled_task_runs",
         "alerts",
         "alert_rules",
+        "alert_notification_channels",
+        "alert_notification_policies",
+        "alert_notification_deliveries",
         "port_pool",
     }

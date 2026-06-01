@@ -52,6 +52,15 @@ class DiagnosticsAlertSummary(BaseModel):
     warnings: list[str] = []
 
 
+class DiagnosticsNotificationSummary(BaseModel):
+    enabled_channel_count: int
+    enabled_policy_count: int
+    failed_delivery_count: int
+    retrying_delivery_count: int
+    last_delivery_at: str | None
+    warnings: list[str] = []
+
+
 class DiagnosticsConfigResponse(BaseModel):
     service_name: str
     version: str
@@ -70,3 +79,4 @@ class DiagnosticsConfigResponse(BaseModel):
     database_status: DiagnosticsDatabaseSummary
     scheduler: DiagnosticsSchedulerSummary
     alerts: DiagnosticsAlertSummary
+    notifications: DiagnosticsNotificationSummary

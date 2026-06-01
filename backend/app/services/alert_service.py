@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.enums import AlertRuleType, AlertSeverity, AlertSourceType, AlertStatus
+from app.enums import AlertNotificationEventType, AlertRuleType, AlertSeverity, AlertSourceType, AlertStatus
 from app.models.alert import Alert, AlertRule
 from app.models.device import Device
 from app.models.metric import DeviceMetric
@@ -113,6 +113,7 @@ class AlertService:
             select(Alert).where(Alert.dedupe_key == dedupe_key, Alert.status.in_(self.active_statuses))
         )
         detail = self._truncate(detail)
+        created = alert is None
         if alert is None:
             alert = Alert(
                 dedupe_key=dedupe_key,
@@ -142,6 +143,8 @@ class AlertService:
             alert.trigger_count += 1
         session.flush()
         session.refresh(alert)
+        if created:
+            self._record_notification_event(session, alert, AlertNotificationEventType.triggered.value)
         return alert
 
     def resolve_by_dedupe_key(self, session: Session, dedupe_key: str, *, resolved_by: str = "system") -> int:
@@ -152,6 +155,8 @@ class AlertService:
             alert.resolved_at = now
             alert.resolved_by = resolved_by
         session.flush()
+        for alert in alerts:
+            self._record_notification_event(session, alert, AlertNotificationEventType.auto_resolved.value)
         return len(alerts)
 
     def acknowledge(self, session: Session, alert_id: int, *, note: str | None, user_id: int | None) -> Alert:
@@ -163,6 +168,7 @@ class AlertService:
         alert.acknowledged_note = note
         session.flush()
         session.refresh(alert)
+        self._record_notification_event(session, alert, AlertNotificationEventType.acknowledged.value)
         return alert
 
     def resolve(self, session: Session, alert_id: int, *, note: str | None, user_id: int | None) -> Alert:
@@ -174,6 +180,7 @@ class AlertService:
             alert.detail = self._truncate(f"{alert.detail or ''}\n手动恢复说明：{note}".strip())
         session.flush()
         session.refresh(alert)
+        self._record_notification_event(session, alert, AlertNotificationEventType.resolved.value)
         return alert
 
     def get(self, session: Session, alert_id: int) -> Alert:
@@ -384,3 +391,12 @@ class AlertService:
         if value is None:
             return None
         return value if len(value) <= self.detail_limit else value[: self.detail_limit] + "...[已截断]"
+
+    def _record_notification_event(self, session: Session, alert: Alert, event_type: str) -> None:
+        try:
+            from app.services.alert_notification_service import AlertNotificationService
+
+            AlertNotificationService(self.settings).record_event(session, alert, event_type)
+        except Exception:
+            # Notification delivery must never break the alert lifecycle.
+            return

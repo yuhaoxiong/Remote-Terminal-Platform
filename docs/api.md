@@ -2103,3 +2103,273 @@ ws://<host>/api/ws/devices/{{device_id}}/vnc?token={{access_token}}
 ```
 
 该字段只返回计数、最近时间和风险提示,不返回设备凭据、Token 或敏感配置。
+
+## Wave 20 告警外部通知
+
+本轮只支持 Webhook 通知。Webhook URL 和请求头属于敏感配置,创建或更新时后端必须能读取 `CREDENTIAL_ENCRYPTION_KEY`;未配置时返回 `400`。API 响应只返回脱敏后的 URL 预览、请求头 key 和配置状态,不返回完整 URL、请求头值或加密密文。
+
+### 数据模型
+
+#### AlertNotificationChannel
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | integer | 通道 ID |
+| `name` | string | 通道名称 |
+| `channel_type` | string | 当前固定为 `webhook` |
+| `enabled` | boolean | 是否启用 |
+| `webhook_url_preview` | string/null | 脱敏 URL 预览 |
+| `timeout_seconds` | integer | Webhook 请求超时秒数 |
+| `header_keys` | string[] | 已配置请求头 key 列表 |
+| `secret_configured` | boolean | 是否已保存敏感配置 |
+| `last_test_status` | string/null | 最近测试状态 |
+| `last_test_at` | datetime/null | 最近测试时间 |
+| `last_error` | string/null | 最近错误摘要 |
+| `created_at` / `updated_at` | datetime | 创建和更新时间 |
+
+#### AlertNotificationPolicy
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | integer | 策略 ID |
+| `name` | string | 策略名称 |
+| `enabled` | boolean | 是否启用 |
+| `channel_id` | integer | 关联通知通道 ID |
+| `min_severity` | string | `critical` 或 `warning` |
+| `source_types` | string[] | 可选来源过滤,空数组表示不过滤 |
+| `alert_statuses` | string[] | 可选告警状态过滤,空数组表示不过滤 |
+| `event_types` | string[] | 通知事件,如 `triggered` |
+| `created_at` / `updated_at` | datetime | 创建和更新时间 |
+
+支持事件:
+
+| 事件 | 说明 |
+| --- | --- |
+| `triggered` | 告警触发 |
+| `acknowledged` | 告警被确认 |
+| `resolved` | 告警手动恢复 |
+| `auto_resolved` | 告警自动恢复 |
+
+#### AlertNotificationDelivery
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | integer | 投递记录 ID |
+| `alert_id` | integer | 告警 ID |
+| `channel_id` | integer | 通道 ID |
+| `policy_id` | integer | 策略 ID |
+| `event_type` | string | 事件类型 |
+| `status` | string | `pending`、`success`、`failed`、`retrying`、`skipped` |
+| `attempt_count` | integer | 已尝试次数 |
+| `last_attempt_at` | datetime/null | 最近尝试时间 |
+| `next_retry_at` | datetime/null | 下次建议重试时间 |
+| `response_status_code` | integer/null | Webhook 响应状态码 |
+| `response_summary` | string/null | 响应摘要 |
+| `error_message` | string/null | 错误原因 |
+| `alert_title` / `channel_name` / `policy_name` | string/null | 展示用名称 |
+
+### 查询通知通道
+
+```http
+GET /api/alert-notification-channels
+```
+
+认证:需要。响应 `200`:
+
+```json
+{
+  "total": 1,
+  "items": [
+    {
+      "id": 1,
+      "name": "生产告警 Webhook",
+      "channel_type": "webhook",
+      "enabled": true,
+      "webhook_url_preview": "https://notify.example.com/***",
+      "timeout_seconds": 5,
+      "header_keys": ["Authorization"],
+      "secret_configured": true,
+      "last_test_status": "success",
+      "last_test_at": "2026-06-01T10:00:00",
+      "last_error": null,
+      "created_at": "2026-06-01T09:00:00",
+      "updated_at": "2026-06-01T10:00:00"
+    }
+  ]
+}
+```
+
+### 创建通知通道
+
+```http
+POST /api/alert-notification-channels
+Content-Type: application/json
+```
+
+请求体:
+
+```json
+{
+  "name": "生产告警 Webhook",
+  "channel_type": "webhook",
+  "enabled": true,
+  "webhook_url": "https://notify.example.com/webhook",
+  "headers": {
+    "Authorization": "Bearer example-token"
+  },
+  "timeout_seconds": 5
+}
+```
+
+响应 `201`:`AlertNotificationChannel`。
+
+错误:
+
+- `400`:未配置 `CREDENTIAL_ENCRYPTION_KEY` 或敏感配置无法加密。
+- `422`:URL 非 `http://` / `https://`、名称为空或超时越界。
+
+### 更新通知通道
+
+```http
+PUT /api/alert-notification-channels/{channel_id}
+Content-Type: application/json
+```
+
+请求体可包含 `name`、`enabled`、`webhook_url`、`headers`、`timeout_seconds` 中的一个或多个。更新 `webhook_url` 或 `headers` 时同样要求配置 `CREDENTIAL_ENCRYPTION_KEY`。
+
+### 删除通知通道
+
+```http
+DELETE /api/alert-notification-channels/{channel_id}
+```
+
+响应 `204`。如果仍有通知策略引用该通道,返回 `409`;需要先删除策略再删除通道。
+
+### 测试通知通道
+
+```http
+POST /api/alert-notification-channels/{channel_id}/test
+```
+
+后端会向通道 Webhook 发送一条测试 payload,并更新 `last_test_status`、`last_test_at` 和 `last_error`。响应 `200`:`AlertNotificationChannel`。
+
+### 查询通知策略
+
+```http
+GET /api/alert-notification-policies
+```
+
+响应 `200`:
+
+```json
+{
+  "total": 1,
+  "items": [
+    {
+      "id": 1,
+      "name": "严重告警触发通知",
+      "enabled": true,
+      "channel_id": 1,
+      "min_severity": "critical",
+      "source_types": [],
+      "alert_statuses": ["open"],
+      "event_types": ["triggered"],
+      "created_at": "2026-06-01T09:00:00",
+      "updated_at": "2026-06-01T09:00:00"
+    }
+  ]
+}
+```
+
+### 创建通知策略
+
+```http
+POST /api/alert-notification-policies
+Content-Type: application/json
+```
+
+请求体:
+
+```json
+{
+  "name": "严重告警触发通知",
+  "enabled": true,
+  "channel_id": 1,
+  "min_severity": "critical",
+  "source_types": [],
+  "alert_statuses": ["open"],
+  "event_types": ["triggered"]
+}
+```
+
+响应 `201`:`AlertNotificationPolicy`。默认建议只订阅 `critical` + `triggered`。
+
+### 更新和删除通知策略
+
+```http
+PUT /api/alert-notification-policies/{policy_id}
+DELETE /api/alert-notification-policies/{policy_id}
+```
+
+更新请求体可包含创建字段的任意子集。删除成功返回 `204`。
+
+### 查询投递记录
+
+```http
+GET /api/alert-notification-deliveries?status=failed&limit=50
+```
+
+查询参数:
+
+| 参数 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `offset` | integer | `0` | 分页偏移 |
+| `limit` | integer | `50` | 分页大小,最大 200 |
+| `status` | string | 无 | 按投递状态筛选 |
+| `channel_id` | integer | 无 | 按通道筛选 |
+| `alert_id` | integer | 无 | 按告警筛选 |
+
+### 重试投递
+
+```http
+POST /api/alert-notification-deliveries/{delivery_id}/retry
+```
+
+响应 `200`:`AlertNotificationDelivery`。成功后状态变为 `success`;失败会更新错误原因和重试建议时间。
+
+### 查询通知摘要
+
+```http
+GET /api/alert-notification-summary
+```
+
+响应 `200`:
+
+```json
+{
+  "enabled_channel_count": 1,
+  "enabled_policy_count": 1,
+  "failed_delivery_count": 0,
+  "retrying_delivery_count": 0,
+  "last_delivery_at": "2026-06-01T10:00:00",
+  "warnings": []
+}
+```
+
+### 诊断摘要扩展
+
+`GET /api/diagnostics/config` 新增 `notifications` 字段:
+
+```json
+{
+  "notifications": {
+    "enabled_channel_count": 1,
+    "enabled_policy_count": 1,
+    "failed_delivery_count": 0,
+    "retrying_delivery_count": 0,
+    "warnings": []
+  }
+}
+```
+
+该字段只返回计数和风险提示,不返回 Webhook URL、请求头值或密钥材料。

@@ -16,6 +16,7 @@ import {
   type AlertStatus,
   type AlertSummaryResponse,
 } from "../api/platform";
+import AlertNotificationPanel from "./AlertNotificationPanel.vue";
 
 const alerts = ref<AlertRead[]>([]);
 const alertTotal = ref(0);
@@ -306,5 +307,7 @@ onMounted(() => {
         </el-table-column>
       </el-table>
     </section>
+
+    <AlertNotificationPanel />
   </section>
 </template>

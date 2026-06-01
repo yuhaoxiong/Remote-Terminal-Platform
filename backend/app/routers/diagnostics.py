@@ -12,11 +12,13 @@ from app.schemas.diagnostics import (
     DiagnosticsAuthLifetimeSummary,
     DiagnosticsDatabaseSummary,
     DiagnosticsMigrationSummary,
+    DiagnosticsNotificationSummary,
     DiagnosticsSchedulerSummary,
     DiagnosticsSecuritySummary,
     DiagnosticsSshHostKeySummary,
 )
 from app.services.alert_service import AlertService
+from app.services.alert_notification_service import AlertNotificationService
 from app.services.scheduler_service import SchedulerService
 
 router = APIRouter(prefix="/diagnostics", tags=["diagnostics"])
@@ -118,6 +120,19 @@ def _alert_summary(settings) -> DiagnosticsAlertSummary:
     )
 
 
+def _notification_summary(settings) -> DiagnosticsNotificationSummary:
+    with session_scope(settings) as session:
+        summary = AlertNotificationService(settings).summary(session)
+    return DiagnosticsNotificationSummary(
+        enabled_channel_count=summary["enabled_channel_count"],
+        enabled_policy_count=summary["enabled_policy_count"],
+        failed_delivery_count=summary["failed_delivery_count"],
+        retrying_delivery_count=summary["retrying_delivery_count"],
+        last_delivery_at=summary["last_delivery_at"].isoformat() if summary["last_delivery_at"] else None,
+        warnings=summary["warnings"],
+    )
+
+
 @router.get("/config", response_model=DiagnosticsConfigResponse)
 def get_diagnostics_config(
     request: Request,
@@ -149,4 +164,5 @@ def get_diagnostics_config(
         ),
         scheduler=_scheduler_summary(request, settings),
         alerts=_alert_summary(settings),
+        notifications=_notification_summary(settings),
     )

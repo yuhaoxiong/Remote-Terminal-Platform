@@ -181,3 +181,30 @@ def test_init_db_creates_default_alert_rules(tmp_path: Path) -> None:
         "scheduled_task_failed",
         "update_task_failed",
     }.issubset(rules)
+
+
+def test_init_db_creates_alert_notification_tables(tmp_path: Path) -> None:
+    db_path = tmp_path / "alert-notifications.db"
+    init_db(_settings(db_path))
+
+    with sqlite3.connect(db_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table'
+                AND name IN (
+                    'alert_notification_channels',
+                    'alert_notification_policies',
+                    'alert_notification_deliveries'
+                )
+                """
+            ).fetchall()
+        }
+
+    assert tables == {
+        "alert_notification_channels",
+        "alert_notification_policies",
+        "alert_notification_deliveries",
+    }

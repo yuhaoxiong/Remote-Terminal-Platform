@@ -24,6 +24,7 @@
 - 设备文件管理接口:列表、上传、下载、删除,支持本地开发后端与 SFTP 后端。
 - 定时任务接口:创建、列表、更新、删除、启停、手动执行、自动调度、执行记录和执行日志。
 - 告警中心:设备离线/未知、CPU/内存/磁盘阈值、指标冻结、定时任务失败和批量更新失败告警,支持确认、恢复、规则启停和阈值编辑。
+- 告警外部通知:支持 Webhook 通道、通知策略、投递记录、失败重试和诊断摘要。
 - 前端操作界面:登录、仪表盘、设备、分组、远程连接、更新任务、定时任务、告警中心、日志和系统诊断。
 - 部署辅助资产:后端安装、边缘设备引导、SQLite 备份和部署文档。
 
@@ -144,6 +145,8 @@ $env:SCHEDULER_POLL_INTERVAL_SECONDS='30'
 
 `FILE_BACKEND` 默认是 `local`,用于没有真实设备的本地开发;设置为 `sftp` 后,文件列表、上传、下载和删除会通过设备 frp SSH 端口访问真实设备。远程 SSH/VNC 连接依赖设备记录中的代理端口、设备级 SSH 凭据、frpc/frps 可达性和 Nginx WebSocket 代理。
 
+告警 Webhook 通道的 URL 和请求头会作为敏感配置保存。创建或更新 Webhook 地址、请求头前必须配置 `CREDENTIAL_ENCRYPTION_KEY`;未配置时后端会拒绝保存敏感通知配置。
+
 生成 `CREDENTIAL_ENCRYPTION_KEY`:
 
 ```powershell
@@ -234,6 +237,18 @@ py -3.12 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key()
 - `POST /api/alerts/{id}/resolve`
 - `GET /api/alert-rules`
 - `PUT /api/alert-rules/{id}`
+- `GET /api/alert-notification-channels`
+- `POST /api/alert-notification-channels`
+- `PUT /api/alert-notification-channels/{id}`
+- `DELETE /api/alert-notification-channels/{id}`
+- `POST /api/alert-notification-channels/{id}/test`
+- `GET /api/alert-notification-policies`
+- `POST /api/alert-notification-policies`
+- `PUT /api/alert-notification-policies/{id}`
+- `DELETE /api/alert-notification-policies/{id}`
+- `GET /api/alert-notification-deliveries`
+- `POST /api/alert-notification-deliveries/{id}/retry`
+- `GET /api/alert-notification-summary`
 
 ### 监控和日志
 
@@ -268,6 +283,7 @@ scripts/deploy/backup_sqlite.ps1
 - 批量更新任务默认使用演练模式;选择"真实 SSH 执行"后会通过设备级 SSH 凭据连接 frp SSH 端口并执行命令,记录退出码、标准输出摘要、错误输出摘要和失败原因。任务创建区支持目标预览、手动选择设备和命令模板,执行结果支持失败设备新建重试任务和 CSV 导出。
 - 定时任务支持 `interval:N` 和 5 位 `cron:` 表达式。后台调度器默认启用,会计算 `next_run_at`,到期后复用批量任务执行链路生成独立执行记录;真实 SSH 调度必须显式选择 `execution_mode=ssh_command`。
 - 告警规则启动时会自动初始化。指标阈值默认 CPU/内存 85%、磁盘 90%、指标冻结 10 分钟;设备恢复在线或指标回落后会自动恢复对应活跃告警。
+- 告警外部通知目前优先支持 Webhook。默认策略建议只订阅 `critical` 且事件为 `triggered`;确认、手动恢复和自动恢复事件也可按策略开启。删除通道前需要先删除引用该通道的通知策略。
 - 前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:8000`,可以用 `VITE_API_PROXY_TARGET` 覆盖代理目标。
 - 前端构建会出现 Vite 大 chunk 警告,原因是 Element Plus 被打进主 chunk;当前不影响构建产物。
 - 当前工作区是 Git 仓库;提交或推送前请确认没有暂存无关本地文档。
@@ -278,17 +294,19 @@ scripts/deploy/backup_sqlite.ps1
 
 ```powershell
 $env:PYTHONPATH='C:\01_work\02_program\远程终端平台\backend'
-py -3.12 -m pytest tests --basetemp 'C:\01_work\02_program\远程终端平台\.pytest-tmp'
+pytest backend/tests -q --basetemp .tmp/pytest-all -p no:cacheprovider
 
 cd C:\01_work\02_program\远程终端平台\frontend
-npm.cmd test -- --run
+npm.cmd run test -- --run
+npm.cmd run typecheck
 npm.cmd run build
 ```
 
 最近结果:
 
-- 后端:74 个测试通过。
+- 后端:84 个测试通过。
 - 前端:19 个测试通过。
+- 前端类型检查:通过。
 - 前端构建:成功,仍有已知 Vite chunk size 警告。
 - Wave 7 联调:后端 `127.0.0.1:8010`、前端 `127.0.0.1:5179`,通过前端代理完成登录、更新任务列表、监控总览、设备创建、设备列表和设备删除验收。
 - Wave 8 自动化:通过 SSH/VNC WebSocket 鉴权与转发、SFTP 后端、远程页面会话入口测试;真实设备 SSH/VNC/SFTP 手工联调仍需要提供可访问的测试设备和凭据。
@@ -401,3 +419,12 @@ docs/postman/edge-platform.postman_collection.json
 - 新增告警 API:`GET /api/alerts`、`GET /api/alerts/summary`、`POST /api/alerts/{id}/acknowledge`、`POST /api/alerts/{id}/resolve`、`GET /api/alert-rules`、`PUT /api/alert-rules/{id}`。
 - 前端新增"告警中心"导航,展示活跃/严重/未确认摘要、告警列表、确认/恢复操作和规则启停/阈值编辑。
 - `GET /api/diagnostics/config` 新增 `alerts` 非敏感摘要,系统诊断页会显示活跃告警、严重告警和风险提示。
+
+## Wave 20 告警外部通知补充
+
+- 新增 Webhook 通知通道、通知策略和投递记录表,并纳入 Alembic 迁移和 `init_db` 兼容创建。
+- Webhook URL 和请求头使用 `CREDENTIAL_ENCRYPTION_KEY` 加密保存;未配置加密密钥时,后端拒绝创建或更新敏感通知配置。
+- 告警触发、确认、手动恢复和自动恢复会按通知策略生成投递记录;失败投递会记录状态码、摘要或错误原因,并支持手动重试。
+- 默认通知策略建议为 `min_severity=critical` 且 `event_types=["triggered"]`,减少低价值通知噪声。
+- 前端"告警中心"新增"外部通知"区域,支持 Webhook 通道、策略、测试发送、最近投递和失败重试。
+- `GET /api/diagnostics/config` 新增 `notifications` 非敏感摘要,系统诊断页会展示启用通道、启用策略、失败投递和风险提示。
