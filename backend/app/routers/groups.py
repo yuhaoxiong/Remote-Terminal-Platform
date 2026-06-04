@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
-from app.dependencies import conflict_error, get_current_user, not_found_error, request_session
+from app.dependencies import conflict_error, get_current_user, not_found_error, request_session, require_admin_user
 from app.models.user import User
 from app.schemas.group import GroupCreate, GroupListResponse, GroupRead, GroupUpdate
 from app.services.group_service import GroupDuplicateError, GroupNotFoundError, GroupService
@@ -76,7 +76,7 @@ def update_group(
 def delete_group(
     group_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> Response:
     with request_session(request) as (settings, session):
         try:

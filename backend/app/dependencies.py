@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from fastapi import Depends, HTTPException, Request, status
@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.database import session_scope
+from app.enums import UserRole
 from app.models.user import User
+from app.services.operation_log import OperationLogService
 from app.services.security import TokenError, decode_token
 
 bearer_scheme = HTTPBearer()
@@ -50,3 +52,46 @@ def get_current_user(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         session.expunge(user)
         return user
+
+
+def _forbidden(request: Request, settings: Settings, user: User, required_roles: set[str]) -> HTTPException:
+    with session_scope(settings) as session:
+        OperationLogService(settings).record(
+            session,
+            user_id=user.id,
+            action="auth.forbidden",
+            target_type="permission",
+            target_id=None,
+            status="failed",
+            detail=f"{request.url.path}: required={','.join(sorted(required_roles))}, actual={user.role}",
+        )
+    return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前账号无权限执行该操作")
+
+
+def ensure_roles(user: User, roles: set[UserRole | str], request: Request, settings: Settings) -> None:
+    required_roles = {role.value if isinstance(role, UserRole) else role for role in roles}
+    if user.role not in required_roles:
+        raise _forbidden(request, settings, user, required_roles)
+
+
+def ensure_admin(user: User, request: Request, settings: Settings) -> None:
+    ensure_roles(user, {UserRole.admin}, request, settings)
+
+
+def require_roles(roles: set[UserRole | str]) -> Callable[[Request, User], User]:
+    def dependency(
+        request: Request,
+        current_user: User = Depends(get_current_user),
+    ) -> User:
+        ensure_roles(current_user, roles, request, get_app_settings(request))
+        return current_user
+
+    return dependency
+
+
+def require_admin_user(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> User:
+    ensure_admin(current_user, request, get_app_settings(request))
+    return current_user

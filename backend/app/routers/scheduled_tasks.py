@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
-from app.dependencies import get_current_user, not_found_error, request_session
+from app.dependencies import ensure_admin, get_current_user, not_found_error, request_session, require_admin_user
+from app.enums import ExecutionMode
 from app.models.user import User
 from app.schemas.log import OperationLogListResponse, OperationLogRead
 from app.schemas.scheduled_task import (
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/scheduled-tasks", tags=["scheduled-tasks"])
 def create_scheduled_task(
     payload: ScheduledTaskCreate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> ScheduledTaskRead:
     with request_session(request) as (settings, session):
         task = ScheduledTaskService(settings).create(session, payload)
@@ -55,7 +56,7 @@ def update_scheduled_task(
     task_id: int,
     payload: ScheduledTaskUpdate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> ScheduledTaskRead:
     with request_session(request) as (settings, session):
         try:
@@ -78,7 +79,7 @@ def update_scheduled_task(
 def delete_scheduled_task(
     task_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> Response:
     with request_session(request) as (settings, session):
         try:
@@ -103,7 +104,7 @@ def delete_scheduled_task(
 def toggle_scheduled_task(
     task_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> ScheduledTaskRead:
     with request_session(request) as (settings, session):
         try:
@@ -130,6 +131,9 @@ def execute_scheduled_task(
 ) -> ScheduledTaskExecuteResponse:
     with request_session(request) as (settings, session):
         try:
+            task = ScheduledTaskService(settings).get(session, task_id)
+            if task.execution_mode == ExecutionMode.ssh_command.value:
+                ensure_admin(current_user, request, settings)
             run = ScheduledTaskService(settings).run_now(session, task_id, user_id=current_user.id, trigger_type="manual")
         except ScheduledTaskNotFoundError as exc:
             raise not_found_error(exc) from exc

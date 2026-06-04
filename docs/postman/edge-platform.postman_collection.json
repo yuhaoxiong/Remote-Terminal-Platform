@@ -143,6 +143,26 @@
       "key": "alert_notification_delivery_id",
       "value": "1",
       "type": "string"
+    },
+    {
+      "key": "operator_username",
+      "value": "postman-operator",
+      "type": "string"
+    },
+    {
+      "key": "operator_password",
+      "value": "password123",
+      "type": "string"
+    },
+    {
+      "key": "operator_user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "operator_access_token",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -1834,6 +1854,298 @@
             "description": "删除通道。若仍有策略引用会返回 409。"
           },
           "response": []
+        }
+      ]
+    },
+    {
+      "name": "Wave 21 用户角色与会话审计",
+      "item": [
+        {
+          "name": "当前用户包含角色",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/auth/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"返回当前用户角色\", function () {",
+                  "  const data = pm.response.json();",
+                  "  pm.expect(data).to.have.property(\"role\");",
+                  "  pm.expect(data).to.have.property(\"is_active\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "用户列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/users"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"管理员可查询用户列表\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const data = pm.response.json();",
+                  "  pm.expect(data.items).to.be.an(\"array\");",
+                  "  const existing = data.items.find((item) => item.username === pm.collectionVariables.get(\"operator_username\"));",
+                  "  if (existing) {",
+                  "    pm.collectionVariables.set(\"operator_user_id\", existing.id);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "创建运维用户",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/users",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{operator_username}}\",\n  \"password\": \"{{operator_password}}\",\n  \"role\": \"operator\",\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"创建或已存在运维用户\", function () {",
+                  "  pm.expect([201, 409]).to.include(pm.response.code);",
+                  "  if (pm.response.code === 201) {",
+                  "    const data = pm.response.json();",
+                  "    pm.collectionVariables.set(\"operator_user_id\", data.id);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "重置运维用户密码",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/users/{{operator_user_id}}/reset-password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"new_password\": \"{{operator_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"重置密码成功\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().password_changed_at).to.not.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "停用运维用户",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/users/{{operator_user_id}}/toggle",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_active\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"停用用户成功\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().is_active).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "启用运维用户",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/users/{{operator_user_id}}/toggle",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"启用用户成功\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().is_active).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "运维用户登录",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{operator_username}}\",\n  \"password\": \"{{operator_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"运维账号可登录\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const data = pm.response.json();",
+                  "  pm.collectionVariables.set(\"operator_access_token\", data.access_token);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "运维访问用户列表应被拒绝",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{operator_access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/users",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"运维账号无用户管理权限\", function () {",
+                  "  pm.response.to.have.status(403);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "诊断配置包含用户摘要",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/diagnostics/config"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"诊断包含用户摘要\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const data = pm.response.json();",
+                  "  pm.expect(data.users).to.have.property(\"admin_count\");",
+                  "  pm.expect(data.users.admin_count).to.be.at.least(1);",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     }

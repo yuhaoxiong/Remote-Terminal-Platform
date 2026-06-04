@@ -149,6 +149,7 @@ vi.mock("../api/platform", () => ({
   retryAlertNotificationDelivery: vi.fn(),
   getAlertNotificationSummary: vi.fn(),
   getAccessToken: vi.fn(() => "access-token"),
+  getCurrentUser: vi.fn(),
   getDeviceStatus: vi.fn(),
   getDiagnosticsConfig: vi.fn(),
   hasStoredAccessToken: vi.fn(() => false),
@@ -158,6 +159,7 @@ vi.mock("../api/platform", () => ({
   listGroups: vi.fn(),
   listLogs: vi.fn(),
   listUpdateTasks: vi.fn(),
+  listUsers: vi.fn(),
   previewUpdateTaskTargets: vi.fn(),
   listUpdateTaskTemplates: vi.fn(),
   createUpdateTaskTemplate: vi.fn(),
@@ -166,6 +168,10 @@ vi.mock("../api/platform", () => ({
   loginAdmin: vi.fn(),
   openSshSession: vi.fn(),
   openVncSession: vi.fn(),
+  createUser: vi.fn(),
+  updateUser: vi.fn(),
+  resetUserPassword: vi.fn(),
+  toggleUser: vi.fn(),
   setAuthTokens: vi.fn(),
   syncDeviceConfig: vi.fn(),
   updateDevice: vi.fn(),
@@ -223,6 +229,83 @@ function mockResolvedApiState() {
     refresh_token: "refresh-token",
     token_type: "bearer",
   });
+  api.getCurrentUser.mockResolvedValue({
+    id: 1,
+    username: "admin",
+    role: "admin",
+    is_active: true,
+  });
+  api.listUsers.mockResolvedValue({
+    total: 2,
+    items: [
+      {
+        id: 1,
+        username: "admin",
+        role: "admin",
+        is_active: true,
+        last_login_at: "2026-06-04T10:00:00",
+        last_login_ip: "127.0.0.1",
+        password_changed_at: "2026-06-04T09:00:00",
+        created_at: "2026-05-11T00:00:00",
+        updated_at: "2026-06-04T10:00:00",
+      },
+      {
+        id: 2,
+        username: "operator",
+        role: "operator",
+        is_active: true,
+        last_login_at: null,
+        last_login_ip: null,
+        password_changed_at: null,
+        created_at: "2026-06-04T00:00:00",
+        updated_at: "2026-06-04T00:00:00",
+      },
+    ],
+  });
+  api.createUser.mockResolvedValue({
+    id: 3,
+    username: "ops2",
+    role: "operator",
+    is_active: true,
+    last_login_at: null,
+    last_login_ip: null,
+    password_changed_at: null,
+    created_at: "2026-06-04T11:00:00",
+    updated_at: "2026-06-04T11:00:00",
+  });
+  api.updateUser.mockImplementation(async (userId, payload) => ({
+    id: userId,
+    username: userId === 1 ? "admin" : "operator",
+    role: payload.role ?? "operator",
+    is_active: payload.is_active ?? true,
+    last_login_at: null,
+    last_login_ip: null,
+    password_changed_at: null,
+    created_at: "2026-06-04T00:00:00",
+    updated_at: "2026-06-04T11:00:00",
+  }));
+  api.resetUserPassword.mockImplementation(async (userId) => ({
+    id: userId,
+    username: userId === 1 ? "admin" : "operator",
+    role: userId === 1 ? "admin" : "operator",
+    is_active: true,
+    last_login_at: null,
+    last_login_ip: null,
+    password_changed_at: "2026-06-04T11:00:00",
+    created_at: "2026-06-04T00:00:00",
+    updated_at: "2026-06-04T11:00:00",
+  }));
+  api.toggleUser.mockImplementation(async (userId, isActive) => ({
+    id: userId,
+    username: userId === 1 ? "admin" : "operator",
+    role: userId === 1 ? "admin" : "operator",
+    is_active: isActive,
+    last_login_at: null,
+    last_login_ip: null,
+    password_changed_at: null,
+    created_at: "2026-06-04T00:00:00",
+    updated_at: "2026-06-04T11:00:00",
+  }));
   api.listDevices.mockResolvedValue({
     total: 1,
     items: [
@@ -853,6 +936,14 @@ function mockResolvedApiState() {
       retrying_delivery_count: 0,
       warnings: ["存在 1 条失败通知投递"],
     },
+    users: {
+      total_count: 2,
+      active_count: 2,
+      admin_count: 1,
+      operator_count: 1,
+      disabled_count: 0,
+      warnings: [],
+    },
   });
   api.syncDeviceConfig.mockResolvedValue({
     device_id: 1,
@@ -958,7 +1049,7 @@ describe("App", () => {
     expect(wrapper.text()).toContain("登录");
 
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
-    expect(wrapper.text()).toContain("请输入管理员密码");
+    expect(wrapper.text()).toContain("请输入密码");
     expect(wrapper.findAll(".form-error")).toHaveLength(1);
     expect(api.loginAdmin).not.toHaveBeenCalled();
 
@@ -977,7 +1068,70 @@ describe("App", () => {
     expect(wrapper.text()).toContain("批量更新");
   });
 
-  it("shows one validation message for an incorrect password", async () => {
+  it("shows user management for admin users and creates an operator", async () => {
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+
+    expect(wrapper.find('[data-testid="nav-users"]').exists()).toBe(true);
+
+    await wrapper.find('[data-testid="nav-users"]').trigger("click");
+    await flushAsync();
+    expect(api.listUsers).toHaveBeenCalled();
+    expect(wrapper.text()).toContain("用户管理");
+    expect(wrapper.text()).toContain("operator");
+
+    await wrapper.find('[data-testid="open-user-create"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="user-username"] input').setValue("ops2");
+    await wrapper.find('[data-testid="user-password"] input').setValue("password123");
+    await wrapper.find('[data-testid="user-create"]').trigger("click");
+    await flushAsync();
+
+    expect(api.createUser).toHaveBeenCalledWith({
+      username: "ops2",
+      password: "password123",
+      role: "operator",
+      is_active: true,
+    });
+  });
+
+  it("hides user management for operator users", async () => {
+    api.getCurrentUser.mockResolvedValueOnce({
+      id: 2,
+      username: "operator",
+      role: "operator",
+      is_active: true,
+    });
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-username"] input').setValue("operator");
+    await wrapper.find('[data-testid="login-password"] input').setValue("operator-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+
+    expect(api.loginAdmin).toHaveBeenCalledWith("operator", "operator-pass");
+    expect(wrapper.find('[data-testid="nav-users"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain("operator · 运维人员");
+  });
+
+  it("shows one validation message for incorrect credentials", async () => {
     api.loginAdmin.mockRejectedValueOnce(new Error("bad credentials"));
     const wrapper = mount(App, {
       global: {
@@ -992,7 +1146,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
 
-    expect(wrapper.text()).toContain("密码与本地管理员账户不匹配");
+    expect(wrapper.text()).toContain("用户名或密码不正确");
     expect(wrapper.findAll(".form-error")).toHaveLength(1);
   });
 
@@ -1417,6 +1571,7 @@ describe("App", () => {
     expect(wrapper.text()).toContain("建议备份");
     expect(wrapper.text()).toContain("告警中心");
     expect(wrapper.text()).toContain("存在 1 条严重告警");
+    expect(wrapper.text()).toContain("用户与权限");
   });
 
   it("shows alert center and manages alert rules", async () => {

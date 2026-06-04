@@ -32,3 +32,5 @@ def test_alembic_upgrade_head_creates_wave1_schema(tmp_path: Path) -> None:
         "alert_notification_deliveries",
         "port_pool",
     }
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
+    assert {"role", "is_active", "last_login_at", "last_login_ip", "password_changed_at"}.issubset(user_columns)

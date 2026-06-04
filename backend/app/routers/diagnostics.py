@@ -16,7 +16,9 @@ from app.schemas.diagnostics import (
     DiagnosticsSchedulerSummary,
     DiagnosticsSecuritySummary,
     DiagnosticsSshHostKeySummary,
+    DiagnosticsUserSummary,
 )
+from app.enums import UserRole
 from app.services.alert_service import AlertService
 from app.services.alert_notification_service import AlertNotificationService
 from app.services.scheduler_service import SchedulerService
@@ -133,6 +135,34 @@ def _notification_summary(settings) -> DiagnosticsNotificationSummary:
     )
 
 
+def _user_summary(settings) -> DiagnosticsUserSummary:
+    with session_scope(settings) as session:
+        total_count = session.scalar(select(func.count(User.id))) or 0
+        active_count = session.scalar(select(func.count(User.id)).where(User.is_active.is_(True))) or 0
+        admin_count = session.scalar(
+            select(func.count(User.id)).where(User.role == UserRole.admin.value, User.is_active.is_(True))
+        ) or 0
+        operator_count = session.scalar(
+            select(func.count(User.id)).where(User.role == UserRole.operator.value, User.is_active.is_(True))
+        ) or 0
+        disabled_count = session.scalar(select(func.count(User.id)).where(User.is_active.is_(False))) or 0
+    warnings: list[str] = []
+    if total_count <= 1:
+        warnings.append("当前仍只有一个用户账号，建议为实际运维人员创建独立账号")
+    if admin_count == 0:
+        warnings.append("当前没有启用状态的管理员账号，请立即检查用户配置")
+    if disabled_count:
+        warnings.append("存在已停用用户，请确认是否符合预期")
+    return DiagnosticsUserSummary(
+        total_count=total_count,
+        active_count=active_count,
+        admin_count=admin_count,
+        operator_count=operator_count,
+        disabled_count=disabled_count,
+        warnings=warnings,
+    )
+
+
 @router.get("/config", response_model=DiagnosticsConfigResponse)
 def get_diagnostics_config(
     request: Request,
@@ -165,4 +195,5 @@ def get_diagnostics_config(
         scheduler=_scheduler_summary(request, settings),
         alerts=_alert_summary(settings),
         notifications=_notification_summary(settings),
+        users=_user_summary(settings),
     )

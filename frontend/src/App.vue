@@ -9,6 +9,7 @@ import {
   Refresh,
   Search,
   SwitchButton,
+  UserFilled,
   VideoPlay,
   WarningFilled,
 } from "@element-plus/icons-vue";
@@ -31,6 +32,7 @@ import {
   exportUpdateTaskResults,
   getAlertSummary,
   getAccessToken,
+  getCurrentUser,
   getDeviceStatus,
   getDiagnosticsConfig,
   getMonitoringOverview,
@@ -50,6 +52,7 @@ import {
   updateDevice,
   updateGroup,
   type AlertSummaryResponse,
+  type CurrentUserResponse,
   type DiagnosticsConfigResponse,
   type DeviceCreateRequest,
   type DeviceMetricRead,
@@ -72,10 +75,11 @@ import AlertCenterPanel from "./components/AlertCenterPanel.vue";
 import DeviceFilePanel from "./components/DeviceFilePanel.vue";
 import DeviceTargetSelector from "./components/DeviceTargetSelector.vue";
 import ScheduledTaskPanel from "./components/ScheduledTaskPanel.vue";
+import UserManagementPanel from "./components/UserManagementPanel.vue";
 import UpdateTaskResultTable from "./components/UpdateTaskResultTable.vue";
 import UpdateTaskTemplatePanel from "./components/UpdateTaskTemplatePanel.vue";
 
-type SectionId = "dashboard" | "devices" | "groups" | "remote" | "updates" | "scheduled" | "alerts" | "logs" | "diagnostics";
+type SectionId = "dashboard" | "devices" | "groups" | "remote" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics";
 type DeviceStatus = "online" | "offline" | "degraded" | "unknown";
 type UpdateStatus = "pending" | "running" | "completed" | "canceled" | "partial_failed";
 type ExecutionMode = "dry_run" | "ssh_command";
@@ -173,7 +177,7 @@ interface VncClient {
   addEventListener(type: string, callback: (event: Event) => void): void;
 }
 
-const navItems: Array<{ id: SectionId; label: string; icon: unknown }> = [
+const navItems: Array<{ id: SectionId; label: string; icon: unknown; adminOnly?: boolean }> = [
   { id: "dashboard", label: "仪表盘", icon: Monitor },
   { id: "devices", label: "设备管理", icon: Cpu },
   { id: "groups", label: "分组管理", icon: Operation },
@@ -181,12 +185,15 @@ const navItems: Array<{ id: SectionId; label: string; icon: unknown }> = [
   { id: "updates", label: "批量更新", icon: Finished },
   { id: "scheduled", label: "定时任务", icon: Operation },
   { id: "alerts", label: "告警中心", icon: WarningFilled },
+  { id: "users", label: "用户管理", icon: UserFilled, adminOnly: true },
   { id: "logs", label: "操作日志", icon: Document },
   { id: "diagnostics", label: "系统诊断", icon: WarningFilled },
 ];
 
 const authenticated = ref(hasStoredAccessToken());
 const activeSection = ref<SectionId>("dashboard");
+const currentUser = ref<CurrentUserResponse | null>(null);
+const loginUsername = ref("admin");
 const loginPassword = ref("");
 const loginError = ref("");
 const deviceSearch = ref("");
@@ -341,6 +348,11 @@ const statusChartRef = ref<HTMLElement | null>(null);
 const riskChartRef = ref<HTMLElement | null>(null);
 let statusChart: { setOption: (options: unknown) => void; resize: () => void; dispose: () => void } | null = null;
 let riskChart: { setOption: (options: unknown) => void; resize: () => void; dispose: () => void } | null = null;
+
+const isAdmin = computed(() => currentUser.value?.role === "admin");
+const visibleNavItems = computed(() => navItems.filter((item) => !item.adminOnly || isAdmin.value));
+const activeSectionTitle = computed(() => navItems.find((item) => item.id === activeSection.value)?.label ?? "仪表盘");
+const currentRoleLabel = computed(() => (isAdmin.value ? "管理员" : "运维人员"));
 
 const visibleDevices = computed(() => {
   const keyword = deviceSearch.value.trim().toLowerCase();
@@ -966,7 +978,12 @@ async function requestVncFullscreen() {
 
 function isAuthFailure(error: unknown): boolean {
   const status = (error as { response?: { status?: number } }).response?.status;
-  return status === 401 || status === 403;
+  return status === 401;
+}
+
+function isPermissionFailure(error: unknown): boolean {
+  const status = (error as { response?: { status?: number } }).response?.status;
+  return status === 403;
 }
 
 function isGatewayFailure(error: unknown): boolean {
@@ -1031,7 +1048,8 @@ async function loadPlatformData() {
   loading.value = true;
   operationError.value = "";
   try {
-    const [groupResponse, deviceResponse, logResponse, updateResponse, overviewResponse, alertSummaryResponse] = await Promise.all([
+    const [userResponse, groupResponse, deviceResponse, logResponse, updateResponse, overviewResponse, alertSummaryResponse] = await Promise.all([
+      getCurrentUser(),
       listGroups(),
       listDevices(),
       listLogs(logQueryParams()),
@@ -1039,6 +1057,7 @@ async function loadPlatformData() {
       getMonitoringOverview(),
       getAlertSummary(),
     ]);
+    currentUser.value = userResponse;
     const mappedGroups = groupResponse.items.map((group) => mapGroup(group, []));
     const mappedDevices = deviceResponse.items.map((device) => mapDevice(device, mappedGroups));
     devices.value = await attachLatestMetrics(mappedDevices);
@@ -1054,6 +1073,10 @@ async function loadPlatformData() {
       operationError.value = "登录状态已过期，请重新登录。";
       clearAuthTokens();
       authenticated.value = false;
+      return;
+    }
+    if (isPermissionFailure(error)) {
+      operationError.value = "当前账号无权限加载该数据，请联系管理员调整权限。";
       return;
     }
     operationError.value = isGatewayFailure(error) ? "后端服务不可达或代理配置错误，请检查 Nginx /api 反向代理和后端进程。" : "无法从后端加载平台数据，请确认后端服务已启动。";
@@ -1081,14 +1104,18 @@ async function loadLogs() {
 }
 
 async function login() {
+  if (!loginUsername.value.trim()) {
+    loginError.value = "请输入用户名";
+    return;
+  }
   if (!loginPassword.value) {
-    loginError.value = "请输入管理员密码";
+    loginError.value = "请输入密码";
     return;
   }
   loading.value = true;
   loginError.value = "";
   try {
-    const token = await loginAdmin("admin", loginPassword.value);
+    const token = await loginAdmin(loginUsername.value.trim(), loginPassword.value);
     setAuthTokens(token.access_token, token.refresh_token);
     authenticated.value = true;
     loginPassword.value = "";
@@ -1096,7 +1123,7 @@ async function login() {
   } catch (error) {
     clearAuthTokens();
     authenticated.value = false;
-    loginError.value = "密码与本地管理员账户不匹配";
+    loginError.value = "用户名或密码不正确";
   } finally {
     loading.value = false;
   }
@@ -1105,6 +1132,7 @@ async function login() {
 function logout() {
   authenticated.value = false;
   clearAuthTokens();
+  currentUser.value = null;
   loginPassword.value = "";
   devices.value = [];
   groups.value = [];
@@ -1702,6 +1730,10 @@ async function confirmRealSshTask(command: string, target: string): Promise<bool
 }
 
 function selectSection(section: SectionId) {
+  if (section === "users" && !isAdmin.value) {
+    operationError.value = "当前账号无权限访问用户管理。";
+    return;
+  }
   activeSection.value = section;
   if (section === "diagnostics") {
     void loadDiagnosticsConfig();
@@ -1744,12 +1776,17 @@ onBeforeUnmount(() => {
       </div>
       <el-form class="login-form" @submit.prevent="login">
         <el-form-item>
+          <div data-testid="login-username" class="input-wrap">
+            <el-input v-model="loginUsername" placeholder="用户名" @keyup.enter="login" />
+          </div>
+        </el-form-item>
+        <el-form-item>
           <div data-testid="login-password" class="input-wrap">
             <el-input
               v-model="loginPassword"
               type="password"
               show-password
-              placeholder="管理员密码"
+              placeholder="密码"
               @keyup.enter="login"
             />
           </div>
@@ -1770,7 +1807,7 @@ onBeforeUnmount(() => {
       </div>
       <el-menu :default-active="activeSection" class="nav">
         <el-menu-item
-          v-for="item in navItems"
+          v-for="item in visibleNavItems"
           :key="item.id"
           :index="item.id"
           :data-testid="`nav-${item.id}`"
@@ -1786,10 +1823,11 @@ onBeforeUnmount(() => {
       <el-header class="topbar">
         <div>
           <p class="eyebrow">设备运维</p>
-          <h2>{{ navItems.find((item) => item.id === activeSection)?.label }}</h2>
+          <h2>{{ activeSectionTitle }}</h2>
         </div>
         <div class="topbar-actions">
           <el-tag type="success" effect="light">真实 API</el-tag>
+          <el-tag v-if="currentUser" type="info" effect="light">{{ currentUser.username }} · {{ currentRoleLabel }}</el-tag>
           <el-button data-testid="open-password-change" text @click="openPasswordChange">修改密码</el-button>
           <el-button :icon="SwitchButton" circle title="退出登录" @click="logout" />
         </div>
@@ -2373,6 +2411,8 @@ onBeforeUnmount(() => {
 
         <AlertCenterPanel v-if="activeSection === 'alerts'" />
 
+        <UserManagementPanel v-if="activeSection === 'users' && isAdmin" />
+
         <section v-if="activeSection === 'logs'" class="page-section">
           <div class="toolbar">
             <h3>操作日志</h3>
@@ -2494,6 +2534,14 @@ onBeforeUnmount(() => {
                   }}
                 </el-tag>
               </div>
+              <div class="item-card">
+                <h3>用户与权限</h3>
+                <p>启用用户 {{ diagnosticsConfig.users.active_count }} / {{ diagnosticsConfig.users.total_count }}</p>
+                <p>管理员 {{ diagnosticsConfig.users.admin_count }} 个，运维 {{ diagnosticsConfig.users.operator_count }} 个</p>
+                <el-tag :type="diagnosticsConfig.users.disabled_count ? 'warning' : 'success'">
+                  {{ diagnosticsConfig.users.disabled_count ? `停用 ${diagnosticsConfig.users.disabled_count} 个` : "无停用用户" }}
+                </el-tag>
+              </div>
             </div>
             <el-empty v-else description="暂无诊断数据" />
           </section>
@@ -2583,6 +2631,15 @@ onBeforeUnmount(() => {
             />
             <el-alert
               v-for="warning in diagnosticsConfig.notifications.warnings"
+              :key="warning"
+              class="validation-alert"
+              type="warning"
+              show-icon
+              :closable="false"
+              :title="warning"
+            />
+            <el-alert
+              v-for="warning in diagnosticsConfig.users.warnings"
               :key="warning"
               class="validation-alert"
               type="warning"

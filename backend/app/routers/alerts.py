@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.dependencies import get_current_user, not_found_error, request_session
+from app.dependencies import get_current_user, not_found_error, request_session, require_admin_user
 from app.enums import AlertSeverity, AlertSourceType, AlertStatus
 from app.models.user import User
 from app.schemas.alert import (
@@ -117,7 +117,7 @@ def update_alert_rule(
     rule_id: int,
     payload: AlertRuleUpdate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> AlertRuleRead:
     with request_session(request) as (settings, session):
         try:

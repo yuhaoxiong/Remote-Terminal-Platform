@@ -92,6 +92,48 @@ export interface PasswordChangeRequest {
   new_password: string;
 }
 
+export type UserRole = "admin" | "operator";
+
+export interface CurrentUserResponse {
+  id: number;
+  username: string;
+  role: UserRole | string;
+  is_active: boolean;
+}
+
+export interface UserRead {
+  id: number;
+  username: string;
+  role: UserRole | string;
+  is_active: boolean;
+  last_login_at: string | null;
+  last_login_ip: string | null;
+  password_changed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserListResponse {
+  total: number;
+  items: UserRead[];
+}
+
+export interface UserCreateRequest {
+  username: string;
+  password: string;
+  role: UserRole;
+  is_active?: boolean;
+}
+
+export interface UserUpdateRequest {
+  role?: UserRole;
+  is_active?: boolean;
+}
+
+export interface UserResetPasswordRequest {
+  new_password: string;
+}
+
 export interface DeviceRead {
   id: number;
   name: string;
@@ -474,6 +516,15 @@ export interface DiagnosticsNotificationSummary {
   warnings: string[];
 }
 
+export interface DiagnosticsUserSummary {
+  total_count: number;
+  active_count: number;
+  admin_count: number;
+  operator_count: number;
+  disabled_count: number;
+  warnings: string[];
+}
+
 export interface DiagnosticsConfigResponse {
   service_name: string;
   version: string;
@@ -493,6 +544,7 @@ export interface DiagnosticsConfigResponse {
   scheduler: DiagnosticsSchedulerSummary;
   alerts: DiagnosticsAlertSummary;
   notifications: DiagnosticsNotificationSummary;
+  users: DiagnosticsUserSummary;
 }
 
 export type AlertSeverity = "warning" | "critical";
@@ -735,6 +787,36 @@ export async function loginAdmin(username: string, password: string): Promise<To
 
 export async function changePassword(payload: PasswordChangeRequest): Promise<void> {
   await api.put("/auth/password", payload);
+}
+
+export async function getCurrentUser(): Promise<CurrentUserResponse> {
+  const response = await api.get<CurrentUserResponse>("/auth/me");
+  return response.data;
+}
+
+export async function listUsers(): Promise<UserListResponse> {
+  const response = await api.get<UserListResponse>("/users");
+  return response.data;
+}
+
+export async function createUser(payload: UserCreateRequest): Promise<UserRead> {
+  const response = await api.post<UserRead>("/users", payload);
+  return response.data;
+}
+
+export async function updateUser(userId: number, payload: UserUpdateRequest): Promise<UserRead> {
+  const response = await api.put<UserRead>(`/users/${userId}`, payload);
+  return response.data;
+}
+
+export async function resetUserPassword(userId: number, payload: UserResetPasswordRequest): Promise<UserRead> {
+  const response = await api.post<UserRead>(`/users/${userId}/reset-password`, payload);
+  return response.data;
+}
+
+export async function toggleUser(userId: number, isActive: boolean): Promise<UserRead> {
+  const response = await api.post<UserRead>(`/users/${userId}/toggle`, { is_active: isActive });
+  return response.data;
 }
 
 export async function listDevices(): Promise<DeviceListResponse> {

@@ -4,7 +4,8 @@ from io import StringIO
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
-from app.dependencies import conflict_error, get_current_user, not_found_error, request_session
+from app.dependencies import conflict_error, ensure_admin, get_current_user, not_found_error, request_session
+from app.enums import ExecutionMode
 from app.models.device import Device
 from app.models.user import User
 from app.schemas.update_task import (
@@ -60,6 +61,8 @@ def create_update_task(
     current_user: User = Depends(get_current_user),
 ) -> UpdateTaskRead:
     with request_session(request) as (settings, session):
+        if payload.execution_mode == ExecutionMode.ssh_command:
+            ensure_admin(current_user, request, settings)
         service = UpdateTaskService(settings)
         task = service.create(session, payload)
         OperationLogService(settings).record(
@@ -111,6 +114,9 @@ def execute_update_task(
     with request_session(request) as (settings, session):
         service = UpdateTaskService(settings, ssh_service=getattr(request.app.state, "ssh_service", None))
         try:
+            existing = service.get(session, task_id)
+            if existing.execution_mode == ExecutionMode.ssh_command.value:
+                ensure_admin(current_user, request, settings)
             task = service.execute(session, task_id)
         except UpdateTaskNotFoundError as exc:
             raise not_found_error(exc) from exc
@@ -137,6 +143,9 @@ def cancel_update_task(
     with request_session(request) as (settings, session):
         service = UpdateTaskService(settings)
         try:
+            existing = service.get(session, task_id)
+            if existing.execution_mode == ExecutionMode.ssh_command.value:
+                ensure_admin(current_user, request, settings)
             task = service.cancel(session, task_id)
         except UpdateTaskNotFoundError as exc:
             raise not_found_error(exc) from exc

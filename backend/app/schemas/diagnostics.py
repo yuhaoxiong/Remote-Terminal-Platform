@@ -61,6 +61,15 @@ class DiagnosticsNotificationSummary(BaseModel):
     warnings: list[str] = []
 
 
+class DiagnosticsUserSummary(BaseModel):
+    total_count: int
+    active_count: int
+    admin_count: int
+    operator_count: int
+    disabled_count: int
+    warnings: list[str] = []
+
+
 class DiagnosticsConfigResponse(BaseModel):
     service_name: str
     version: str
@@ -80,3 +89,4 @@ class DiagnosticsConfigResponse(BaseModel):
     scheduler: DiagnosticsSchedulerSummary
     alerts: DiagnosticsAlertSummary
     notifications: DiagnosticsNotificationSummary
+    users: DiagnosticsUserSummary

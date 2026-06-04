@@ -5,6 +5,11 @@ class StrEnum(str, Enum):
     pass
 
 
+class UserRole(StrEnum):
+    admin = "admin"
+    operator = "operator"
+
+
 class DeviceStatus(StrEnum):
     online = "online"
     offline = "offline"

@@ -12,7 +12,7 @@
 
 ## 当前能力
 
-- 管理员登录认证,支持 JWT access/refresh token。
+- 管理员和运维人员登录认证,支持 JWT access/refresh token、角色权限和认证审计。
 - 设备 CRUD,自动分配 SSH/VNC 代理端口。
 - 支持从 frps Dashboard 自动发现并导入已有 TCP 代理设备。
 - 生成设备 `frpc` 配置片段,并提供配置同步接口。
@@ -25,7 +25,7 @@
 - 定时任务接口:创建、列表、更新、删除、启停、手动执行、自动调度、执行记录和执行日志。
 - 告警中心:设备离线/未知、CPU/内存/磁盘阈值、指标冻结、定时任务失败和批量更新失败告警,支持确认、恢复、规则启停和阈值编辑。
 - 告警外部通知:支持 Webhook 通道、通知策略、投递记录、失败重试和诊断摘要。
-- 前端操作界面:登录、仪表盘、设备、分组、远程连接、更新任务、定时任务、告警中心、日志和系统诊断。
+- 前端操作界面:登录、仪表盘、设备、分组、远程连接、更新任务、定时任务、告警中心、用户管理、日志和系统诊断。
 - 部署辅助资产:后端安装、边缘设备引导、SQLite 备份和部署文档。
 
 ## 项目结构
@@ -129,6 +129,11 @@ http://127.0.0.1:5177/
 
 当前前端已接入真实后端 API,登录后会通过 JWT 鉴权加载设备、分组、监控总览、批量更新任务和操作日志。设备创建、批量任务创建和任务执行会调用后端接口;"远程连接"页支持选择设备后打开 SSH xterm 终端或 noVNC 画面,并连接后端 WebSocket。
 
+用户角色说明:
+
+- `admin`:可管理用户、删除设备/分组、创建和执行真实 SSH 批量/定时任务、编辑告警规则和通知配置。
+- `operator`:可查看主要运维数据、创建和编辑设备、执行演练任务;无权进入用户管理或执行高风险真实 SSH 操作。
+
 远程连接相关后端配置:
 
 ```powershell
@@ -167,6 +172,16 @@ py -3.12 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key()
 - `POST /api/auth/refresh`
 - `GET /api/auth/me`
 - `PUT /api/auth/password`
+
+### 用户
+
+- `GET /api/users`
+- `POST /api/users`
+- `GET /api/users/{id}`
+- `PUT /api/users/{id}`
+- `POST /api/users/{id}/reset-password`
+- `POST /api/users/{id}/toggle`
+- `DELETE /api/users/{id}`
 
 ### 设备
 
@@ -284,6 +299,7 @@ scripts/deploy/backup_sqlite.ps1
 - 定时任务支持 `interval:N` 和 5 位 `cron:` 表达式。后台调度器默认启用,会计算 `next_run_at`,到期后复用批量任务执行链路生成独立执行记录;真实 SSH 调度必须显式选择 `execution_mode=ssh_command`。
 - 告警规则启动时会自动初始化。指标阈值默认 CPU/内存 85%、磁盘 90%、指标冻结 10 分钟;设备恢复在线或指标回落后会自动恢复对应活跃告警。
 - 告警外部通知目前优先支持 Webhook。默认策略建议只订阅 `critical` 且事件为 `triggered`;确认、手动恢复和自动恢复事件也可按策略开启。删除通道前需要先删除引用该通道的通知策略。
+- 用户管理采用 `admin` / `operator` 两类角色。用户删除为停用账号,不会硬删除历史记录;后端会阻止停用或降级最后一个启用管理员。登录、刷新、修改密码、权限拒绝和用户管理操作会写入操作日志。
 - 前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:8000`,可以用 `VITE_API_PROXY_TARGET` 覆盖代理目标。
 - 前端构建会出现 Vite 大 chunk 警告,原因是 Element Plus 被打进主 chunk;当前不影响构建产物。
 - 当前工作区是 Git 仓库;提交或推送前请确认没有暂存无关本地文档。
@@ -304,8 +320,8 @@ npm.cmd run build
 
 最近结果:
 
-- 后端:84 个测试通过。
-- 前端:19 个测试通过。
+- 后端:90 个测试通过。
+- 前端:21 个测试通过。
 - 前端类型检查:通过。
 - 前端构建:成功,仍有已知 Vite chunk size 警告。
 - Wave 7 联调:后端 `127.0.0.1:8010`、前端 `127.0.0.1:5179`,通过前端代理完成登录、更新任务列表、监控总览、设备创建、设备列表和设备删除验收。
@@ -428,3 +444,12 @@ docs/postman/edge-platform.postman_collection.json
 - 默认通知策略建议为 `min_severity=critical` 且 `event_types=["triggered"]`,减少低价值通知噪声。
 - 前端"告警中心"新增"外部通知"区域,支持 Webhook 通道、策略、测试发送、最近投递和失败重试。
 - `GET /api/diagnostics/config` 新增 `notifications` 非敏感摘要,系统诊断页会展示启用通道、启用策略、失败投递和风险提示。
+
+## Wave 21 用户角色与会话审计补充
+
+- 用户表新增角色、启停状态、最近登录时间、最近登录 IP 和密码更新时间字段,并通过 Alembic 迁移升级旧 SQLite 数据库。
+- 默认 `admin` 账号会被迁移为管理员;新建用户默认角色为 `operator`。
+- 新增用户管理 API:`GET/POST /api/users`、`GET/PUT /api/users/{id}`、`POST /api/users/{id}/reset-password`、`POST /api/users/{id}/toggle`、`DELETE /api/users/{id}`。这些接口仅管理员可用。
+- 权限边界已收敛:设备/分组删除、真实 SSH 批量任务、真实 SSH 定时任务、告警规则编辑和告警外部通知配置需要管理员;运维人员保留查看、设备创建/编辑和演练任务能力。
+- 前端登录页改为用户名和密码;管理员登录后显示"用户管理"导航,运维人员不会显示该入口。接口返回 `403` 时前端提示无权限,不会误判为登录过期。
+- `GET /api/diagnostics/config` 新增 `users` 非敏感摘要,系统诊断页会展示启用用户、管理员、运维人员和停用用户数量。

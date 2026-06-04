@@ -120,6 +120,22 @@ def _ensure_sqlite_schema(settings: Settings) -> None:
             if "running" not in scheduled_task_columns:
                 connection.execute(text("ALTER TABLE scheduled_tasks ADD COLUMN running BOOLEAN NOT NULL DEFAULT 0"))
 
+        if "users" in table_names:
+            user_columns = {column["name"] for column in inspector.get_columns("users")}
+            if "role" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT 'operator'"))
+            if "is_active" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1"))
+            if "last_login_at" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN last_login_at DATETIME"))
+            if "last_login_ip" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN last_login_ip VARCHAR(64)"))
+            if "password_changed_at" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN password_changed_at DATETIME"))
+            connection.execute(text("UPDATE users SET role = 'admin' WHERE username = :username"), {"username": settings.default_admin_username})
+            connection.execute(text("UPDATE users SET role = 'operator' WHERE role IS NULL OR role = ''"))
+            connection.execute(text("UPDATE users SET is_active = 1 WHERE is_active IS NULL"))
+
 
 def init_db(settings: Settings | None = None) -> None:
     from app.migrations import upgrade_to_head
@@ -147,6 +163,7 @@ def init_db(settings: Settings | None = None) -> None:
                 User(
                     username=settings.default_admin_username,
                     password_hash=hash_password(settings.default_admin_password),
+                    role="admin",
                     is_active=True,
                 )
             )

@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from starlette.datastructures import UploadFile
 
-from app.dependencies import conflict_error, get_current_user, not_found_error, request_session
+from app.dependencies import conflict_error, get_current_user, not_found_error, request_session, require_admin_user
 from app.models.user import User
 from app.schemas.device import (
     DeviceCreate,
@@ -134,7 +134,7 @@ def update_device(
 def delete_device(
     device_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> Response:
     with request_session(request) as (settings, session):
         try:

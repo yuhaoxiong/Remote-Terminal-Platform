@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from app.dependencies import conflict_error, get_current_user, not_found_error, request_session
+from app.dependencies import conflict_error, get_current_user, not_found_error, request_session, require_admin_user
 from app.enums import AlertNotificationDeliveryStatus
 from app.models.user import User
 from app.schemas.alert_notification import (
@@ -42,7 +42,7 @@ def list_alert_notification_channels(
 def create_alert_notification_channel(
     payload: AlertNotificationChannelCreate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> AlertNotificationChannelRead:
     with request_session(request) as (settings, session):
         service = AlertNotificationService(settings)
@@ -67,7 +67,7 @@ def update_alert_notification_channel(
     channel_id: int,
     payload: AlertNotificationChannelUpdate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> AlertNotificationChannelRead:
     with request_session(request) as (settings, session):
         service = AlertNotificationService(settings)
@@ -93,7 +93,7 @@ def update_alert_notification_channel(
 def delete_alert_notification_channel(
     channel_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> None:
     with request_session(request) as (settings, session):
         service = AlertNotificationService(settings)
@@ -120,7 +120,7 @@ def delete_alert_notification_channel(
 def test_alert_notification_channel(
     channel_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> AlertNotificationChannelRead:
     with request_session(request) as (settings, session):
         service = AlertNotificationService(settings)
@@ -158,7 +158,7 @@ def list_alert_notification_policies(
 def create_alert_notification_policy(
     payload: AlertNotificationPolicyCreate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> AlertNotificationPolicyRead:
     with request_session(request) as (settings, session):
         service = AlertNotificationService(settings)
@@ -183,7 +183,7 @@ def update_alert_notification_policy(
     policy_id: int,
     payload: AlertNotificationPolicyUpdate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> AlertNotificationPolicyRead:
     with request_session(request) as (settings, session):
         service = AlertNotificationService(settings)
@@ -207,7 +207,7 @@ def update_alert_notification_policy(
 def delete_alert_notification_policy(
     policy_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> None:
     with request_session(request) as (settings, session):
         service = AlertNotificationService(settings)
@@ -255,7 +255,7 @@ def list_alert_notification_deliveries(
 def retry_alert_notification_delivery(
     delivery_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> AlertNotificationDeliveryRead:
     with request_session(request) as (settings, session):
         service = AlertNotificationService(settings)

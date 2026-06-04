@@ -208,3 +208,32 @@ def test_init_db_creates_alert_notification_tables(tmp_path: Path) -> None:
         "alert_notification_policies",
         "alert_notification_deliveries",
     }
+
+
+def test_init_db_migrates_legacy_user_role_columns(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy-users.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY,
+                username VARCHAR(64) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO users (username, password_hash) VALUES ('admin', '$2b$12$badplaceholderbadplaceholderbadplacehol')"
+        )
+
+    init_db(_settings(db_path))
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(users)").fetchall()}
+        user = connection.execute("SELECT role, is_active, last_login_at, last_login_ip, password_changed_at FROM users WHERE username = 'admin'").fetchone()
+
+    assert {"role", "is_active", "last_login_at", "last_login_ip", "password_changed_at"}.issubset(columns)
+    assert user[0] == "admin"
+    assert user[1] == 1

@@ -35,7 +35,7 @@ Authorization: Bearer <access_token>
 | `204` | 删除或无响应体操作成功 |
 | `400` | 请求业务参数错误,例如旧密码错误、文件路径不安全 |
 | `401` | token 无效、用户名密码错误、refresh token 无效 |
-| `403` | 未提供 Bearer token 时由 `HTTPBearer` 返回 |
+| `403` | 未提供 Bearer token,或已认证但角色无权限执行该操作 |
 | `404` | 资源不存在 |
 | `409` | 资源冲突或任务状态不允许操作 |
 | `422` | Pydantic 参数校验失败 |
@@ -297,7 +297,9 @@ GET /api/auth/me
 ```json
 {
   "id": 1,
-  "username": "admin"
+  "username": "admin",
+  "role": "admin",
+  "is_active": true
 }
 ```
 
@@ -2043,7 +2045,7 @@ GET /api/monitoring/overview
 
 - 无指标设备显示"暂无指标",不得显示 `0%`。
 - 指标超过 10 分钟未更新时显示"指标过期"。
-- 指标接口返回 401/403 才视为登录失效;单台设备指标读取失败只显示"指标加载失败"。
+- 指标接口返回 401 才视为登录失效;403 表示当前角色无权限,不会清理登录态。
 - CPU >= 90% 显示高负载,内存 >= 85% 显示高内存,磁盘 >= 90% 显示磁盘紧张。
 
 ## Wave 14 远程连接产品化补充
@@ -2064,7 +2066,7 @@ GET /api/monitoring/overview
 ### 错误处理约定
 
 - REST 会话接口和 WebSocket 使用同一个 access token。
-- REST 返回 `401` 或 `403` 时,前端视为登录失效并清理 Token。
+- REST 返回 `401` 时,前端视为登录失效并清理 Token;返回 `403` 时只显示无权限提示。
 - REST 返回 `400`、`502`、`503`、`504` 或 WebSocket 错误时,前端只在远程连接区域显示中文错误,不退出登录。
 - 后端日志记录远程会话创建、连接成功、失败和断开摘要,但不得记录 SSH 密码、Token、私钥、完整终端输入或 VNC 画面内容。
 
@@ -2373,3 +2375,184 @@ GET /api/alert-notification-summary
 ```
 
 该字段只返回计数和风险提示,不返回 Webhook URL、请求头值或密钥材料。
+
+## Wave 21 用户角色与会话审计
+
+### 权限模型
+
+当前内置角色:
+
+| 角色 | 说明 |
+| --- | --- |
+| `admin` | 管理员,可执行用户管理、删除、真实 SSH 执行和告警通知配置等高风险操作 |
+| `operator` | 运维人员,可查看数据、创建/编辑设备、执行演练任务,不能进入用户管理或执行真实 SSH 操作 |
+
+受限操作返回:
+
+```json
+{
+  "detail": "当前账号无权限执行该操作"
+}
+```
+
+### UserRead
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | integer | 用户 ID |
+| `username` | string | 用户名 |
+| `role` | string | `admin` 或 `operator` |
+| `is_active` | boolean | 是否启用 |
+| `last_login_at` | datetime/null | 最近登录时间 |
+| `last_login_ip` | string/null | 最近登录 IP |
+| `password_changed_at` | datetime/null | 最近密码更新时间 |
+| `created_at` | datetime | 创建时间 |
+| `updated_at` | datetime | 更新时间 |
+
+### 查询用户
+
+```http
+GET /api/users?offset=0&limit=50
+```
+
+认证:仅 `admin`。
+
+响应 `200`:
+
+```json
+{
+  "total": 2,
+  "items": [
+    {
+      "id": 1,
+      "username": "admin",
+      "role": "admin",
+      "is_active": true,
+      "last_login_at": "2026-06-04T10:00:00",
+      "last_login_ip": "127.0.0.1",
+      "password_changed_at": "2026-06-04T09:00:00",
+      "created_at": "2026-05-11T00:00:00",
+      "updated_at": "2026-06-04T10:00:00"
+    }
+  ]
+}
+```
+
+### 创建用户
+
+```http
+POST /api/users
+Content-Type: application/json
+```
+
+认证:仅 `admin`。
+
+请求体:
+
+```json
+{
+  "username": "operator",
+  "password": "password123",
+  "role": "operator",
+  "is_active": true
+}
+```
+
+响应 `201`:`UserRead`。
+
+错误:
+
+- `409`:用户名已存在。
+- `422`:密码少于 8 位、角色不合法或请求体校验失败。
+
+### 更新用户
+
+```http
+PUT /api/users/{user_id}
+Content-Type: application/json
+```
+
+认证:仅 `admin`。
+
+请求体可包含:
+
+```json
+{
+  "role": "operator",
+  "is_active": true
+}
+```
+
+响应 `200`:`UserRead`。
+
+错误:
+
+- `404`:用户不存在。
+- `409`:会导致没有启用管理员,例如降级或停用最后一个管理员。
+
+### 重置密码
+
+```http
+POST /api/users/{user_id}/reset-password
+Content-Type: application/json
+```
+
+认证:仅 `admin`。
+
+请求体:
+
+```json
+{
+  "new_password": "new-password123"
+}
+```
+
+响应 `200`:`UserRead`。
+
+### 启停和删除用户
+
+```http
+POST /api/users/{user_id}/toggle
+DELETE /api/users/{user_id}
+```
+
+`toggle` 请求体:
+
+```json
+{
+  "is_active": false
+}
+```
+
+`DELETE` 为停用账号,不硬删除用户记录;成功返回 `204 No Content`。停用最后一个启用管理员会返回 `409`。
+
+### 认证审计
+
+以下动作会写入操作日志:
+
+- `auth.login`:登录成功或失败,失败也会记录用户名和来源 IP 摘要。
+- `auth.refresh`:刷新 token 成功、无效 token 或用户停用。
+- `auth.password_change`:修改密码成功或失败。
+- `auth.forbidden`:已认证用户访问无权限接口。
+- `user.create`、`user.update`、`user.reset_password`、`user.toggle`、`user.disable`:用户管理操作。
+
+日志不记录明文密码、token 或敏感凭据。
+
+### 诊断摘要扩展
+
+`GET /api/diagnostics/config` 新增 `users` 字段:
+
+```json
+{
+  "users": {
+    "total_count": 2,
+    "active_count": 2,
+    "admin_count": 1,
+    "operator_count": 1,
+    "disabled_count": 0,
+    "warnings": []
+  }
+}
+```
+
+该字段只返回计数和风险提示,不返回密码哈希或 token。
