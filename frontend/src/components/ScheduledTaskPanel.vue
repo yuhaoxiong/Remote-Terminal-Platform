@@ -19,6 +19,15 @@ import {
   type ScheduledTaskRunRead,
 } from "../api/platform";
 
+const props = withDefaults(
+  defineProps<{
+    canManage?: boolean;
+  }>(),
+  {
+    canManage: true,
+  },
+);
+
 const tasks = ref<ScheduledTaskRead[]>([]);
 const logs = ref<OperationLogRead[]>([]);
 const runs = ref<ScheduledTaskRunRead[]>([]);
@@ -110,11 +119,19 @@ async function loadTasks() {
 }
 
 function openCreate() {
+  if (!props.canManage) {
+    errorMessage.value = "当前账号无权限创建定时任务";
+    return;
+  }
   resetForm();
   formOpen.value = true;
 }
 
 function openEdit(task: ScheduledTaskRead) {
+  if (!props.canManage) {
+    errorMessage.value = "当前账号无权限编辑定时任务";
+    return;
+  }
   editId.value = task.id;
   form.name = task.name;
   form.task_type = task.task_type;
@@ -129,6 +146,10 @@ function openEdit(task: ScheduledTaskRead) {
 }
 
 async function saveTask() {
+  if (!props.canManage) {
+    errorMessage.value = "当前账号无权限保存定时任务";
+    return;
+  }
   loading.value = true;
   errorMessage.value = "";
   try {
@@ -159,6 +180,10 @@ async function saveTask() {
 }
 
 async function removeTask(task: ScheduledTaskRead) {
+  if (!props.canManage) {
+    errorMessage.value = "当前账号无权限删除定时任务";
+    return;
+  }
   await ElMessageBox.confirm(`确认删除定时任务 ${task.name}？`, "确认删除定时任务", { type: "warning" });
   loading.value = true;
   errorMessage.value = "";
@@ -175,6 +200,10 @@ async function removeTask(task: ScheduledTaskRead) {
 }
 
 async function toggleTask(task: ScheduledTaskRead) {
+  if (!props.canManage) {
+    errorMessage.value = "当前账号无权限启停定时任务";
+    return;
+  }
   loading.value = true;
   errorMessage.value = "";
   try {
@@ -189,6 +218,10 @@ async function toggleTask(task: ScheduledTaskRead) {
 }
 
 async function executeTask(task: ScheduledTaskRead) {
+  if (!props.canManage && task.execution_mode === "ssh_command") {
+    errorMessage.value = "当前账号无权限执行真实 SSH 定时任务";
+    return;
+  }
   loading.value = true;
   errorMessage.value = "";
   try {
@@ -244,7 +277,7 @@ onMounted(() => {
       </div>
       <div class="topbar-actions">
         <el-button data-testid="refresh-scheduled-tasks" :loading="loading" @click="loadTasks">刷新</el-button>
-        <el-button data-testid="open-scheduled-create" type="primary" @click="openCreate">新建定时任务</el-button>
+        <el-button v-if="props.canManage" data-testid="open-scheduled-create" type="primary" @click="openCreate">新建定时任务</el-button>
       </div>
     </div>
 
@@ -300,7 +333,7 @@ onMounted(() => {
           <span>执行模式</span>
           <select data-testid="scheduled-execution-mode" v-model="form.execution_mode" class="native-select">
             <option value="dry_run">演练</option>
-            <option value="ssh_command">真实 SSH</option>
+            <option v-if="props.canManage" value="ssh_command">真实 SSH</option>
           </select>
         </label>
         <label class="field-label">
@@ -355,14 +388,22 @@ onMounted(() => {
         </el-table-column>
         <el-table-column label="操作" width="420">
           <template #default="{ row }">
-            <el-button :data-testid="`edit-scheduled-${row.id}`" size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button :data-testid="`toggle-scheduled-${row.id}`" size="small" @click="toggleTask(row)">
+            <el-button v-if="props.canManage" :data-testid="`edit-scheduled-${row.id}`" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="props.canManage" :data-testid="`toggle-scheduled-${row.id}`" size="small" @click="toggleTask(row)">
               {{ row.enabled ? "停用" : "启用" }}
             </el-button>
-            <el-button :data-testid="`execute-scheduled-${row.id}`" size="small" type="primary" @click="executeTask(row)">立即执行</el-button>
+            <el-button
+              :data-testid="`execute-scheduled-${row.id}`"
+              size="small"
+              type="primary"
+              :disabled="!props.canManage && row.execution_mode === 'ssh_command'"
+              @click="executeTask(row)"
+            >
+              立即执行
+            </el-button>
             <el-button :data-testid="`runs-scheduled-${row.id}`" size="small" @click="showRuns(row)">执行记录</el-button>
             <el-button :data-testid="`logs-scheduled-${row.id}`" size="small" @click="showLogs(row)">日志</el-button>
-            <el-button :data-testid="`delete-scheduled-${row.id}`" size="small" type="danger" @click="removeTask(row)">删除</el-button>
+            <el-button v-if="props.canManage" :data-testid="`delete-scheduled-${row.id}`" size="small" type="danger" @click="removeTask(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

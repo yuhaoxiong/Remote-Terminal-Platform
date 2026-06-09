@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 
 import App from "../App.vue";
+import * as healthApi from "../api/health";
 import * as platformApi from "../api/platform";
 
 const remoteMocks = vi.hoisted(() => {
@@ -179,7 +180,12 @@ vi.mock("../api/platform", () => ({
   getMonitoringOverview: vi.fn(),
 }));
 
+vi.mock("../api/health", () => ({
+  fetchHealth: vi.fn(),
+}));
+
 const api = vi.mocked(platformApi);
+const health = vi.mocked(healthApi);
 
 class MockWebSocket {
   static CONNECTING = 0;
@@ -224,6 +230,11 @@ class MockWebSocket {
 const mockWebSockets: MockWebSocket[] = [];
 
 function mockResolvedApiState() {
+  health.fetchHealth.mockResolvedValue({
+    status: "ok",
+    service: "edge-platform",
+    version: "0.1.0",
+  });
   api.loginAdmin.mockResolvedValue({
     access_token: "access-token",
     refresh_token: "refresh-token",
@@ -1559,6 +1570,10 @@ describe("App", () => {
       target_type: "device",
       status: "success",
     });
+    await wrapper.find('[data-testid="open-log-detail-1"]').trigger("click");
+    await flushAsync();
+    expect(wrapper.find('[data-testid="selected-log-detail"]').text()).toContain("操作详情");
+    expect(wrapper.find('[data-testid="selected-log-detail"]').text()).toContain("SN-EDGE-001");
 
     await wrapper.find('[data-testid="nav-diagnostics"]').trigger("click");
     await flushAsync();
@@ -1873,6 +1888,51 @@ describe("App", () => {
     expect(wrapper.text()).toContain("真实 SSH 执行");
     expect(wrapper.text()).toContain("设备执行结果");
     expect(mockWebSockets.at(-1)?.url).toBe("ws://test/api/ws/update-tasks/1?token=access-token");
+  });
+
+  it("prevents operators from applying real SSH command templates", async () => {
+    api.getCurrentUser.mockResolvedValueOnce({
+      id: 2,
+      username: "operator",
+      role: "operator",
+      is_active: true,
+    });
+    api.listUpdateTaskTemplates.mockResolvedValueOnce({
+      total: 1,
+      items: [
+        {
+          id: 21,
+          name: "真实重启模板",
+          description: "高风险模板",
+          command: "sudo reboot",
+          task_type: "command",
+          default_execution_mode: "ssh_command",
+          created_at: "2026-06-09T00:00:00",
+          updated_at: "2026-06-09T00:00:00",
+        },
+      ],
+    });
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-username"] input').setValue("operator");
+    await wrapper.find('[data-testid="login-password"] input').setValue("operator-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    await wrapper.find('[data-testid="nav-updates"]').trigger("click");
+    await wrapper.find('[data-testid="open-update-create"]').trigger("click");
+    await flushAsync();
+
+    expect(wrapper.find('[data-testid="apply-template-21"]').attributes("disabled")).toBeDefined();
+    await wrapper.find('[data-testid="open-template-create"]').trigger("click");
+    await flushAsync();
+    expect(wrapper.find('[data-testid="template-mode"]').text()).not.toContain("真实 SSH 执行");
   });
 
   it("manages device files from the device operation area", async () => {

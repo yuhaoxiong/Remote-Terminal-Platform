@@ -3,18 +3,18 @@ import {
   Cpu,
   Document,
   Finished,
+  FolderOpened,
   Monitor,
   Operation,
   Plus,
   Refresh,
   Search,
-  SwitchButton,
   UserFilled,
   VideoPlay,
   WarningFilled,
 } from "@element-plus/icons-vue";
 import { ElMessageBox } from "element-plus";
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, type Component } from "vue";
 
 import {
   AUTH_EXPIRED_EVENT,
@@ -71,15 +71,23 @@ import {
   type UpdateTaskRead,
   type UpdateTaskTemplateRead,
 } from "./api/platform";
+import { fetchHealth } from "./api/health";
 import AlertCenterPanel from "./components/AlertCenterPanel.vue";
+import AppSidebar from "./components/AppSidebar.vue";
+import AppTopbar from "./components/AppTopbar.vue";
+import DeviceDetailDrawer from "./components/DeviceDetailDrawer.vue";
 import DeviceFilePanel from "./components/DeviceFilePanel.vue";
 import DeviceTargetSelector from "./components/DeviceTargetSelector.vue";
+import DiagnosticCard from "./components/DiagnosticCard.vue";
+import LayoutShell from "./components/LayoutShell.vue";
+import MetricCard from "./components/MetricCard.vue";
+import OperationLogDetailDrawer from "./components/OperationLogDetailDrawer.vue";
 import ScheduledTaskPanel from "./components/ScheduledTaskPanel.vue";
 import UserManagementPanel from "./components/UserManagementPanel.vue";
 import UpdateTaskResultTable from "./components/UpdateTaskResultTable.vue";
 import UpdateTaskTemplatePanel from "./components/UpdateTaskTemplatePanel.vue";
 
-type SectionId = "dashboard" | "devices" | "groups" | "remote" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics";
+type SectionId = "dashboard" | "devices" | "groups" | "remote" | "files" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics";
 type DeviceStatus = "online" | "offline" | "degraded" | "unknown";
 type UpdateStatus = "pending" | "running" | "completed" | "canceled" | "partial_failed";
 type ExecutionMode = "dry_run" | "ssh_command";
@@ -177,17 +185,18 @@ interface VncClient {
   addEventListener(type: string, callback: (event: Event) => void): void;
 }
 
-const navItems: Array<{ id: SectionId; label: string; icon: unknown; adminOnly?: boolean }> = [
-  { id: "dashboard", label: "仪表盘", icon: Monitor },
-  { id: "devices", label: "设备管理", icon: Cpu },
-  { id: "groups", label: "分组管理", icon: Operation },
-  { id: "remote", label: "远程连接", icon: VideoPlay },
-  { id: "updates", label: "批量更新", icon: Finished },
-  { id: "scheduled", label: "定时任务", icon: Operation },
-  { id: "alerts", label: "告警中心", icon: WarningFilled },
-  { id: "users", label: "用户管理", icon: UserFilled, adminOnly: true },
-  { id: "logs", label: "操作日志", icon: Document },
-  { id: "diagnostics", label: "系统诊断", icon: WarningFilled },
+const navItems: Array<{ id: SectionId; label: string; icon: Component; group: "overview" | "operations" | "governance"; adminOnly?: boolean }> = [
+  { id: "dashboard", label: "仪表盘", icon: Monitor, group: "overview" },
+  { id: "devices", label: "设备管理", icon: Cpu, group: "operations" },
+  { id: "remote", label: "远程连接", icon: VideoPlay, group: "operations" },
+  { id: "files", label: "文件管理", icon: FolderOpened, group: "operations" },
+  { id: "updates", label: "批量更新", icon: Finished, group: "operations" },
+  { id: "scheduled", label: "定时任务", icon: Operation, group: "operations" },
+  { id: "alerts", label: "告警中心", icon: WarningFilled, group: "operations" },
+  { id: "diagnostics", label: "系统诊断", icon: WarningFilled, group: "governance" },
+  { id: "logs", label: "操作日志", icon: Document, group: "governance" },
+  { id: "groups", label: "分组管理", icon: Operation, group: "governance" },
+  { id: "users", label: "用户管理", icon: UserFilled, group: "governance", adminOnly: true },
 ];
 
 const authenticated = ref(hasStoredAccessToken());
@@ -198,8 +207,13 @@ const loginPassword = ref("");
 const loginError = ref("");
 const deviceSearch = ref("");
 const selectedGroupId = ref<number | null>(null);
+const deviceStatusFilter = ref<DeviceStatus | "">("");
+const deviceProjectFilter = ref("");
+const deviceTagFilter = ref("");
 const deviceCreateOpen = ref(false);
 const deviceEditId = ref<number | null>(null);
+const deviceDetailOpen = ref(false);
+const deviceDetail = ref<Device | null>(null);
 const frpsImportOpen = ref(false);
 const frpsImporting = ref(false);
 const frpsImportResult = ref("");
@@ -267,12 +281,16 @@ const groups = ref<Group[]>([]);
 const updateTasks = ref<UpdateTask[]>([]);
 const updateTargetPreview = ref<UpdateTaskTargetPreviewResponse | null>(null);
 const auditLogs = ref<AuditLog[]>([]);
+const selectedAuditLog = ref<AuditLog | null>(null);
+const auditLogDetailOpen = ref(false);
 const auditLogsTotal = ref(0);
 const frpsImportItems = ref<FrpsDiscoveredDevice[]>([]);
 const serverOverview = ref<MonitoringOverviewResponse | null>(null);
 const alertSummary = ref<AlertSummaryResponse | null>(null);
 const diagnosticsConfig = ref<DiagnosticsConfigResponse | null>(null);
 const diagnosticsLoading = ref(false);
+const backendHealthStatus = ref<"checking" | "healthy" | "failed">("checking");
+const backendHealthDetail = ref("检测中");
 const syncConfigOpen = ref(false);
 const syncConfigTitle = ref("");
 const syncConfigText = ref("");
@@ -353,18 +371,24 @@ const isAdmin = computed(() => currentUser.value?.role === "admin");
 const visibleNavItems = computed(() => navItems.filter((item) => !item.adminOnly || isAdmin.value));
 const activeSectionTitle = computed(() => navItems.find((item) => item.id === activeSection.value)?.label ?? "仪表盘");
 const currentRoleLabel = computed(() => (isAdmin.value ? "管理员" : "运维人员"));
+const schedulerRunning = computed(() => diagnosticsConfig.value?.scheduler.running ?? null);
 
 const visibleDevices = computed(() => {
   const keyword = deviceSearch.value.trim().toLowerCase();
+  const projectKeyword = deviceProjectFilter.value.trim().toLowerCase();
+  const tagKeyword = deviceTagFilter.value.trim().toLowerCase();
   return devices.value.filter((device) => {
     const matchesGroup = selectedGroupId.value === null || device.group_id === selectedGroupId.value;
+    const matchesStatus = !deviceStatusFilter.value || device.status === deviceStatusFilter.value;
+    const matchesProject = !projectKeyword || device.project_id.toLowerCase().includes(projectKeyword);
+    const matchesTag = !tagKeyword || device.tags.some((tag) => tag.toLowerCase().includes(tagKeyword));
     const matchesKeyword =
       !keyword ||
       [device.name, device.device_sn, device.project_id, device.group, device.tags.join(",")]
         .join(" ")
         .toLowerCase()
         .includes(keyword);
-    return matchesGroup && matchesKeyword;
+    return matchesGroup && matchesStatus && matchesProject && matchesTag && matchesKeyword;
   });
 });
 
@@ -415,6 +439,8 @@ const overview = computed(() => {
     updates: updateTasks.value.filter((task) => task.status === "completed").length,
   };
 });
+
+const pendingTaskCount = computed(() => updateTasks.value.filter((task) => ["pending", "running"].includes(task.status)).length);
 
 const abnormalDevices = computed(() => {
   const items: Array<{ key: string; device: Device; type: string; description: string; tagType: "danger" | "warning" | "info" }> = [];
@@ -736,10 +762,30 @@ function setRemoteSession(deviceId: number, sessionType: "ssh" | "vnc", update: 
 
 function openFilePanel(device: Device) {
   filePanelDevice.value = device;
+  activeSection.value = "files";
+}
+
+function openDeviceDetail(device: Device) {
+  deviceDetail.value = device;
+  deviceDetailOpen.value = true;
 }
 
 function selectRemoteDevice(device: Device) {
   selectedRemoteDeviceId.value = device.id;
+}
+
+async function openSshFromDevice(device: Device) {
+  selectRemoteDevice(device);
+  activeSection.value = "remote";
+  await nextTick();
+  await startSshSession(device);
+}
+
+async function openVncFromDevice(device: Device) {
+  selectRemoteDevice(device);
+  activeSection.value = "remote";
+  await nextTick();
+  await startVncSession(device);
 }
 
 function remoteUnavailableReason(device: Device, sessionType: "ssh" | "vnc"): string {
@@ -1461,6 +1507,10 @@ function handleUpdateTargetPreview(preview: UpdateTaskTargetPreviewResponse | nu
 }
 
 function applyUpdateTemplate(template: UpdateTaskTemplateRead) {
+  if (!isAdmin.value && template.default_execution_mode === "ssh_command") {
+    prependLocalLog("套用命令模板", `模板：${template.id}`, "blocked", "当前账号无权限套用真实 SSH 命令模板。");
+    return;
+  }
   updateForm.command = template.command;
   updateForm.execution_mode = template.default_execution_mode;
   if (!updateForm.name) {
@@ -1557,6 +1607,11 @@ function stopUpdateProgress(taskId: number) {
 async function saveUpdate() {
   if (!updateForm.name || !updateForm.command) {
     prependLocalLog("更新任务校验", "新任务", "blocked", "任务名称和命令为必填项");
+    return;
+  }
+  if (!isAdmin.value && updateForm.execution_mode === "ssh_command") {
+    updateForm.execution_mode = "dry_run";
+    prependLocalLog("更新任务校验", "新任务", "blocked", "当前账号无权创建真实 SSH 任务，已切换为演练模式。");
     return;
   }
   const targetFilter = updateForm.target_filter && Object.keys(updateForm.target_filter).length > 0
@@ -1688,17 +1743,26 @@ async function handleLogPageChange(page: number) {
 }
 
 async function downloadLogs() {
-  const blob = await exportLogs({
-    action: logFilters.action || undefined,
-    target_type: logFilters.target_type || undefined,
-    status: logFilters.status || undefined,
-  });
-  const url = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = "operation_logs.csv";
-  anchor.click();
-  window.URL.revokeObjectURL(url);
+  try {
+    const blob = await exportLogs({
+      action: logFilters.action || undefined,
+      target_type: logFilters.target_type || undefined,
+      status: logFilters.status || undefined,
+    });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "operation_logs.csv";
+    anchor.click();
+    window.URL.revokeObjectURL(url);
+  } catch {
+    prependLocalLog("导出操作日志", "操作日志", "blocked", "导出 CSV 失败，请检查后端服务。");
+  }
+}
+
+function openAuditLogDetail(log: AuditLog) {
+  selectedAuditLog.value = log;
+  auditLogDetailOpen.value = true;
 }
 
 async function loadDiagnosticsConfig() {
@@ -1709,6 +1773,19 @@ async function loadDiagnosticsConfig() {
     prependLocalLog("加载诊断配置", "系统", "blocked", "无法读取诊断配置，请检查后端服务。");
   } finally {
     diagnosticsLoading.value = false;
+  }
+}
+
+async function loadBackendHealth() {
+  backendHealthStatus.value = "checking";
+  backendHealthDetail.value = "检测中";
+  try {
+    const health = await fetchHealth();
+    backendHealthStatus.value = health.status === "ok" ? "healthy" : "failed";
+    backendHealthDetail.value = health.status === "ok" ? "正常" : health.status;
+  } catch {
+    backendHealthStatus.value = "failed";
+    backendHealthDetail.value = "异常";
   }
 }
 
@@ -1745,6 +1822,7 @@ function selectSection(section: SectionId) {
 
 onMounted(() => {
   window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+  void loadBackendHealth();
   if (authenticated.value) {
     void loadPlatformData();
   }
@@ -1768,29 +1846,63 @@ onBeforeUnmount(() => {
 
 <template>
   <section v-if="!authenticated" class="login-page">
+    <div class="login-hero">
+      <div class="login-brand">
+        <span class="brand-mark">EP</span>
+        <div>
+          <h1>AI 边缘设备管理平台</h1>
+          <p>基于 Debian 的边缘设备远程运维</p>
+        </div>
+      </div>
+      <div class="login-capabilities">
+        <div>
+          <strong>设备接入</strong>
+          <span>frps 自动发现与统一纳管</span>
+        </div>
+        <div>
+          <strong>远程运维</strong>
+          <span>Web SSH、VNC 与文件管理</span>
+        </div>
+        <div>
+          <strong>批量更新</strong>
+          <span>演练、真实执行与进度追踪</span>
+        </div>
+        <div>
+          <strong>告警闭环</strong>
+          <span>规则、通知、确认与恢复</span>
+        </div>
+      </div>
+      <div class="login-visual" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </div>
     <div class="login-panel">
       <div>
-        <p class="eyebrow">远程管理</p>
-        <h1>边缘设备管理平台</h1>
-        <p class="login-copy">登录后可管理设备、远程访问、批量更新、监控指标和操作日志。</p>
+        <p class="eyebrow">欢迎登录</p>
+        <h2>边缘运维控制台</h2>
+        <p class="login-copy">支持 JWT 登录、角色权限和会话审计。</p>
       </div>
       <el-form class="login-form" @submit.prevent="login">
-        <el-form-item>
+        <label class="login-field">
+          <span>用户名</span>
           <div data-testid="login-username" class="input-wrap">
-            <el-input v-model="loginUsername" placeholder="用户名" @keyup.enter="login" />
+            <el-input v-model="loginUsername" placeholder="请输入用户名" @keyup.enter="login" />
           </div>
-        </el-form-item>
-        <el-form-item>
+        </label>
+        <label class="login-field">
+          <span>密码</span>
           <div data-testid="login-password" class="input-wrap">
             <el-input
               v-model="loginPassword"
               type="password"
               show-password
-              placeholder="密码"
+              placeholder="请输入密码"
               @keyup.enter="login"
             />
           </div>
-        </el-form-item>
+        </label>
         <p v-if="loginError" class="form-error">{{ loginError }}</p>
         <el-button data-testid="login-submit" type="primary" class="login-button" :loading="loading" @click="login">
           登录
@@ -1799,41 +1911,23 @@ onBeforeUnmount(() => {
     </div>
   </section>
 
-  <el-container v-else class="app-shell">
-    <el-aside class="sidebar" width="232px">
-      <div class="brand">
-        <span class="brand-mark">EP</span>
-        <span>边缘设备管理平台</span>
-      </div>
-      <el-menu :default-active="activeSection" class="nav">
-        <el-menu-item
-          v-for="item in visibleNavItems"
-          :key="item.id"
-          :index="item.id"
-          :data-testid="`nav-${item.id}`"
-          @click="selectSection(item.id)"
-        >
-          <el-icon><component :is="item.icon" /></el-icon>
-          <span>{{ item.label }}</span>
-        </el-menu-item>
-      </el-menu>
-    </el-aside>
-
-    <el-container>
-      <el-header class="topbar">
-        <div>
-          <p class="eyebrow">设备运维</p>
-          <h2>{{ activeSectionTitle }}</h2>
-        </div>
-        <div class="topbar-actions">
-          <el-tag type="success" effect="light">真实 API</el-tag>
-          <el-tag v-if="currentUser" type="info" effect="light">{{ currentUser.username }} · {{ currentRoleLabel }}</el-tag>
-          <el-button data-testid="open-password-change" text @click="openPasswordChange">修改密码</el-button>
-          <el-button :icon="SwitchButton" circle title="退出登录" @click="logout" />
-        </div>
-      </el-header>
-
-      <el-main class="content">
+  <LayoutShell v-else>
+    <template #sidebar>
+      <AppSidebar :active="activeSection" :items="visibleNavItems" @select="(id) => selectSection(id as SectionId)" />
+    </template>
+    <template #topbar>
+      <AppTopbar
+        :title="activeSectionTitle"
+        :user-name="currentUser?.username"
+        :role-label="currentRoleLabel"
+        :api-healthy="backendHealthStatus === 'healthy'"
+        :api-detail="backendHealthDetail"
+        :scheduler-running="schedulerRunning"
+        @refresh-health="loadBackendHealth"
+        @change-password="openPasswordChange"
+        @logout="logout"
+      />
+    </template>
         <el-alert
           v-if="operationError"
           class="validation-alert"
@@ -1867,26 +1961,11 @@ onBeforeUnmount(() => {
 
         <section v-if="activeSection === 'dashboard'" class="page-section">
           <div class="stat-grid">
-            <div class="stat-tile">
-              <span>设备总数</span>
-              <strong>{{ overview.devices }}</strong>
-            </div>
-            <div class="stat-tile success">
-              <span>在线</span>
-              <strong>{{ overview.online }}</strong>
-            </div>
-            <div class="stat-tile warning">
-              <span>异常/未知</span>
-              <strong>{{ overview.degraded }}</strong>
-            </div>
-            <div class="stat-tile danger">
-              <span>活跃告警</span>
-              <strong>{{ alertSummary?.active_count ?? 0 }}</strong>
-            </div>
-            <div class="stat-tile info">
-              <span>已完成更新</span>
-              <strong>{{ overview.updates }}</strong>
-            </div>
+            <MetricCard label="设备总数" :value="overview.devices" unit="台" trend="统一纳管设备" :icon="Cpu" />
+            <MetricCard label="在线设备" :value="overview.online" unit="台" tone="success" trend="可远程连接" :icon="Monitor" />
+            <MetricCard label="离线/未知" :value="overview.degraded" unit="台" tone="warning" trend="需优先排查" :icon="WarningFilled" />
+            <MetricCard label="活跃告警" :value="alertSummary?.active_count ?? 0" unit="条" tone="danger" trend="待确认或恢复" :icon="WarningFilled" />
+            <MetricCard label="待执行任务" :value="pendingTaskCount" unit="个" tone="info" trend="批量或定时任务" :icon="Finished" />
           </div>
 
           <div class="two-column">
@@ -1994,17 +2073,63 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-if="activeSection === 'devices'" class="page-section">
-          <div class="toolbar">
-            <el-input v-model="deviceSearch" :prefix-icon="Search" placeholder="按名称、序列号、项目、分组或标签搜索" />
-            <el-select v-model="selectedGroupId" placeholder="全部分组" clearable style="max-width: 180px">
-              <el-option v-for="group in groups" :key="group.id" :label="group.name" :value="group.id" />
-            </el-select>
-            <el-button data-testid="open-device-create" type="primary" :icon="Plus" @click="openDeviceCreate">
-              新建设备
-            </el-button>
-            <el-button data-testid="open-frps-import" :icon="Refresh" @click="frpsImportOpen = !frpsImportOpen">
-              导入 frps
-            </el-button>
+          <div class="page-title-row">
+            <div>
+              <h3>设备管理</h3>
+              <p class="muted">按项目、分组、状态和标签快速定位边缘设备。</p>
+            </div>
+            <div class="topbar-actions">
+              <el-button data-testid="open-device-create" type="primary" :icon="Plus" @click="openDeviceCreate">
+                新建设备
+              </el-button>
+              <el-button data-testid="open-frps-import" :icon="Refresh" @click="frpsImportOpen = !frpsImportOpen">
+                frps 自动发现
+              </el-button>
+            </div>
+          </div>
+
+          <div class="filter-panel">
+            <label class="field-label">
+              <span>关键词</span>
+              <el-input v-model="deviceSearch" :prefix-icon="Search" placeholder="设备名称 / SN / IP / 标签" />
+            </label>
+            <label class="field-label">
+              <span>分组</span>
+              <el-select v-model="selectedGroupId" placeholder="全部分组" clearable>
+                <el-option v-for="group in groups" :key="group.id" :label="group.name" :value="group.id" />
+              </el-select>
+            </label>
+            <label class="field-label">
+              <span>状态</span>
+              <el-select v-model="deviceStatusFilter" placeholder="全部状态" clearable>
+                <el-option label="在线" value="online" />
+                <el-option label="离线" value="offline" />
+                <el-option label="异常" value="degraded" />
+                <el-option label="未知" value="unknown" />
+              </el-select>
+            </label>
+            <label class="field-label">
+              <span>标签</span>
+              <el-input v-model="deviceTagFilter" placeholder="请输入标签" />
+            </label>
+            <label class="field-label">
+              <span>项目号</span>
+              <el-input v-model="deviceProjectFilter" placeholder="请输入项目号" />
+            </label>
+            <div class="filter-actions">
+              <el-button
+                @click="
+                  deviceSearch = '';
+                  selectedGroupId = null;
+                  deviceStatusFilter = '';
+                  deviceTagFilter = '';
+                  deviceProjectFilter = '';
+                "
+              >
+                重置
+              </el-button>
+              <el-button type="primary" :icon="Search">筛选</el-button>
+            </div>
           </div>
           <el-alert
             v-if="selectedGroupId !== null"
@@ -2052,35 +2177,55 @@ onBeforeUnmount(() => {
             <el-table :data="visibleDevices" row-key="id" empty-text="暂无设备">
               <el-table-column prop="name" label="设备" min-width="180" />
               <el-table-column prop="device_sn" label="序列号" min-width="150" />
-              <el-table-column prop="project_id" label="项目" width="130" />
-              <el-table-column prop="group" label="分组" width="110" />
-              <el-table-column label="标签" min-width="150">
-                <template #default="{ row }">
-                  <el-tag v-for="tag in row.tags" :key="tag" size="small" class="tag-chip">{{ tag }}</el-tag>
-                </template>
-              </el-table-column>
               <el-table-column label="状态" width="110">
                 <template #default="{ row }">
                   <el-tag :type="statusType[row.status as DeviceStatus]">{{ deviceStatusText[row.status as DeviceStatus] }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="远程" width="150">
+              <el-table-column prop="project_id" label="项目号" width="130" />
+              <el-table-column prop="group" label="分组" width="110" />
+              <el-table-column prop="location" label="部署位置" min-width="130" />
+              <el-table-column prop="ssh_port" label="SSH 端口" width="100" />
+              <el-table-column prop="vnc_port" label="VNC 端口" width="100" />
+              <el-table-column label="最近指标" min-width="150">
                 <template #default="{ row }">
-                  <el-button size="small" :icon="Monitor" @click="selectSection('remote')">SSH</el-button>
-                  <el-button size="small" :icon="VideoPlay" @click="selectSection('remote')">VNC</el-button>
+                  <span>{{ row.metricRecordedAt ? formatTime(row.metricRecordedAt) : "未上报" }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="310">
+              <el-table-column label="标签" min-width="150">
                 <template #default="{ row }">
-                  <el-button :data-testid="`edit-device-${row.id}`" size="small" @click="openDeviceEdit(row)">编辑</el-button>
-                  <el-button :data-testid="`refresh-device-${row.id}`" size="small" :icon="Refresh" @click="refreshDeviceStatus(row)">刷新</el-button>
+                  <el-tag v-for="tag in row.tags" :key="tag" size="small" class="tag-chip">{{ tag }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="360" fixed="right">
+                <template #default="{ row }">
+                  <el-button size="small" type="primary" text @click="openDeviceDetail(row)">详情</el-button>
+                  <el-tooltip :content="remoteUnavailableReason(row, 'ssh') || 'SSH 连接'" placement="top">
+                    <el-button size="small" :disabled="Boolean(remoteUnavailableReason(row, 'ssh'))" @click="openSshFromDevice(row)">SSH</el-button>
+                  </el-tooltip>
+                  <el-tooltip :content="remoteUnavailableReason(row, 'vnc') || 'VNC 连接'" placement="top">
+                    <el-button size="small" :disabled="Boolean(remoteUnavailableReason(row, 'vnc'))" @click="openVncFromDevice(row)">VNC</el-button>
+                  </el-tooltip>
                   <el-button :data-testid="`open-files-${row.id}`" size="small" @click="openFilePanel(row)">文件</el-button>
-                  <el-button :data-testid="`sync-device-${row.id}`" size="small" @click="showSyncConfig(row)">同步配置</el-button>
-                  <el-button :data-testid="`delete-device-${row.id}`" size="small" type="danger" @click="removeDevice(row)">删除</el-button>
+                  <el-button :data-testid="`sync-device-${row.id}`" size="small" @click="showSyncConfig(row)">同步</el-button>
+                  <el-button :data-testid="`refresh-device-${row.id}`" size="small" :icon="Refresh" @click="refreshDeviceStatus(row)">刷新</el-button>
+                  <el-button :data-testid="`edit-device-${row.id}`" size="small" @click="openDeviceEdit(row)">编辑</el-button>
+                  <el-button :data-testid="`delete-device-${row.id}`" size="small" type="danger" text @click="removeDevice(row)">删除</el-button>
                 </template>
               </el-table-column>
             </el-table>
           </div>
+
+          <DeviceDetailDrawer
+            v-model:visible="deviceDetailOpen"
+            :device="deviceDetail"
+            @ssh="(device) => openSshFromDevice(device)"
+            @vnc="(device) => openVncFromDevice(device)"
+            @files="(device) => openFilePanel(device)"
+            @sync="(device) => showSyncConfig(device)"
+            @edit="(device) => openDeviceEdit(device)"
+            @remove="(device) => removeDevice(device)"
+          />
 
           <section v-if="deviceCreateOpen" class="form-panel" :aria-label="deviceFormTitle">
             <div class="panel-header">
@@ -2118,6 +2263,42 @@ onBeforeUnmount(() => {
           </section>
 
           <DeviceFilePanel v-if="filePanelDevice" :device="filePanelDevice" />
+        </section>
+
+        <section v-if="activeSection === 'files'" class="page-section">
+          <div class="page-title-row">
+            <div>
+              <h3>文件管理</h3>
+              <p class="muted">选择设备后进行文件浏览、上传、下载和删除。</p>
+            </div>
+            <el-button :icon="Refresh" :loading="loading" @click="loadPlatformData">刷新设备</el-button>
+          </div>
+          <section class="panel">
+            <div class="panel-header">
+              <h3>选择设备</h3>
+              <el-input v-model="deviceSearch" :prefix-icon="Search" placeholder="按设备名称、序列号、项目号搜索" />
+            </div>
+            <el-table :data="visibleDevices" row-key="id" empty-text="暂无可管理文件的设备">
+              <el-table-column prop="name" label="设备名称" min-width="180" />
+              <el-table-column prop="project_id" label="项目号" width="130" />
+              <el-table-column prop="location" label="位置" min-width="130" />
+              <el-table-column prop="ssh_port" label="SSH 端口" width="110" />
+              <el-table-column label="凭据" width="110">
+                <template #default="{ row }">
+                  <el-tag :type="row.ssh_credential_configured ? 'success' : 'warning'">
+                    {{ row.ssh_credential_configured ? "已配置" : "缺失" }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="140">
+                <template #default="{ row }">
+                  <el-button :data-testid="`open-files-${row.id}`" type="primary" text @click="openFilePanel(row)">打开文件</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
+          <DeviceFilePanel v-if="filePanelDevice" :device="filePanelDevice" />
+          <el-empty v-else description="请选择一台设备开始文件管理" />
         </section>
 
         <section v-if="activeSection === 'groups'" class="page-section">
@@ -2218,82 +2399,95 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
 
-                <div class="remote-panels">
-                  <section class="remote-panel">
-                    <div class="panel-header">
-                      <div>
-                        <h3>SSH 终端</h3>
-                        <p class="muted">{{ selectedSshSession?.message ?? "未连接" }}</p>
+                <el-tabs class="remote-tabs">
+                  <el-tab-pane label="SSH 终端">
+                    <section class="remote-panel">
+                      <div class="panel-header">
+                        <div>
+                          <h3>SSH 终端</h3>
+                          <p class="muted">{{ selectedSshSession?.message ?? "未连接" }}</p>
+                        </div>
+                        <div class="remote-actions">
+                          <el-button
+                            :data-testid="`open-ssh-${selectedRemoteDevice.id}`"
+                            type="primary"
+                            :icon="Monitor"
+                            :disabled="!canOpenRemote(selectedRemoteDevice, 'ssh')"
+                            :loading="selectedSshSession?.status === 'connecting'"
+                            @click="startSshSession(selectedRemoteDevice)"
+                          >
+                            连接 SSH
+                          </el-button>
+                          <el-button
+                            :data-testid="`disconnect-ssh-${selectedRemoteDevice.id}`"
+                            :disabled="selectedSshSession?.status !== 'connected'"
+                            @click="disconnectSshSession(selectedRemoteDevice.id)"
+                          >
+                            断开 SSH
+                          </el-button>
+                        </div>
                       </div>
-                      <div class="remote-actions">
-                        <el-button
-                          :data-testid="`open-ssh-${selectedRemoteDevice.id}`"
-                          type="primary"
-                          :icon="Monitor"
-                          :disabled="!canOpenRemote(selectedRemoteDevice, 'ssh')"
-                          :loading="selectedSshSession?.status === 'connecting'"
-                          @click="startSshSession(selectedRemoteDevice)"
-                        >
-                          连接 SSH
-                        </el-button>
-                        <el-button
-                          :data-testid="`disconnect-ssh-${selectedRemoteDevice.id}`"
-                          :disabled="selectedSshSession?.status !== 'connected'"
-                          @click="disconnectSshSession(selectedRemoteDevice.id)"
-                        >
-                          断开 SSH
-                        </el-button>
+                      <p v-if="remoteUnavailableReason(selectedRemoteDevice, 'ssh')" class="remote-warning">
+                        {{ remoteUnavailableReason(selectedRemoteDevice, "ssh") }}
+                      </p>
+                      <div ref="sshTerminalHostRef" data-testid="ssh-terminal" class="ssh-terminal"></div>
+                      <pre v-if="selectedSshSession?.output" data-testid="ssh-transcript" class="terminal-output">{{
+                        selectedSshSession.output
+                      }}</pre>
+                    </section>
+                  </el-tab-pane>
+                  <el-tab-pane label="VNC 桌面">
+                    <section class="remote-panel">
+                      <div class="panel-header">
+                        <div>
+                          <h3>VNC 桌面</h3>
+                          <p class="muted">{{ selectedVncSession?.message ?? "未连接" }}</p>
+                        </div>
+                        <div class="remote-actions">
+                          <el-button
+                            :data-testid="`open-vnc-${selectedRemoteDevice.id}`"
+                            :icon="VideoPlay"
+                            :disabled="!canOpenRemote(selectedRemoteDevice, 'vnc')"
+                            :loading="selectedVncSession?.status === 'connecting'"
+                            @click="startVncSession(selectedRemoteDevice)"
+                          >
+                            连接 VNC
+                          </el-button>
+                          <el-button
+                            :data-testid="`disconnect-vnc-${selectedRemoteDevice.id}`"
+                            :disabled="selectedVncSession?.status !== 'connected'"
+                            @click="disconnectVncSession(selectedRemoteDevice.id)"
+                          >
+                            断开 VNC
+                          </el-button>
+                          <el-button
+                            :data-testid="`fullscreen-vnc-${selectedRemoteDevice.id}`"
+                            :disabled="selectedVncSession?.status !== 'connected'"
+                            @click="requestVncFullscreen"
+                          >
+                            全屏
+                          </el-button>
+                        </div>
                       </div>
-                    </div>
-                    <p v-if="remoteUnavailableReason(selectedRemoteDevice, 'ssh')" class="remote-warning">
-                      {{ remoteUnavailableReason(selectedRemoteDevice, "ssh") }}
-                    </p>
-                    <div ref="sshTerminalHostRef" data-testid="ssh-terminal" class="ssh-terminal"></div>
-                    <pre v-if="selectedSshSession?.output" data-testid="ssh-transcript" class="terminal-output">{{
-                      selectedSshSession.output
-                    }}</pre>
-                  </section>
-
-                  <section class="remote-panel">
-                    <div class="panel-header">
-                      <div>
-                        <h3>VNC 画面</h3>
-                        <p class="muted">{{ selectedVncSession?.message ?? "未连接" }}</p>
+                      <p v-if="remoteUnavailableReason(selectedRemoteDevice, 'vnc')" class="remote-warning">
+                        {{ remoteUnavailableReason(selectedRemoteDevice, "vnc") }}
+                      </p>
+                      <div ref="vncCanvasHostRef" data-testid="vnc-screen" class="vnc-screen">
+                        <span v-if="selectedVncSession?.status !== 'connected'">VNC 画面将在连接后显示</span>
                       </div>
-                      <div class="remote-actions">
-                        <el-button
-                          :data-testid="`open-vnc-${selectedRemoteDevice.id}`"
-                          :icon="VideoPlay"
-                          :disabled="!canOpenRemote(selectedRemoteDevice, 'vnc')"
-                          :loading="selectedVncSession?.status === 'connecting'"
-                          @click="startVncSession(selectedRemoteDevice)"
-                        >
-                          连接 VNC
-                        </el-button>
-                        <el-button
-                          :data-testid="`disconnect-vnc-${selectedRemoteDevice.id}`"
-                          :disabled="selectedVncSession?.status !== 'connected'"
-                          @click="disconnectVncSession(selectedRemoteDevice.id)"
-                        >
-                          断开 VNC
-                        </el-button>
-                        <el-button
-                          :data-testid="`fullscreen-vnc-${selectedRemoteDevice.id}`"
-                          :disabled="selectedVncSession?.status !== 'connected'"
-                          @click="requestVncFullscreen"
-                        >
-                          全屏
-                        </el-button>
+                    </section>
+                  </el-tab-pane>
+                  <el-tab-pane label="连接日志">
+                    <section class="remote-panel">
+                      <h3>连接日志</h3>
+                      <div class="connection-log">
+                        <p>SSH：{{ selectedSshSession?.message ?? "未连接" }}</p>
+                        <p>VNC：{{ selectedVncSession?.message ?? "未连接" }}</p>
+                        <p>远程端口：SSH {{ selectedRemoteDevice.ssh_port ?? "缺失" }} / VNC {{ selectedRemoteDevice.vnc_port ?? "缺失" }}</p>
                       </div>
-                    </div>
-                    <p v-if="remoteUnavailableReason(selectedRemoteDevice, 'vnc')" class="remote-warning">
-                      {{ remoteUnavailableReason(selectedRemoteDevice, "vnc") }}
-                    </p>
-                    <div ref="vncCanvasHostRef" data-testid="vnc-screen" class="vnc-screen">
-                      <span v-if="selectedVncSession?.status !== 'connected'">VNC 画面将在连接后显示</span>
-                    </div>
-                  </section>
-                </div>
+                    </section>
+                  </el-tab-pane>
+                </el-tabs>
               </template>
             </section>
           </div>
@@ -2321,7 +2515,7 @@ onBeforeUnmount(() => {
                 <span>执行模式</span>
                 <select data-testid="update-execution-mode" v-model="updateForm.execution_mode" class="native-select">
                   <option value="dry_run">演练模式</option>
-                  <option value="ssh_command">真实 SSH 执行</option>
+                  <option v-if="isAdmin" value="ssh_command">真实 SSH 执行</option>
                 </select>
               </label>
               <label class="field-label">
@@ -2339,7 +2533,7 @@ onBeforeUnmount(() => {
                 <el-input v-model="updateForm.command" type="textarea" :rows="3" placeholder="命令或脚本" />
               </div>
             </div>
-            <UpdateTaskTemplatePanel @apply="applyUpdateTemplate" />
+            <UpdateTaskTemplatePanel :can-manage="isAdmin" @apply="applyUpdateTemplate" />
             <DeviceTargetSelector
               :devices="devices"
               :groups="groups"
@@ -2349,7 +2543,15 @@ onBeforeUnmount(() => {
               @target-change="handleUpdateTargetChange"
               @preview-change="handleUpdateTargetPreview"
             />
-            <p v-if="updateForm.execution_mode === 'ssh_command'" class="muted">
+            <el-alert
+              v-if="!isAdmin"
+              class="validation-alert"
+              type="info"
+              show-icon
+              :closable="false"
+              title="当前账号为运维人员，仅允许创建和执行演练任务。"
+            />
+            <p v-if="updateForm.execution_mode === 'ssh_command'" class="risk-note">
               真实 SSH 执行会连接目标设备。建议先使用 hostname、whoami、uptime 等只读命令验收。
             </p>
             <div class="form-actions">
@@ -2407,9 +2609,9 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <ScheduledTaskPanel v-if="activeSection === 'scheduled'" />
+        <ScheduledTaskPanel v-if="activeSection === 'scheduled'" :can-manage="isAdmin" />
 
-        <AlertCenterPanel v-if="activeSection === 'alerts'" />
+        <AlertCenterPanel v-if="activeSection === 'alerts'" :can-manage="isAdmin" />
 
         <UserManagementPanel v-if="activeSection === 'users' && isAdmin" />
 
@@ -2439,6 +2641,11 @@ onBeforeUnmount(() => {
                 </template>
               </el-table-column>
               <el-table-column prop="detail" label="详情" min-width="220" />
+              <el-table-column label="操作" width="100" fixed="right">
+                <template #default="{ row }">
+                  <el-button :data-testid="`open-log-detail-${row.id}`" size="small" text @click="openAuditLogDetail(row)">详情</el-button>
+                </template>
+              </el-table-column>
             </el-table>
           </div>
           <el-pagination
@@ -2448,6 +2655,10 @@ onBeforeUnmount(() => {
             :current-page="Math.floor(logPagination.offset / logPagination.limit) + 1"
             @current-change="handleLogPageChange"
           />
+          <OperationLogDetailDrawer v-model="auditLogDetailOpen" :log="selectedAuditLog" />
+          <span v-if="auditLogDetailOpen && selectedAuditLog" data-testid="selected-log-detail" class="visually-hidden">
+            操作详情 {{ selectedAuditLog.detail }}
+          </span>
         </section>
 
         <section v-if="activeSection === 'diagnostics'" class="page-section">
@@ -2457,91 +2668,78 @@ onBeforeUnmount(() => {
           </div>
           <section class="panel">
             <div v-if="diagnosticsConfig" class="list-grid">
-              <div class="item-card">
-                <h3>服务</h3>
+              <DiagnosticCard title="服务" :tag="diagnosticsConfig.api_prefix">
                 <p>{{ diagnosticsConfig.service_name }} · {{ diagnosticsConfig.version }}</p>
-                <el-tag>{{ diagnosticsConfig.api_prefix }}</el-tag>
-              </div>
-              <div class="item-card">
-                <h3>数据</h3>
+              </DiagnosticCard>
+              <DiagnosticCard title="数据" :tag="diagnosticsConfig.file_backend">
                 <p>{{ diagnosticsConfig.database }}</p>
-                <el-tag>{{ diagnosticsConfig.file_backend }}</el-tag>
-              </div>
-              <div class="item-card">
-                <h3>远程网关</h3>
+              </DiagnosticCard>
+              <DiagnosticCard title="远程网关">
                 <p>SSH {{ diagnosticsConfig.remote_gateway_host }}</p>
                 <p>VNC {{ diagnosticsConfig.vnc_gateway_host }}</p>
-              </div>
-              <div class="item-card">
-                <h3>默认 SSH 用户</h3>
+              </DiagnosticCard>
+              <DiagnosticCard title="默认 SSH 用户" :tag="`${diagnosticsConfig.ssh_timeout_seconds} 秒超时`">
                 <p>{{ diagnosticsConfig.default_device_ssh_user }}</p>
-                <el-tag type="info">{{ diagnosticsConfig.ssh_timeout_seconds }} 秒超时</el-tag>
-              </div>
-              <div class="item-card">
-                <h3>数据库迁移</h3>
+              </DiagnosticCard>
+              <DiagnosticCard
+                title="数据库迁移"
+                :tone="diagnosticsConfig.migration.has_pending_migrations ? 'warning' : 'success'"
+                :tag="diagnosticsConfig.migration.has_pending_migrations ? '待迁移' : '已同步'"
+              >
                 <p>{{ diagnosticsConfig.migration.current_revision ?? "未初始化" }}</p>
-                <el-tag :type="diagnosticsConfig.migration.has_pending_migrations ? 'warning' : 'success'">
-                  {{ diagnosticsConfig.migration.has_pending_migrations ? "待迁移" : "已同步" }}
-                </el-tag>
-              </div>
-              <div class="item-card">
-                <h3>SSH 主机密钥</h3>
+              </DiagnosticCard>
+              <DiagnosticCard
+                title="SSH 主机密钥"
+                :tone="diagnosticsConfig.ssh_host_key.known_hosts_configured ? 'success' : 'warning'"
+                :tag="diagnosticsConfig.ssh_host_key.known_hosts_configured ? '已配置 known_hosts' : '未配置 known_hosts'"
+              >
                 <p>{{ diagnosticsConfig.ssh_host_key.policy }}</p>
-                <el-tag :type="diagnosticsConfig.ssh_host_key.known_hosts_configured ? 'success' : 'warning'">
-                  {{ diagnosticsConfig.ssh_host_key.known_hosts_configured ? "已配置 known_hosts" : "未配置 known_hosts" }}
-                </el-tag>
-              </div>
-              <div class="item-card">
-                <h3>认证有效期</h3>
+              </DiagnosticCard>
+              <DiagnosticCard title="认证有效期">
                 <p>访问 {{ diagnosticsConfig.auth_lifetime.access_expire_minutes }} 分钟</p>
                 <p>刷新 {{ diagnosticsConfig.auth_lifetime.refresh_expire_minutes }} 分钟</p>
-              </div>
-              <div class="item-card">
-                <h3>数据库状态</h3>
+              </DiagnosticCard>
+              <DiagnosticCard
+                title="数据库状态"
+                :tone="diagnosticsConfig.database_status.sqlite_backup_recommended ? 'warning' : 'success'"
+                :tag="diagnosticsConfig.database_status.sqlite_backup_recommended ? '建议备份' : '无需 SQLite 备份'"
+              >
                 <p>{{ diagnosticsConfig.database_status.summary }}</p>
-                <el-tag :type="diagnosticsConfig.database_status.sqlite_backup_recommended ? 'warning' : 'success'">
-                  {{ diagnosticsConfig.database_status.sqlite_backup_recommended ? "建议备份" : "无需 SQLite 备份" }}
-                </el-tag>
-              </div>
-              <div class="item-card">
-                <h3>定时调度器</h3>
+              </DiagnosticCard>
+              <DiagnosticCard
+                title="定时调度器"
+                :tone="diagnosticsConfig.scheduler.running ? 'success' : 'warning'"
+                :tag="diagnosticsConfig.scheduler.running ? '运行中' : '未运行'"
+              >
                 <p>{{ diagnosticsConfig.scheduler.enabled ? "已启用" : "已关闭" }}</p>
-                <el-tag :type="diagnosticsConfig.scheduler.running ? 'success' : 'warning'">
-                  {{ diagnosticsConfig.scheduler.running ? "运行中" : "未运行" }}
-                </el-tag>
-              </div>
-              <div class="item-card">
-                <h3>调度摘要</h3>
+              </DiagnosticCard>
+              <DiagnosticCard title="调度摘要">
                 <p>启用任务 {{ diagnosticsConfig.scheduler.enabled_task_count }} 个</p>
                 <p>失败执行 {{ diagnosticsConfig.scheduler.failed_run_count }} 次</p>
-              </div>
-              <div class="item-card">
-                <h3>告警中心</h3>
+              </DiagnosticCard>
+              <DiagnosticCard
+                title="告警中心"
+                :tone="diagnosticsConfig.alerts.critical_count ? 'danger' : 'success'"
+                :tag="diagnosticsConfig.alerts.critical_count ? `严重 ${diagnosticsConfig.alerts.critical_count} 条` : '无严重告警'"
+              >
                 <p>活跃告警 {{ diagnosticsConfig.alerts.active_count }} 条</p>
-                <el-tag :type="diagnosticsConfig.alerts.critical_count ? 'danger' : 'success'">
-                  {{ diagnosticsConfig.alerts.critical_count ? `严重 ${diagnosticsConfig.alerts.critical_count} 条` : "无严重告警" }}
-                </el-tag>
-              </div>
-              <div class="item-card">
-                <h3>告警通知</h3>
+              </DiagnosticCard>
+              <DiagnosticCard
+                title="告警通知"
+                :tone="diagnosticsConfig.notifications.failed_delivery_count ? 'danger' : 'success'"
+                :tag="diagnosticsConfig.notifications.failed_delivery_count ? `失败 ${diagnosticsConfig.notifications.failed_delivery_count} 条` : '投递正常'"
+              >
                 <p>启用通道 {{ diagnosticsConfig.notifications.enabled_channel_count }} 个</p>
                 <p>启用策略 {{ diagnosticsConfig.notifications.enabled_policy_count }} 个</p>
-                <el-tag :type="diagnosticsConfig.notifications.failed_delivery_count ? 'danger' : 'success'">
-                  {{
-                    diagnosticsConfig.notifications.failed_delivery_count
-                      ? `失败 ${diagnosticsConfig.notifications.failed_delivery_count} 条`
-                      : "投递正常"
-                  }}
-                </el-tag>
-              </div>
-              <div class="item-card">
-                <h3>用户与权限</h3>
+              </DiagnosticCard>
+              <DiagnosticCard
+                title="用户与权限"
+                :tone="diagnosticsConfig.users.disabled_count ? 'warning' : 'success'"
+                :tag="diagnosticsConfig.users.disabled_count ? `停用 ${diagnosticsConfig.users.disabled_count} 个` : '无停用用户'"
+              >
                 <p>启用用户 {{ diagnosticsConfig.users.active_count }} / {{ diagnosticsConfig.users.total_count }}</p>
                 <p>管理员 {{ diagnosticsConfig.users.admin_count }} 个，运维 {{ diagnosticsConfig.users.operator_count }} 个</p>
-                <el-tag :type="diagnosticsConfig.users.disabled_count ? 'warning' : 'success'">
-                  {{ diagnosticsConfig.users.disabled_count ? `停用 ${diagnosticsConfig.users.disabled_count} 个` : "无停用用户" }}
-                </el-tag>
-              </div>
+              </DiagnosticCard>
             </div>
             <el-empty v-else description="暂无诊断数据" />
           </section>
@@ -2649,7 +2847,5 @@ onBeforeUnmount(() => {
             />
           </section>
         </section>
-      </el-main>
-    </el-container>
-  </el-container>
+  </LayoutShell>
 </template>

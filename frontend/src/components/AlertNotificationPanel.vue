@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Refresh } from "@element-plus/icons-vue";
+import { ElMessageBox } from "element-plus";
 import { computed, onMounted, reactive, ref } from "vue";
 
 import {
@@ -248,6 +249,15 @@ async function saveChannel() {
 }
 
 async function removeChannel(channel: AlertNotificationChannelRead) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除通知通道 ${channel.name}？删除前请确认没有通知策略继续引用该通道。`,
+      "删除通知通道",
+      { type: "warning" },
+    );
+  } catch {
+    return;
+  }
   actionKey.value = `channel-delete-${channel.id}`;
   operationError.value = "";
   operationMessage.value = "";
@@ -312,6 +322,11 @@ async function savePolicy() {
 }
 
 async function removePolicy(policy: AlertNotificationPolicyRead) {
+  try {
+    await ElMessageBox.confirm(`确认删除通知策略 ${policy.name}？`, "删除通知策略", { type: "warning" });
+  } catch {
+    return;
+  }
   actionKey.value = `policy-delete-${policy.id}`;
   operationError.value = "";
   operationMessage.value = "";
@@ -327,6 +342,13 @@ async function removePolicy(policy: AlertNotificationPolicyRead) {
 }
 
 async function retryDelivery(delivery: AlertNotificationDeliveryRead) {
+  try {
+    await ElMessageBox.confirm(`确认重试告警 ${delivery.alert_title ?? delivery.alert_id} 的通知投递？`, "重试通知投递", {
+      type: "warning",
+    });
+  } catch {
+    return;
+  }
   actionKey.value = `delivery-retry-${delivery.id}`;
   operationError.value = "";
   operationMessage.value = "";

@@ -15,6 +15,15 @@ const emit = defineEmits<{
   apply: [template: UpdateTaskTemplateRead];
 }>();
 
+const props = withDefaults(
+  defineProps<{
+    canManage?: boolean;
+  }>(),
+  {
+    canManage: true,
+  },
+);
+
 const templates = ref<UpdateTaskTemplateRead[]>([]);
 const loading = ref(false);
 const formOpen = ref(false);
@@ -58,6 +67,10 @@ function openCreate() {
 }
 
 function openEdit(template: UpdateTaskTemplateRead) {
+  if (!props.canManage && template.default_execution_mode === "ssh_command") {
+    errorMessage.value = "当前账号无权限编辑真实 SSH 命令模板";
+    return;
+  }
   editId.value = template.id;
   form.name = template.name;
   form.description = template.description ?? "";
@@ -88,6 +101,9 @@ async function saveTemplate() {
   errorMessage.value = "";
   try {
     const payload = buildPayload();
+    if (!props.canManage && payload.default_execution_mode === "ssh_command") {
+      throw new Error("当前账号无权限保存真实 SSH 命令模板");
+    }
     if (editId.value === null) {
       const created = await createUpdateTaskTemplate(payload);
       templates.value.push(created);
@@ -103,6 +119,14 @@ async function saveTemplate() {
   } finally {
     loading.value = false;
   }
+}
+
+function applyTemplate(template: UpdateTaskTemplateRead) {
+  if (!props.canManage && template.default_execution_mode === "ssh_command") {
+    errorMessage.value = "当前账号无权限套用真实 SSH 命令模板";
+    return;
+  }
+  emit("apply", template);
 }
 
 async function removeTemplate(template: UpdateTaskTemplateRead) {
@@ -149,7 +173,7 @@ onMounted(() => {
           <span>默认模式</span>
           <select data-testid="template-mode" v-model="form.default_execution_mode" class="native-select">
             <option value="dry_run">演练模式</option>
-            <option value="ssh_command">真实 SSH 执行</option>
+            <option v-if="props.canManage" value="ssh_command">真实 SSH 执行</option>
           </select>
         </label>
         <div data-testid="template-description" class="input-wrap textarea-wrap">
@@ -173,8 +197,28 @@ onMounted(() => {
       </el-table-column>
       <el-table-column label="操作" width="240">
         <template #default="{ row }">
-          <el-button :data-testid="`apply-template-${row.id}`" size="small" type="primary" @click="emit('apply', row)">套用</el-button>
-          <el-button :data-testid="`edit-template-${row.id}`" size="small" @click="openEdit(row)">编辑</el-button>
+          <el-tooltip
+            :content="!props.canManage && row.default_execution_mode === 'ssh_command' ? '当前账号无权限套用真实 SSH 模板' : '套用模板'"
+            placement="top"
+          >
+            <el-button
+              :data-testid="`apply-template-${row.id}`"
+              size="small"
+              type="primary"
+              :disabled="!props.canManage && row.default_execution_mode === 'ssh_command'"
+              @click="applyTemplate(row)"
+            >
+              套用
+            </el-button>
+          </el-tooltip>
+          <el-button
+            :data-testid="`edit-template-${row.id}`"
+            size="small"
+            :disabled="!props.canManage && row.default_execution_mode === 'ssh_command'"
+            @click="openEdit(row)"
+          >
+            编辑
+          </el-button>
           <el-button :data-testid="`delete-template-${row.id}`" size="small" type="danger" @click="removeTemplate(row)">删除</el-button>
         </template>
       </el-table-column>

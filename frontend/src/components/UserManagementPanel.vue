@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Refresh } from "@element-plus/icons-vue";
+import { ElMessageBox } from "element-plus";
 import { computed, onMounted, reactive, ref } from "vue";
 
 import {
@@ -94,6 +95,11 @@ async function submitCreateUser() {
 }
 
 async function saveUser(row: UserRead) {
+  try {
+    await ElMessageBox.confirm(`确认保存用户 ${row.username} 的角色和启用状态？`, "保存用户变更", { type: "warning" });
+  } catch {
+    return;
+  }
   actionUserId.value = row.id;
   errorMessage.value = "";
   lastMessage.value = "";
@@ -113,6 +119,13 @@ async function saveUser(row: UserRead) {
 }
 
 async function switchUser(row: UserRead) {
+  try {
+    await ElMessageBox.confirm(`确认${row.is_active ? "停用" : "启用"}用户 ${row.username}？`, `${row.is_active ? "停用" : "启用"}用户`, {
+      type: "warning",
+    });
+  } catch {
+    return;
+  }
   actionUserId.value = row.id;
   errorMessage.value = "";
   lastMessage.value = "";
@@ -140,6 +153,13 @@ async function submitResetPassword() {
   lastMessage.value = "";
   if (resetPasswordValue.value.length < 8) {
     errorMessage.value = "新密码至少 8 位";
+    return;
+  }
+
+  const user = users.value.find((item) => item.id === resetUserId.value);
+  try {
+    await ElMessageBox.confirm(`确认重置用户 ${user?.username ?? resetUserId.value} 的密码？`, "重置密码", { type: "warning" });
+  } catch {
     return;
   }
 

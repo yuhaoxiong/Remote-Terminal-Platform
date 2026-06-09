@@ -18,6 +18,15 @@ import {
 } from "../api/platform";
 import AlertNotificationPanel from "./AlertNotificationPanel.vue";
 
+const props = withDefaults(
+  defineProps<{
+    canManage?: boolean;
+  }>(),
+  {
+    canManage: true,
+  },
+);
+
 const alerts = ref<AlertRead[]>([]);
 const alertTotal = ref(0);
 const rules = ref<AlertRuleRead[]>([]);
@@ -130,6 +139,10 @@ async function resolve(row: AlertRead) {
 }
 
 async function saveRule(rule: AlertRuleRead) {
+  if (!props.canManage) {
+    operationError.value = "当前账号无权限编辑告警规则。";
+    return;
+  }
   savingRuleId.value = rule.id;
   operationError.value = "";
   try {
@@ -270,6 +283,9 @@ onMounted(() => {
     <section class="panel">
       <div class="panel-header">
         <h3>告警规则</h3>
+        <el-tag :type="props.canManage ? 'success' : 'info'">
+          {{ props.canManage ? "可编辑" : "仅查看" }}
+        </el-tag>
       </div>
       <el-table :data="rules" stripe class="table-panel" empty-text="暂无规则">
         <el-table-column label="规则" min-width="180">
@@ -279,12 +295,12 @@ onMounted(() => {
         </el-table-column>
         <el-table-column label="启用" width="90">
           <template #default="{ row }">
-            <el-switch v-model="row.enabled" />
+            <el-switch v-model="row.enabled" :disabled="!props.canManage" />
           </template>
         </el-table-column>
         <el-table-column label="级别" width="130">
           <template #default="{ row }">
-            <select v-model="row.severity" class="native-select rule-select" aria-label="规则级别">
+            <select v-model="row.severity" class="native-select rule-select" aria-label="规则级别" :disabled="!props.canManage">
               <option value="warning">警告</option>
               <option value="critical">严重</option>
             </select>
@@ -292,22 +308,30 @@ onMounted(() => {
         </el-table-column>
         <el-table-column label="阈值" width="140">
           <template #default="{ row }">
-            <el-input-number v-model="row.threshold_value" :min="0" :max="100" :step="1" controls-position="right" />
+            <el-input-number v-model="row.threshold_value" :min="0" :max="100" :step="1" controls-position="right" :disabled="!props.canManage" />
           </template>
         </el-table-column>
         <el-table-column label="窗口/分钟" width="140">
           <template #default="{ row }">
-            <el-input-number v-model="row.window_minutes" :min="1" :max="1440" :step="1" controls-position="right" />
+            <el-input-number v-model="row.window_minutes" :min="1" :max="1440" :step="1" controls-position="right" :disabled="!props.canManage" />
           </template>
         </el-table-column>
         <el-table-column label="操作" width="110" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="primary" :loading="savingRuleId === row.id" @click="saveRule(row)">保存</el-button>
+            <el-button size="small" type="primary" :disabled="!props.canManage" :loading="savingRuleId === row.id" @click="saveRule(row)">保存</el-button>
           </template>
         </el-table-column>
       </el-table>
     </section>
 
-    <AlertNotificationPanel />
+    <AlertNotificationPanel v-if="props.canManage" />
+    <el-alert
+      v-else
+      class="validation-alert"
+      type="info"
+      show-icon
+      :closable="false"
+      title="当前账号无权限配置外部通知，可继续确认或恢复告警。"
+    />
   </section>
 </template>
