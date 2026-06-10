@@ -147,6 +147,7 @@ def init_db(settings: Settings | None = None) -> None:
     from app.models.metric import DeviceMetric
     from app.models.port_pool import PortPool
     from app.models.scheduled_task import ScheduledTask, ScheduledTaskRun
+    from app.models.system_setting import SystemSetting, SystemSettingChange
     from app.models.update_task import UpdateTask, UpdateTaskDevice, UpdateTaskTemplate
     from app.models.user import User
     from app.services.alert_service import AlertService
@@ -188,6 +189,8 @@ def init_db(settings: Settings | None = None) -> None:
         DeviceMetric,
         ScheduledTask,
         ScheduledTaskRun,
+        SystemSetting,
+        SystemSettingChange,
         UpdateTask,
         UpdateTaskDevice,
         UpdateTaskTemplate,

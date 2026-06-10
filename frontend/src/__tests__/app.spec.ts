@@ -153,6 +153,12 @@ vi.mock("../api/platform", () => ({
   getCurrentUser: vi.fn(),
   getDeviceStatus: vi.fn(),
   getDiagnosticsConfig: vi.fn(),
+  getSystemSettingSchema: vi.fn(),
+  getEffectiveSystemSettings: vi.fn(),
+  updateSystemSettingGroup: vi.fn(),
+  resetSystemSetting: vi.fn(),
+  listSystemSettingChanges: vi.fn(),
+  restartSystemService: vi.fn(),
   hasStoredAccessToken: vi.fn(() => false),
   importFrpsDevices: vi.fn(),
   listDevices: vi.fn(),
@@ -955,7 +961,226 @@ function mockResolvedApiState() {
       disabled_count: 0,
       warnings: [],
     },
+    system_settings: {
+      table_available: true,
+      database_override_count: 0,
+      pending_restart_count: 0,
+      credential_encryption_configured: false,
+      systemd_managed: false,
+      invalid_override_count: 0,
+      warnings: ["当前未检测到 systemd 托管，系统设置重启按钮不可用"],
+    },
   });
+  api.getSystemSettingSchema.mockResolvedValue({
+    groups: {
+      remote_connection: "远程连接",
+      device_credentials: "默认设备凭据",
+      file_storage: "文件与存储",
+      scheduler: "调度器",
+      alert_notification: "告警通知",
+      security_auth: "安全与认证",
+      readonly_status: "只读状态",
+    },
+    items: [
+      {
+        key: "REMOTE_GATEWAY_HOST",
+        name: "SSH 网关主机",
+        description: "远程 SSH 网关主机地址",
+        category: "remote_connection",
+        value_type: "string",
+        editable: true,
+        secret: false,
+        requires_restart: false,
+        runtime_effective: true,
+        options: null,
+        min_value: null,
+        max_value: null,
+      },
+      {
+        key: "DEFAULT_DEVICE_SSH_PASSWORD",
+        name: "默认 SSH 密码",
+        description: "自动导入设备时使用的默认 SSH 密码",
+        category: "device_credentials",
+        value_type: "string",
+        editable: true,
+        secret: true,
+        requires_restart: false,
+        runtime_effective: true,
+        options: null,
+        min_value: null,
+        max_value: null,
+      },
+      {
+        key: "FILE_STORAGE_DIR",
+        name: "文件存储目录",
+        description: "本地文件后端存储目录",
+        category: "file_storage",
+        value_type: "string",
+        editable: true,
+        secret: false,
+        requires_restart: true,
+        runtime_effective: false,
+        options: null,
+        min_value: null,
+        max_value: null,
+      },
+      {
+        key: "CREDENTIAL_ENCRYPTION_KEY",
+        name: "凭据加密密钥",
+        description: "启动级敏感凭据加密密钥状态",
+        category: "readonly_status",
+        value_type: "string",
+        editable: false,
+        secret: true,
+        requires_restart: false,
+        runtime_effective: true,
+        options: null,
+        min_value: null,
+        max_value: null,
+      },
+    ],
+  });
+  api.getEffectiveSystemSettings.mockResolvedValue({
+    pending_restart_count: 0,
+    database_override_count: 0,
+    credential_encryption_configured: false,
+    systemd_managed: false,
+    items: [
+      {
+        key: "REMOTE_GATEWAY_HOST",
+        name: "SSH 网关主机",
+        category: "remote_connection",
+        value_type: "string",
+        value: "127.0.0.1",
+        configured: true,
+        source: "default",
+        editable: true,
+        secret: false,
+        requires_restart: false,
+        pending_restart: false,
+        is_valid: true,
+        invalid_reason: null,
+        updated_at: null,
+      },
+      {
+        key: "DEFAULT_DEVICE_SSH_PASSWORD",
+        name: "默认 SSH 密码",
+        category: "device_credentials",
+        value_type: "string",
+        value: null,
+        configured: true,
+        source: "default",
+        editable: true,
+        secret: true,
+        requires_restart: false,
+        pending_restart: false,
+        is_valid: true,
+        invalid_reason: null,
+        updated_at: null,
+      },
+      {
+        key: "FILE_STORAGE_DIR",
+        name: "文件存储目录",
+        category: "file_storage",
+        value_type: "string",
+        value: null,
+        configured: false,
+        source: "default",
+        editable: true,
+        secret: false,
+        requires_restart: true,
+        pending_restart: false,
+        is_valid: true,
+        invalid_reason: null,
+        updated_at: null,
+      },
+      {
+        key: "CREDENTIAL_ENCRYPTION_KEY",
+        name: "凭据加密密钥",
+        category: "readonly_status",
+        value_type: "string",
+        value: null,
+        configured: false,
+        source: "default",
+        editable: false,
+        secret: true,
+        requires_restart: false,
+        pending_restart: false,
+        is_valid: true,
+        invalid_reason: null,
+        updated_at: null,
+      },
+    ],
+  });
+  api.updateSystemSettingGroup.mockImplementation(async (group, values) => ({
+    group,
+    updated_keys: Object.keys(values),
+    requires_restart: group === "file_storage",
+    pending_restart_count: group === "file_storage" ? 1 : 0,
+    items: [
+      {
+        key: "REMOTE_GATEWAY_HOST",
+        name: "SSH 网关主机",
+        category: "remote_connection",
+        value_type: "string",
+        value: typeof values.REMOTE_GATEWAY_HOST === "string" ? values.REMOTE_GATEWAY_HOST : "127.0.0.1",
+        configured: true,
+        source: values.REMOTE_GATEWAY_HOST ? "database" : "default",
+        editable: true,
+        secret: false,
+        requires_restart: false,
+        pending_restart: false,
+        is_valid: true,
+        invalid_reason: null,
+        updated_at: "2026-06-10T00:00:00",
+      },
+      {
+        key: "FILE_STORAGE_DIR",
+        name: "文件存储目录",
+        category: "file_storage",
+        value_type: "string",
+        value: typeof values.FILE_STORAGE_DIR === "string" ? values.FILE_STORAGE_DIR : null,
+        configured: typeof values.FILE_STORAGE_DIR === "string" && values.FILE_STORAGE_DIR.length > 0,
+        source: typeof values.FILE_STORAGE_DIR === "string" && values.FILE_STORAGE_DIR.length > 0 ? "database" : "default",
+        editable: true,
+        secret: false,
+        requires_restart: true,
+        pending_restart: group === "file_storage",
+        is_valid: true,
+        invalid_reason: null,
+        updated_at: "2026-06-10T00:00:00",
+      },
+    ],
+  }));
+  api.resetSystemSetting.mockResolvedValue({
+    key: "REMOTE_GATEWAY_HOST",
+    source: "system",
+    requires_restart: false,
+    pending_restart_count: 0,
+  });
+  api.listSystemSettingChanges.mockResolvedValue({
+    total: 1,
+    items: [
+      {
+        id: 1,
+        setting_key: "REMOTE_GATEWAY_HOST",
+        category: "remote_connection",
+        action: "save",
+        old_source: "default",
+        new_source: "database",
+        old_value_snapshot: "127.0.0.1",
+        new_value_snapshot: "10.0.0.8",
+        is_secret: false,
+        requires_restart: false,
+        pending_restart_after_change: false,
+        actor_user_id: 1,
+        actor_username: "admin",
+        client_ip: "127.0.0.1",
+        created_at: "2026-06-10T00:00:00",
+      },
+    ],
+  });
+  api.restartSystemService.mockResolvedValue({ status: "restarting", message: "服务正在重启" });
   api.syncDeviceConfig.mockResolvedValue({
     device_id: 1,
     status: "generated",
@@ -1116,6 +1341,54 @@ describe("App", () => {
     });
   });
 
+  it("lets admin manage system settings with restart warnings", async () => {
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          teleport: true,
+        },
+      },
+    });
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+
+    expect(wrapper.find('[data-testid="nav-settings"]').exists()).toBe(true);
+    await wrapper.find('[data-testid="nav-settings"]').trigger("click");
+    await waitUntil(() => expect(api.getSystemSettingSchema).toHaveBeenCalled());
+    expect(wrapper.text()).toContain("系统设置");
+    expect(wrapper.text()).toContain("数据库覆盖");
+    expect(wrapper.text()).toContain("未配置凭据加密密钥，不能保存该敏感配置。");
+    await waitUntil(() => expect(wrapper.find('[data-testid="setting-REMOTE_GATEWAY_HOST"]').exists()).toBe(true));
+
+    await wrapper.find('[data-testid="setting-REMOTE_GATEWAY_HOST"]').setValue("10.0.0.8");
+    await wrapper.find('[data-testid="save-settings-remote_connection"]').trigger("click");
+    await waitUntil(() => expect(api.updateSystemSettingGroup).toHaveBeenCalledWith("remote_connection", {
+      REMOTE_GATEWAY_HOST: "10.0.0.8",
+    }));
+
+    await wrapper.find('[data-testid="reset-setting-REMOTE_GATEWAY_HOST"]').trigger("click");
+    await waitUntil(() => expect(api.resetSystemSetting).toHaveBeenCalledWith("REMOTE_GATEWAY_HOST"));
+
+    await wrapper.find('[data-testid="setting-FILE_STORAGE_DIR"]').setValue("C:/edge-files");
+    await wrapper.find('[data-testid="save-settings-file_storage"]').trigger("click");
+    await flushAsync();
+    expect(ElMessageBox.confirm).toHaveBeenCalledWith(
+      expect.stringContaining("当前分组包含重启后生效配置"),
+      "配置需重启后生效",
+      expect.any(Object),
+    );
+    expect(api.updateSystemSettingGroup).toHaveBeenCalledWith("file_storage", {
+      FILE_STORAGE_DIR: "C:/edge-files",
+    });
+
+    await wrapper.find('[data-testid="restart-confirm-text"]').setValue("确认重启");
+    await wrapper.find('[data-testid="restart-service"]').trigger("click");
+    await waitUntil(() => expect(api.restartSystemService).toHaveBeenCalledWith("确认重启"));
+  });
+
   it("hides user management for operator users", async () => {
     api.getCurrentUser.mockResolvedValueOnce({
       id: 2,
@@ -1139,6 +1412,7 @@ describe("App", () => {
 
     expect(api.loginAdmin).toHaveBeenCalledWith("operator", "operator-pass");
     expect(wrapper.find('[data-testid="nav-users"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="nav-settings"]').exists()).toBe(false);
     expect(wrapper.text()).toContain("operator · 运维人员");
   });
 

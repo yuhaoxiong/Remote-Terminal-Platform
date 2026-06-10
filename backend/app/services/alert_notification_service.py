@@ -47,12 +47,15 @@ class AlertNotificationSecretError(RuntimeError):
 
 class AlertNotificationService:
     summary_limit = 500
-    max_attempts = 3
     retry_delays = (timedelta(minutes=1), timedelta(minutes=5), timedelta(minutes=15))
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.encryption = EncryptionService(settings)
+
+    @property
+    def max_attempts(self) -> int:
+        return self.settings.webhook_max_retries + 1
 
     def list_channels(self, session: Session) -> tuple[int, list[AlertNotificationChannel]]:
         statement = select(AlertNotificationChannel).order_by(AlertNotificationChannel.id.asc())
@@ -481,7 +484,7 @@ class AlertNotificationService:
         }
 
     def _timeout_seconds(self, channel: AlertNotificationChannel) -> int:
-        return int((channel.config or {}).get("timeout_seconds") or 5)
+        return int((channel.config or {}).get("timeout_seconds") or self.settings.webhook_timeout_seconds)
 
     def _headers_from_secret(self, secret: dict[str, Any]) -> dict[str, str]:
         headers = secret.get("headers") or {}

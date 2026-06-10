@@ -35,16 +35,24 @@ class Settings(BaseModel):
     default_device_ssh_user: str = "ztl"
     default_device_ssh_password: str = "123456"
     credential_encryption_key: str | None = None
+    webhook_timeout_seconds: int = 5
+    webhook_max_retries: int = 3
+    notification_retention_days: int = 90
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings(
+        database_url=os.getenv("DATABASE_URL", "sqlite:///./data/platform.db"),
         jwt_secret_key=os.getenv("JWT_SECRET_KEY", "change-me-in-production"),
+        access_token_expire_minutes=int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")),
+        refresh_token_expire_minutes=int(os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", str(60 * 24))),
         default_admin_username=os.getenv("DEFAULT_ADMIN_USERNAME", "admin"),
         default_admin_password=os.getenv("DEFAULT_ADMIN_PASSWORD", "admin"),
         remote_gateway_host=os.getenv("REMOTE_GATEWAY_HOST", "127.0.0.1"),
         vnc_gateway_host=os.getenv("VNC_GATEWAY_HOST"),
+        ssh_timeout_seconds=int(os.getenv("SSH_TIMEOUT_SECONDS", "10")),
+        vnc_timeout_seconds=int(os.getenv("VNC_TIMEOUT_SECONDS", "10")),
         ssh_password=os.getenv("SSH_PASSWORD"),
         ssh_key_filename=os.getenv("SSH_KEY_FILENAME"),
         ssh_key_passphrase=os.getenv("SSH_KEY_PASSPHRASE"),
@@ -53,7 +61,11 @@ def get_settings() -> Settings:
         scheduler_enabled=os.getenv("SCHEDULER_ENABLED", "true").lower() not in {"0", "false", "no", "off"},
         scheduler_poll_interval_seconds=int(os.getenv("SCHEDULER_POLL_INTERVAL_SECONDS", "30")),
         file_backend=os.getenv("FILE_BACKEND", "local"),
+        file_storage_dir=os.getenv("FILE_STORAGE_DIR"),
         default_device_ssh_user=os.getenv("DEFAULT_DEVICE_SSH_USER", "ztl"),
         default_device_ssh_password=os.getenv("DEFAULT_DEVICE_SSH_PASSWORD", "123456"),
         credential_encryption_key=os.getenv("CREDENTIAL_ENCRYPTION_KEY"),
+        webhook_timeout_seconds=int(os.getenv("WEBHOOK_TIMEOUT_SECONDS", "5")),
+        webhook_max_retries=int(os.getenv("WEBHOOK_MAX_RETRIES", "3")),
+        notification_retention_days=int(os.getenv("NOTIFICATION_RETENTION_DAYS", "90")),
     )

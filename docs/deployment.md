@@ -233,3 +233,21 @@ export SSH_KNOWN_HOSTS_FILE='/etc/edge-platform/known_hosts'
 - 删除用户在当前实现中等价于停用账号,不会硬删除历史记录。后端会阻止停用或降级最后一个启用管理员。
 - 前端收到 `401` 才会回登录页;收到 `403` 会留在当前页面并提示无权限。如果浏览器出现无权限提示,优先确认账号角色,不要先排查 token 过期。
 - 操作日志中应能看到 `auth.login`、`auth.refresh`、`auth.password_change`、`auth.forbidden` 和 `user.*` 动作;日志不会记录明文密码、Token 或设备凭据。
+
+## Wave 23 系统设置部署检查
+
+- 升级后端后先确认 Alembic 已创建 `system_settings` 和 `system_setting_changes` 表。`GET /api/diagnostics/config` 中 `migration.has_pending_migrations` 应为 `false`,且 `system_settings.table_available=true`。
+- 系统设置读取顺序为 `数据库覆盖值 > 系统配置/环境变量 > 代码默认值`。建议只把启动级或敏感项继续放在 systemd 环境中,例如 `DATABASE_URL`、`JWT_SECRET_KEY`、`CREDENTIAL_ENCRYPTION_KEY`;普通运行参数优先通过管理员页面维护。
+- 首次进入"系统设置"前,建议先配置 `CREDENTIAL_ENCRYPTION_KEY`。未配置时,后端会拒绝保存敏感配置项,诊断页和系统设置页会显示安全风险提示。
+- 如果需要使用前端"重启服务"按钮,后端必须由 systemd 或等价 supervisor 托管,并设置自动拉起策略。示例:
+
+```ini
+[Service]
+Restart=always
+RestartSec=3
+```
+
+- 后端检测不到 systemd 托管时,`POST /api/system-settings/restart` 会返回中文错误并拒绝退出进程。这是保护行为,不是部署失败。
+- 保存 `requires_restart=true` 的配置后,系统设置页会显示待重启数量。完成 systemd 重启并重新加载数据库覆盖值后,待重启标记会自动清除。
+- `operator` 不应看到"系统设置"入口。若运维账号直接调用系统设置接口,应返回 `403`,且前端不应退出登录。
+- Nginx 不需要新增 location。系统设置 REST API 仍走既有 `/api/` 反向代理;重启后前端可通过 `/api/health` 或刷新页面确认服务恢复。

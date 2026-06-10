@@ -235,6 +235,198 @@ GET /api/health
 }
 ```
 
+### 系统设置
+
+系统设置接口用于读取后端注册表白名单、查看当前有效配置、保存数据库覆盖值、恢复默认值、查看变更历史和触发 systemd 托管场景下的后端重启。
+
+认证:仅 `admin`。`operator` 调用会返回 `403`。接口不会返回密码、Token、私钥、Webhook 密钥或凭据加密密钥明文。
+
+配置读取顺序:
+
+```text
+数据库覆盖值 > 系统配置/环境变量 > 代码默认值
+```
+
+#### 获取系统设置注册表
+
+```http
+GET /api/system-settings/schema
+```
+
+响应 `200`:
+
+```json
+{
+  "groups": {
+    "remote_connection": "远程连接",
+    "file_storage": "文件存储"
+  },
+  "items": [
+    {
+      "key": "REMOTE_GATEWAY_HOST",
+      "name": "SSH 网关主机",
+      "description": "用于远程 SSH 连接的网关地址",
+      "category": "remote_connection",
+      "value_type": "string",
+      "editable": true,
+      "secret": false,
+      "requires_restart": false,
+      "runtime_effective": true,
+      "options": null,
+      "min_value": null,
+      "max_value": null
+    }
+  ]
+}
+```
+
+#### 获取当前有效设置
+
+```http
+GET /api/system-settings/effective
+```
+
+响应 `200`:
+
+```json
+{
+  "items": [
+    {
+      "key": "FILE_BACKEND",
+      "name": "文件后端",
+      "category": "file_storage",
+      "value_type": "select",
+      "value": "local",
+      "configured": true,
+      "source": "database",
+      "editable": true,
+      "secret": false,
+      "requires_restart": true,
+      "pending_restart": true,
+      "is_valid": true,
+      "invalid_reason": null,
+      "updated_at": "2026-06-10T10:00:00"
+    }
+  ],
+  "pending_restart_count": 1,
+  "database_override_count": 1,
+  "credential_encryption_configured": true,
+  "systemd_managed": false
+}
+```
+
+`source` 可能为 `database`、`env` 或 `default`。敏感项只返回是否已配置,`value` 不返回明文。
+
+#### 保存分组设置
+
+```http
+PUT /api/system-settings/groups/{group_key}
+Content-Type: application/json
+```
+
+请求体:
+
+```json
+{
+  "values": {
+    "REMOTE_GATEWAY_HOST": "124.70.177.226",
+    "SSH_TIMEOUT_SECONDS": 30
+  }
+}
+```
+
+响应 `200`:`SystemSettingGroupUpdateResponse`。
+
+错误:
+
+- `400`:分组不存在、key 不属于该分组、配置项不可编辑、敏感配置未配置加密密钥或取值非法。
+- `403`:非管理员。
+
+保存可运行时生效的配置后,当前后端进程会刷新内存缓存。保存 `requires_restart=true` 的配置会标记待重启,重启后才作为有效配置参与运行。
+
+#### 恢复默认值
+
+```http
+POST /api/system-settings/{key}/reset
+```
+
+响应 `200`:
+
+```json
+{
+  "key": "REMOTE_GATEWAY_HOST",
+  "source": "system",
+  "requires_restart": false,
+  "pending_restart_count": 0
+}
+```
+
+该接口删除数据库覆盖值,使配置回退到系统配置/环境变量或代码默认值。
+
+#### 变更历史
+
+```http
+GET /api/system-settings/changes?limit=50&offset=0
+```
+
+响应 `200`:
+
+```json
+{
+  "total": 1,
+  "items": [
+    {
+      "id": 1,
+      "setting_key": "REMOTE_GATEWAY_HOST",
+      "category": "remote_connection",
+      "action": "update",
+      "old_source": "default",
+      "new_source": "database",
+      "old_value_snapshot": "-",
+      "new_value_snapshot": "124.70.177.226",
+      "is_secret": false,
+      "requires_restart": false,
+      "pending_restart_after_change": false,
+      "actor_user_id": 1,
+      "actor_username": "admin",
+      "client_ip": "127.0.0.1",
+      "created_at": "2026-06-10T10:00:00"
+    }
+  ]
+}
+```
+
+敏感配置的 `old_value_snapshot` 和 `new_value_snapshot` 只保存脱敏文本。
+
+#### 重启后端服务
+
+```http
+POST /api/system-settings/restart
+Content-Type: application/json
+```
+
+请求体:
+
+```json
+{
+  "confirm_text": "确认重启"
+}
+```
+
+成功响应 `202`:
+
+```json
+{
+  "status": "accepted",
+  "message": "已提交重启请求，服务将由 systemd 自动拉起"
+}
+```
+
+错误:
+
+- `400`:确认文本不正确。
+- `409`:后端未检测到 systemd 托管,拒绝退出进程。
+
 ## 认证接口
 
 ### 登录

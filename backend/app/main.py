@@ -16,17 +16,20 @@ from app.routers.logs import router as logs_router
 from app.routers.monitoring import router as monitoring_router
 from app.routers.scheduler import router as scheduler_router
 from app.routers.scheduled_tasks import router as scheduled_tasks_router
+from app.routers.system_settings import router as system_settings_router
 from app.routers.update_task_templates import router as update_task_templates_router
 from app.routers.update_tasks import router as update_tasks_router
 from app.routers.users import router as users_router
+from app.services.system_settings import SystemSettingService
 from app.websockets.devices import router as device_ws_router
 from app.websockets.update_tasks import router as update_task_ws_router
 from app.services.scheduler_service import SchedulerService
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    settings = settings or get_settings()
-    init_db(settings)
+    base_settings = settings or get_settings()
+    init_db(base_settings)
+    settings = SystemSettingService(base_settings).load_effective_settings(clear_pending=True)
     scheduler_service = SchedulerService(settings)
 
     @asynccontextmanager
@@ -36,6 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scheduler_service.shutdown()
 
     app = FastAPI(title="Edge Platform", version=settings.version, lifespan=lifespan)
+    app.state.base_settings = base_settings
     app.state.settings = settings
     app.state.scheduler_service = scheduler_service
 
@@ -68,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(monitoring_router, prefix=settings.api_prefix)
     app.include_router(scheduled_tasks_router, prefix=settings.api_prefix)
     app.include_router(scheduler_router, prefix=settings.api_prefix)
+    app.include_router(system_settings_router, prefix=settings.api_prefix)
     app.include_router(device_ws_router, prefix=settings.api_prefix)
     app.include_router(update_task_ws_router, prefix=settings.api_prefix)
     return app

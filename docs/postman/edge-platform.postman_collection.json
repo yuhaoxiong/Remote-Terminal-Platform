@@ -2148,6 +2148,207 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Wave 23 系统设置",
+      "item": [
+        {
+          "name": "获取系统设置注册表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/system-settings/schema"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"系统设置注册表可读取\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const data = pm.response.json();",
+                  "  pm.expect(data.groups).to.have.property(\"remote_connection\");",
+                  "  pm.expect(data.items.some((item) => item.key === \"SSH_TIMEOUT_SECONDS\")).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "获取当前有效系统设置",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/system-settings/effective"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"有效设置包含摘要\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const data = pm.response.json();",
+                  "  pm.expect(data).to.have.property(\"pending_restart_count\");",
+                  "  pm.expect(data).to.have.property(\"database_override_count\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "保存远程连接分组设置",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/system-settings/groups/remote_connection",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"values\": {\n    \"SSH_TIMEOUT_SECONDS\": 30\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"保存远程连接设置成功\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const data = pm.response.json();",
+                  "  pm.expect(data.group).to.eql(\"remote_connection\");",
+                  "  pm.expect(data.updated_keys).to.include(\"SSH_TIMEOUT_SECONDS\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "恢复 SSH 超时默认值",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/system-settings/SSH_TIMEOUT_SECONDS/reset"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"恢复默认值成功\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().key).to.eql(\"SSH_TIMEOUT_SECONDS\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查看系统设置变更历史",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/system-settings/changes?limit=20&offset=0"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"变更历史可读取\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const data = pm.response.json();",
+                  "  pm.expect(data).to.have.property(\"total\");",
+                  "  pm.expect(data).to.have.property(\"items\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "错误确认文本重启应被拒绝",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/system-settings/restart",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"confirm_text\": \"不要重启\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"错误确认文本不会触发重启\", function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "运维访问系统设置应被拒绝",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{operator_access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/system-settings/effective",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"运维账号无系统设置权限\", function () {",
+                  "  pm.response.to.have.status(403);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

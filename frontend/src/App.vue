@@ -9,6 +9,7 @@ import {
   Plus,
   Refresh,
   Search,
+  Setting,
   UserFilled,
   VideoPlay,
   WarningFilled,
@@ -83,11 +84,12 @@ import LayoutShell from "./components/LayoutShell.vue";
 import MetricCard from "./components/MetricCard.vue";
 import OperationLogDetailDrawer from "./components/OperationLogDetailDrawer.vue";
 import ScheduledTaskPanel from "./components/ScheduledTaskPanel.vue";
+import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
 import UserManagementPanel from "./components/UserManagementPanel.vue";
 import UpdateTaskResultTable from "./components/UpdateTaskResultTable.vue";
 import UpdateTaskTemplatePanel from "./components/UpdateTaskTemplatePanel.vue";
 
-type SectionId = "dashboard" | "devices" | "groups" | "remote" | "files" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics";
+type SectionId = "dashboard" | "devices" | "groups" | "remote" | "files" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics" | "settings";
 type DeviceStatus = "online" | "offline" | "degraded" | "unknown";
 type UpdateStatus = "pending" | "running" | "completed" | "canceled" | "partial_failed";
 type ExecutionMode = "dry_run" | "ssh_command";
@@ -194,6 +196,7 @@ const navItems: Array<{ id: SectionId; label: string; icon: Component; group: "o
   { id: "scheduled", label: "定时任务", icon: Operation, group: "operations" },
   { id: "alerts", label: "告警中心", icon: WarningFilled, group: "operations" },
   { id: "diagnostics", label: "系统诊断", icon: WarningFilled, group: "governance" },
+  { id: "settings", label: "系统设置", icon: Setting, group: "governance", adminOnly: true },
   { id: "logs", label: "操作日志", icon: Document, group: "governance" },
   { id: "groups", label: "分组管理", icon: Operation, group: "governance" },
   { id: "users", label: "用户管理", icon: UserFilled, group: "governance", adminOnly: true },
@@ -1807,8 +1810,8 @@ async function confirmRealSshTask(command: string, target: string): Promise<bool
 }
 
 function selectSection(section: SectionId) {
-  if (section === "users" && !isAdmin.value) {
-    operationError.value = "当前账号无权限访问用户管理。";
+  if ((section === "users" || section === "settings") && !isAdmin.value) {
+    operationError.value = section === "users" ? "当前账号无权限访问用户管理。" : "当前账号无权限访问系统设置。";
     return;
   }
   activeSection.value = section;
@@ -2613,6 +2616,8 @@ onBeforeUnmount(() => {
 
         <AlertCenterPanel v-if="activeSection === 'alerts'" :can-manage="isAdmin" />
 
+        <SystemSettingsPanel v-if="activeSection === 'settings' && isAdmin" />
+
         <UserManagementPanel v-if="activeSection === 'users' && isAdmin" />
 
         <section v-if="activeSection === 'logs'" class="page-section">
@@ -2740,6 +2745,14 @@ onBeforeUnmount(() => {
                 <p>启用用户 {{ diagnosticsConfig.users.active_count }} / {{ diagnosticsConfig.users.total_count }}</p>
                 <p>管理员 {{ diagnosticsConfig.users.admin_count }} 个，运维 {{ diagnosticsConfig.users.operator_count }} 个</p>
               </DiagnosticCard>
+              <DiagnosticCard
+                title="系统设置"
+                :tone="diagnosticsConfig.system_settings.pending_restart_count ? 'warning' : 'success'"
+                :tag="diagnosticsConfig.system_settings.pending_restart_count ? `待重启 ${diagnosticsConfig.system_settings.pending_restart_count} 项` : '配置已应用'"
+              >
+                <p>数据库覆盖 {{ diagnosticsConfig.system_settings.database_override_count }} 项</p>
+                <p>systemd {{ diagnosticsConfig.system_settings.systemd_managed ? "已检测到" : "未确认" }}</p>
+              </DiagnosticCard>
             </div>
             <el-empty v-else description="暂无诊断数据" />
           </section>
@@ -2838,6 +2851,15 @@ onBeforeUnmount(() => {
             />
             <el-alert
               v-for="warning in diagnosticsConfig.users.warnings"
+              :key="warning"
+              class="validation-alert"
+              type="warning"
+              show-icon
+              :closable="false"
+              :title="warning"
+            />
+            <el-alert
+              v-for="warning in diagnosticsConfig.system_settings.warnings"
               :key="warning"
               class="validation-alert"
               type="warning"

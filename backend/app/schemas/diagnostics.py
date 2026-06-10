@@ -70,6 +70,16 @@ class DiagnosticsUserSummary(BaseModel):
     warnings: list[str] = []
 
 
+class DiagnosticsSystemSettingsSummary(BaseModel):
+    table_available: bool
+    database_override_count: int
+    pending_restart_count: int
+    credential_encryption_configured: bool
+    systemd_managed: bool
+    invalid_override_count: int
+    warnings: list[str] = []
+
+
 class DiagnosticsConfigResponse(BaseModel):
     service_name: str
     version: str
@@ -90,3 +100,4 @@ class DiagnosticsConfigResponse(BaseModel):
     alerts: DiagnosticsAlertSummary
     notifications: DiagnosticsNotificationSummary
     users: DiagnosticsUserSummary
+    system_settings: DiagnosticsSystemSettingsSummary

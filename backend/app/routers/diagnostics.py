@@ -5,6 +5,7 @@ from app.database import session_scope
 from app.dependencies import get_app_settings, get_current_user
 from app.migrations import migration_status
 from app.models.scheduled_task import ScheduledTask, ScheduledTaskRun
+from app.models.system_setting import SystemSetting
 from app.models.user import User
 from app.schemas.diagnostics import (
     DiagnosticsAlertSummary,
@@ -16,12 +17,14 @@ from app.schemas.diagnostics import (
     DiagnosticsSchedulerSummary,
     DiagnosticsSecuritySummary,
     DiagnosticsSshHostKeySummary,
+    DiagnosticsSystemSettingsSummary,
     DiagnosticsUserSummary,
 )
 from app.enums import UserRole
 from app.services.alert_service import AlertService
 from app.services.alert_notification_service import AlertNotificationService
 from app.services.scheduler_service import SchedulerService
+from app.services.system_settings import SystemSettingService, is_systemd_managed
 
 router = APIRouter(prefix="/diagnostics", tags=["diagnostics"])
 
@@ -163,6 +166,45 @@ def _user_summary(settings) -> DiagnosticsUserSummary:
     )
 
 
+def _system_settings_summary(settings) -> DiagnosticsSystemSettingsSummary:
+    warnings: list[str] = []
+    try:
+        with session_scope(settings) as session:
+            service = SystemSettingService(settings)
+            database_override_count = service.database_override_count(session)
+            pending_restart_count = service.pending_restart_count(session)
+            invalid_override_count = (
+                session.scalar(select(func.count(SystemSetting.id)).where(SystemSetting.is_valid.is_(False))) or 0
+            )
+    except Exception as exc:
+        return DiagnosticsSystemSettingsSummary(
+            table_available=False,
+            database_override_count=0,
+            pending_restart_count=0,
+            credential_encryption_configured=bool(settings.credential_encryption_key),
+            systemd_managed=is_systemd_managed(),
+            invalid_override_count=0,
+            warnings=[f"系统设置表不可用：{exc}"],
+        )
+    if pending_restart_count:
+        warnings.append("存在待重启后生效的系统设置")
+    if invalid_override_count:
+        warnings.append("存在无效的数据库系统设置覆盖值")
+    if not settings.credential_encryption_key:
+        warnings.append("未配置凭据加密密钥，系统设置中的敏感配置无法保存")
+    if not is_systemd_managed():
+        warnings.append("当前未检测到 systemd 托管，系统设置重启按钮不可用")
+    return DiagnosticsSystemSettingsSummary(
+        table_available=True,
+        database_override_count=database_override_count,
+        pending_restart_count=pending_restart_count,
+        credential_encryption_configured=bool(settings.credential_encryption_key),
+        systemd_managed=is_systemd_managed(),
+        invalid_override_count=invalid_override_count,
+        warnings=warnings,
+    )
+
+
 @router.get("/config", response_model=DiagnosticsConfigResponse)
 def get_diagnostics_config(
     request: Request,
@@ -196,4 +238,5 @@ def get_diagnostics_config(
         alerts=_alert_summary(settings),
         notifications=_notification_summary(settings),
         users=_user_summary(settings),
+        system_settings=_system_settings_summary(settings),
     )
