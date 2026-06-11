@@ -75,6 +75,7 @@ import {
 } from "./api/platform";
 import { fetchHealth } from "./api/health";
 import { useAuthStore } from "./stores/auth";
+import { formatTime } from "./utils/format";
 import AlertCenterPanel from "./components/AlertCenterPanel.vue";
 import AppSidebar from "./components/AppSidebar.vue";
 import AppTopbar from "./components/AppTopbar.vue";
@@ -565,13 +566,6 @@ function groupNameFor(groupId: number | null, sourceGroups = groups.value): stri
     return "未分组";
   }
   return sourceGroups.find((group) => group.id === groupId)?.name ?? `分组 ${groupId}`;
-}
-
-function formatTime(value: string | null): string {
-  if (!value) {
-    return "";
-  }
-  return value.replace("T", " ").slice(0, 16);
 }
 
 function metricPercent(value: number | null): number {

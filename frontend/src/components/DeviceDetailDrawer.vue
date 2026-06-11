@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Close, Connection, Delete, Document, Edit, FolderOpened, VideoPlay } from "@element-plus/icons-vue";
+import { formatTime as formatTimeBase } from "../utils/format";
 
 import StatusBadge from "./StatusBadge.vue";
 
@@ -55,9 +56,7 @@ const statusState = {
   unknown: "info",
 } as const;
 
-function formatTime(value: string | null): string {
-  return value ? value.replace("T", " ").slice(0, 16) : "未上报";
-}
+const formatTime = (value: string | null) => formatTimeBase(value, "未上报");
 
 function metricText(value: number | null): string {
   return value === null ? "暂无" : `${value}%`;
