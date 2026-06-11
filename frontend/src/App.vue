@@ -16,6 +16,7 @@ import {
 } from "@element-plus/icons-vue";
 import { ElMessageBox } from "element-plus";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, type Component } from "vue";
+import { storeToRefs } from "pinia";
 
 import {
   AUTH_EXPIRED_EVENT,
@@ -37,7 +38,7 @@ import {
   getDeviceStatus,
   getDiagnosticsConfig,
   getMonitoringOverview,
-  hasStoredAccessToken,
+
   importFrpsDevices,
   listDevices,
   listDeviceMetrics,
@@ -73,6 +74,7 @@ import {
   type UpdateTaskTemplateRead,
 } from "./api/platform";
 import { fetchHealth } from "./api/health";
+import { useAuthStore } from "./stores/auth";
 import AlertCenterPanel from "./components/AlertCenterPanel.vue";
 import AppSidebar from "./components/AppSidebar.vue";
 import AppTopbar from "./components/AppTopbar.vue";
@@ -202,9 +204,10 @@ const navItems: Array<{ id: SectionId; label: string; icon: Component; group: "o
   { id: "users", label: "用户管理", icon: UserFilled, group: "governance", adminOnly: true },
 ];
 
-const authenticated = ref(hasStoredAccessToken());
+const authStore = useAuthStore();
+const { authenticated, currentUser, isAdmin } = storeToRefs(authStore);
 const activeSection = ref<SectionId>("dashboard");
-const currentUser = ref<CurrentUserResponse | null>(null);
+
 const loginUsername = ref("admin");
 const loginPassword = ref("");
 const loginError = ref("");
@@ -370,7 +373,7 @@ const riskChartRef = ref<HTMLElement | null>(null);
 let statusChart: { setOption: (options: unknown) => void; resize: () => void; dispose: () => void } | null = null;
 let riskChart: { setOption: (options: unknown) => void; resize: () => void; dispose: () => void } | null = null;
 
-const isAdmin = computed(() => currentUser.value?.role === "admin");
+
 const visibleNavItems = computed(() => navItems.filter((item) => !item.adminOnly || isAdmin.value));
 const activeSectionTitle = computed(() => navItems.find((item) => item.id === activeSection.value)?.label ?? "仪表盘");
 const currentRoleLabel = computed(() => (isAdmin.value ? "管理员" : "运维人员"));

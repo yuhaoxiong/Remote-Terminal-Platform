@@ -2,6 +2,7 @@
 import ElementPlus, { ElMessageBox } from "element-plus";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
+import { createPinia } from "pinia";
 
 import App from "../App.vue";
 import * as healthApi from "../api/health";
@@ -10,7 +11,7 @@ import * as platformApi from "../api/platform";
 function mountApp() {
   return mount(App, {
     global: {
-      plugins: [ElementPlus],
+      plugins: [ElementPlus, createPinia()],
       stubs: { teleport: true },
     },
   });
