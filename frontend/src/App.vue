@@ -75,6 +75,7 @@ import {
 } from "./api/platform";
 import { fetchHealth } from "./api/health";
 import { useAuthStore } from "./stores/auth";
+import { useDevicesStore, type Device, type DeviceStatus } from "./stores/devices";
 import { formatTime } from "./utils/format";
 import AlertCenterPanel from "./components/AlertCenterPanel.vue";
 import AppSidebar from "./components/AppSidebar.vue";
@@ -93,32 +94,8 @@ import UpdateTaskResultTable from "./components/UpdateTaskResultTable.vue";
 import UpdateTaskTemplatePanel from "./components/UpdateTaskTemplatePanel.vue";
 
 type SectionId = "dashboard" | "devices" | "groups" | "remote" | "files" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics" | "settings";
-type DeviceStatus = "online" | "offline" | "degraded" | "unknown";
 type UpdateStatus = "pending" | "running" | "completed" | "canceled" | "partial_failed";
 type ExecutionMode = "dry_run" | "ssh_command";
-
-interface Device {
-  id: number;
-  name: string;
-  device_sn: string;
-  project_id: string;
-  group: string;
-  group_id: number | null;
-  location: string;
-  tags: string[];
-  status: DeviceStatus;
-  ssh_port: number | null;
-  vnc_port: number | null;
-  ssh_user: string;
-  ssh_auth_type: string;
-  ssh_credential_configured: boolean;
-  cpu: number | null;
-  memory: number | null;
-  disk: number | null;
-  metricRecordedAt: string | null;
-  metricStale: boolean;
-  metricLoadFailed: boolean;
-}
 
 interface Group {
   id: number;
@@ -207,6 +184,8 @@ const navItems: Array<{ id: SectionId; label: string; icon: Component; group: "o
 
 const authStore = useAuthStore();
 const { authenticated, currentUser, isAdmin } = storeToRefs(authStore);
+const devicesStore = useDevicesStore();
+const { devices, monitoringAvailability } = storeToRefs(devicesStore);
 const activeSection = ref<SectionId>("dashboard");
 
 const loginUsername = ref("admin");
@@ -283,7 +262,6 @@ const frpsForm = reactive({
   overwrite_project_location: false,
 });
 
-const devices = ref<Device[]>([]);
 const groups = ref<Group[]>([]);
 const updateTasks = ref<UpdateTask[]>([]);
 const updateTargetPreview = ref<UpdateTaskTargetPreviewResponse | null>(null);
@@ -475,20 +453,6 @@ const abnormalDevices = computed(() => {
     }
   }
   return items.slice(0, 8);
-});
-
-const monitoringAvailability = computed(() => {
-  const withMetrics = devices.value.filter((device) => device.metricRecordedAt && !device.metricLoadFailed).length;
-  const latestRecordedAt =
-    devices.value
-      .map((device) => device.metricRecordedAt)
-      .filter((value): value is string => Boolean(value))
-      .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null;
-  return {
-    withMetrics,
-    withoutMetrics: Math.max(devices.value.length - withMetrics, 0),
-    latestRecordedAt,
-  };
 });
 
 const statusDistribution = computed(() => {
