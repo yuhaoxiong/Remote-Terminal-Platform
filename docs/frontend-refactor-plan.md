@@ -136,6 +136,13 @@
 
 > 统一节奏：建 `views/XxxView.vue` → 搬运 App.vue 对应 template + 逻辑 → 注册路由 → 删除 App.vue 旧代码 → 迁移对应测试断言。每个 section 独立 commit。
 
+> **分层方案修正（实践得出）**：section 组件化不是机械搬运 template——每个 section 会引用 App.vue 的 helper（如 `formatTime`）与共享 computed（如 `monitoringAvailability`，依赖 `devices`）。若不先提取共享层，会反复踩"依赖遗漏"坑（diagnostics 首次尝试已因此回退）。故先行 **阶段 2a（共享层）**：
+>
+> - **2a-1（已完成 `5a61282`）**：提取 `utils/format.ts`——`formatTime(value, fallback)` + `formatSize`，消除 7 处重复 `formatTime` + 1 处 `formatSize`，各调用方占位文案（暂无/未上报/-）经可选 fallback 原样保留。
+> - **2a-2（已完成 `4645b72`）**：提取 `stores/devices.ts`——设备列表单一数据源 + `Device`/`DeviceStatus` 类型 + `monitoringAvailability`；App.vue 经 `storeToRefs` 取回可写 ref 接入，约 15 处读写零改动。
+>
+> 共享层就位后，再执行下方 T2.1–T2.5（**阶段 2b**）逐个组件化。原 T2.3 中"建 stores/devices.ts"已前移至 2a-2 完成。
+
 #### T2.1 迁移 4 个已组件化 section（零风险练手）
 - **对象**：`alerts / scheduled / settings / users`。
 - **改动**：4 个 Panel 挂为路由视图 + 路由级权限守卫（替代 `v-if="isAdmin"`）。
@@ -186,16 +193,18 @@
 | 任务 | 状态 | commit |
 |------|------|--------|
 | 建立分支 `refactor/frontend-skeleton` | ✅ 完成 | — |
-| 生成本计划文档 | ✅ 完成 | — |
-| T0.1 eslint + prettier 配置 | ⬜ 待执行 | |
-| T0.2 防膨胀红线（warn） | ⬜ 待执行 | |
-| T0.3 最简 CI | ⬜ 待执行 | |
-| T1.1 mountApp 测试 helper | ⬜ 待执行 | |
-| T1.2 App.vue 接入 router-view | ⬜ 待执行 | |
-| T1.3 stores/auth.ts | ⬜ 待执行 | |
+| 生成本计划文档 | ✅ 完成 | `f9c177e` |
+| T0.1 eslint + prettier 配置 | ✅ 完成 | `7b27548` |
+| T0.2 防膨胀红线（warn） | ✅ 完成 | `7b27548` |
+| T0.3 最简 CI | ✅ 完成 | `e0534cc` |
+| T1.1 mountApp 测试 helper | ✅ 完成 | `e055063` |
+| T1.2 App.vue 接入 router-view | ⬜ 待执行（推迟至 Phase 2 收尾，先做共享层与组件化） | |
+| T1.3 stores/auth.ts | ✅ 完成 | `98cdfcb` |
+| 阶段 2a-1 提取 `utils/format.ts`（formatTime/formatSize 去重 7+1 处） | ✅ 完成 | `5a61282` |
+| 阶段 2a-2 提取 `stores/devices.ts`（设备列表 + monitoringAvailability） | ✅ 完成 | `4645b72` |
 | T2.1 迁移已组件化 4 section | ⬜ 待执行 | |
 | T2.2 迁移轻量 4 section | ⬜ 待执行 | |
-| T2.3 迁移 dashboard + updates + stores/devices | ⬜ 待执行 | |
+| T2.3 迁移 dashboard + updates（devices store 已于 2a-2 前移完成） | ⬜ 待执行 | |
 | T2.4 迁移 devices 视图 | ⬜ 待执行 | |
 | T2.5 迁移 remote 视图 | ⬜ 待执行 | |
 | T3.1 删除死代码 Dashboard.vue | ⬜ 待执行 | |
