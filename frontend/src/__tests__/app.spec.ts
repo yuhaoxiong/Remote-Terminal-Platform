@@ -7,6 +7,15 @@ import App from "../App.vue";
 import * as healthApi from "../api/health";
 import * as platformApi from "../api/platform";
 
+function mountApp() {
+  return mount(App, {
+    global: {
+      plugins: [ElementPlus],
+      stubs: { teleport: true },
+    },
+  });
+}
+
 const remoteMocks = vi.hoisted(() => {
   class FakeTerminal {
     cols = 88;
@@ -1272,14 +1281,7 @@ describe("App", () => {
   });
 
   it("validates login before showing the operation surface", async () => {
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     expect(wrapper.text()).toContain("边缘设备管理平台");
     expect(wrapper.text()).toContain("登录");
@@ -1305,14 +1307,7 @@ describe("App", () => {
   });
 
   it("shows user management for admin users and creates an operator", async () => {
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1342,14 +1337,7 @@ describe("App", () => {
   });
 
   it("lets admin manage system settings with restart warnings", async () => {
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1396,14 +1384,7 @@ describe("App", () => {
       role: "operator",
       is_active: true,
     });
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-username"] input').setValue("operator");
     await wrapper.find('[data-testid="login-password"] input').setValue("operator-pass");
@@ -1418,14 +1399,7 @@ describe("App", () => {
 
   it("shows one validation message for incorrect credentials", async () => {
     api.loginAdmin.mockRejectedValueOnce(new Error("bad credentials"));
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("wrong-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1441,14 +1415,7 @@ describe("App", () => {
         response: { status: 500 },
       }),
     );
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1482,14 +1449,7 @@ describe("App", () => {
       created_at: "2026-05-13T00:00:00",
       updated_at: "2026-05-13T00:00:00",
     });
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1520,14 +1480,7 @@ describe("App", () => {
   });
 
   it("imports existing frps proxies into devices", async () => {
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1569,14 +1522,7 @@ describe("App", () => {
         },
       ],
     });
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1603,14 +1549,7 @@ describe("App", () => {
         response: { status: 500 },
       }),
     );
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1623,14 +1562,7 @@ describe("App", () => {
   });
 
   it("changes the admin password and returns to the login page", async () => {
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1651,14 +1583,7 @@ describe("App", () => {
   });
 
   it("returns to the login page when the API reports expired authentication", async () => {
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1691,14 +1616,7 @@ describe("App", () => {
       updated_at: "2026-05-13T00:00:00",
     });
     api.deleteGroup.mockResolvedValueOnce(undefined);
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1760,14 +1678,7 @@ describe("App", () => {
       updated_at: "2026-05-13T00:00:00",
     });
     api.deleteDevice.mockResolvedValueOnce(undefined);
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1804,14 +1715,7 @@ describe("App", () => {
   });
 
   it("shows sync config, filters logs, exports csv, and loads diagnostics", async () => {
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1864,14 +1768,7 @@ describe("App", () => {
   });
 
   it("shows alert center and manages alert rules", async () => {
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1917,14 +1814,7 @@ describe("App", () => {
   });
 
   it("opens SSH and VNC from the selected remote device workspace", async () => {
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -1971,14 +1861,7 @@ describe("App", () => {
         response: { status: 502 },
       }),
     );
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -2032,14 +1915,7 @@ describe("App", () => {
       device_count: 1,
       devices: [],
     });
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -2113,14 +1989,7 @@ describe("App", () => {
         },
       ],
     });
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -2186,14 +2055,7 @@ describe("App", () => {
         },
       ],
     });
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-username"] input').setValue("operator");
     await wrapper.find('[data-testid="login-password"] input').setValue("operator-pass");
@@ -2210,14 +2072,7 @@ describe("App", () => {
   });
 
   it("manages device files from the device operation area", async () => {
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
@@ -2253,14 +2108,7 @@ describe("App", () => {
   });
 
   it("manages scheduled tasks through the dedicated panel", async () => {
-    const wrapper = mount(App, {
-      global: {
-        plugins: [ElementPlus],
-        stubs: {
-          teleport: true,
-        },
-      },
-    });
+    const wrapper = mountApp();
 
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
