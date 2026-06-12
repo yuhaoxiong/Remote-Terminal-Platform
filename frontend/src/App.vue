@@ -169,7 +169,15 @@ const navItems: Array<{ id: SectionId; label: string; icon: Component; group: "o
 const authStore = useAuthStore();
 const { authenticated, currentUser, isAdmin } = storeToRefs(authStore);
 const devicesStore = useDevicesStore();
-const { devices } = storeToRefs(devicesStore);
+const {
+  devices,
+  deviceSearch,
+  selectedGroupId,
+  deviceStatusFilter,
+  deviceProjectFilter,
+  deviceTagFilter,
+  visibleDevices,
+} = storeToRefs(devicesStore);
 const groupsStore = useGroupsStore();
 const { groups } = storeToRefs(groupsStore);
 const logsStore = useLogsStore();
@@ -180,11 +188,6 @@ const activeSection = ref<SectionId>("dashboard");
 const loginUsername = ref("admin");
 const loginPassword = ref("");
 const loginError = ref("");
-const deviceSearch = ref("");
-const selectedGroupId = ref<number | null>(null);
-const deviceStatusFilter = ref<DeviceStatus | "">("");
-const deviceProjectFilter = ref("");
-const deviceTagFilter = ref("");
 const deviceCreateOpen = ref(false);
 const deviceEditId = ref<number | null>(null);
 const deviceDetailOpen = ref(false);
@@ -343,25 +346,6 @@ const visibleNavItems = computed(() => navItems.filter((item) => !item.adminOnly
 const activeSectionTitle = computed(() => navItems.find((item) => item.id === activeSection.value)?.label ?? "仪表盘");
 const currentRoleLabel = computed(() => (isAdmin.value ? "管理员" : "运维人员"));
 const schedulerRunning = computed(() => diagnosticsConfig.value?.scheduler.running ?? null);
-
-const visibleDevices = computed(() => {
-  const keyword = deviceSearch.value.trim().toLowerCase();
-  const projectKeyword = deviceProjectFilter.value.trim().toLowerCase();
-  const tagKeyword = deviceTagFilter.value.trim().toLowerCase();
-  return devices.value.filter((device) => {
-    const matchesGroup = selectedGroupId.value === null || device.group_id === selectedGroupId.value;
-    const matchesStatus = !deviceStatusFilter.value || device.status === deviceStatusFilter.value;
-    const matchesProject = !projectKeyword || device.project_id.toLowerCase().includes(projectKeyword);
-    const matchesTag = !tagKeyword || device.tags.some((tag) => tag.toLowerCase().includes(tagKeyword));
-    const matchesKeyword =
-      !keyword ||
-      [device.name, device.device_sn, device.project_id, device.group, device.tags.join(",")]
-        .join(" ")
-        .toLowerCase()
-        .includes(keyword);
-    return matchesGroup && matchesStatus && matchesProject && matchesTag && matchesKeyword;
-  });
-});
 
 const remoteVisibleDevices = computed(() => {
   const keyword = remoteDeviceSearch.value.trim().toLowerCase();

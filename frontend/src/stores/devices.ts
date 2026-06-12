@@ -38,6 +38,11 @@ export interface Device {
  */
 export const useDevicesStore = defineStore("devices", () => {
   const devices = ref<Device[]>([]);
+  const deviceSearch = ref("");
+  const selectedGroupId = ref<number | null>(null);
+  const deviceStatusFilter = ref<DeviceStatus | "">("");
+  const deviceProjectFilter = ref("");
+  const deviceTagFilter = ref("");
 
   const monitoringAvailability = computed(() => {
     const withMetrics = devices.value.filter((device) => device.metricRecordedAt && !device.metricLoadFailed).length;
@@ -53,5 +58,34 @@ export const useDevicesStore = defineStore("devices", () => {
     };
   });
 
-  return { devices, monitoringAvailability };
+  // 设备列表的综合筛选(关键字 / 分组 / 状态 / 项目 / 标签),设备区与文件区共享同一视图
+  const visibleDevices = computed(() => {
+    const keyword = deviceSearch.value.trim().toLowerCase();
+    const projectKeyword = deviceProjectFilter.value.trim().toLowerCase();
+    const tagKeyword = deviceTagFilter.value.trim().toLowerCase();
+    return devices.value.filter((device) => {
+      const matchesGroup = selectedGroupId.value === null || device.group_id === selectedGroupId.value;
+      const matchesStatus = !deviceStatusFilter.value || device.status === deviceStatusFilter.value;
+      const matchesProject = !projectKeyword || device.project_id.toLowerCase().includes(projectKeyword);
+      const matchesTag = !tagKeyword || device.tags.some((tag) => tag.toLowerCase().includes(tagKeyword));
+      const matchesKeyword =
+        !keyword ||
+        [device.name, device.device_sn, device.project_id, device.group, device.tags.join(",")]
+          .join(" ")
+          .toLowerCase()
+          .includes(keyword);
+      return matchesGroup && matchesStatus && matchesProject && matchesTag && matchesKeyword;
+    });
+  });
+
+  return {
+    devices,
+    deviceSearch,
+    selectedGroupId,
+    deviceStatusFilter,
+    deviceProjectFilter,
+    deviceTagFilter,
+    monitoringAvailability,
+    visibleDevices,
+  };
 });
