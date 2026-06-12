@@ -249,7 +249,6 @@ const syncConfigTitle = ref("");
 const syncConfigText = ref("");
 const remoteSessions = reactive<Record<string, RemoteSessionUi>>({});
 const sshSockets = new Map<number, WebSocket>();
-const updateProgressSockets = new Map<number, WebSocket>();
 const sshTerminals = new Map<number, SshTerminalHandle>();
 const vncClients = new Map<number, VncClient>();
 
@@ -1282,66 +1281,6 @@ function targetSummaryForTask(task: UpdateTask): string {
   return `${targetSummaryForFilter(task.target_filter)}，匹配 ${task.matched} 台`;
 }
 
-function updateTaskFromSnapshot(snapshot: UpdateTaskRead) {
-  const mapped = mapUpdateTask(snapshot);
-  const index = updateTasks.value.findIndex((item) => item.id === mapped.id);
-  if (index >= 0) {
-    updateTasks.value[index] = mapped;
-  } else {
-    updateTasks.value.push(mapped);
-  }
-  if (mapped.status !== "running") {
-    stopUpdateProgress(mapped.id);
-  }
-}
-
-function startUpdateProgress(taskId: number) {
-  if (typeof WebSocket === "undefined") {
-    return;
-  }
-  stopUpdateProgress(taskId);
-  const token = getAccessToken();
-  if (!token) {
-    return;
-  }
-  const websocketUrl = buildApiWebSocketUrl(`/api/ws/update-tasks/${taskId}`, token);
-  const socket = new WebSocket(websocketUrl);
-  updateProgressSockets.set(taskId, socket);
-  socket.onmessage = (event) => {
-    try {
-      const payload = JSON.parse(String(event.data)) as { type?: string; task?: UpdateTaskRead };
-      if (payload.type === "task.snapshot" && payload.task) {
-        updateTaskFromSnapshot(payload.task);
-      }
-    } catch {
-      const task = updateTasks.value.find((item) => item.id === taskId);
-      if (task) {
-        task.lastEvent = "更新任务进度消息解析失败";
-      }
-    }
-  };
-  socket.onerror = () => {
-    const task = updateTasks.value.find((item) => item.id === taskId);
-    if (task && task.status === "running") {
-      task.lastEvent = "实时进度连接异常，仍可刷新任务状态";
-    }
-  };
-  socket.onclose = () => {
-    if (updateProgressSockets.get(taskId) === socket) {
-      updateProgressSockets.delete(taskId);
-    }
-  };
-}
-
-function stopUpdateProgress(taskId: number) {
-  const socket = updateProgressSockets.get(taskId);
-  if (!socket) {
-    return;
-  }
-  updateProgressSockets.delete(taskId);
-  socket.close();
-}
-
 async function saveUpdate() {
   if (!updateForm.name || !updateForm.command) {
     prependLocalLog("更新任务校验", "新任务", "blocked", "任务名称和命令为必填项");
@@ -1396,7 +1335,7 @@ async function executeUpdate(task: UpdateTask) {
   }
   task.status = "running";
   task.lastEvent = "正在请求后端执行";
-  startUpdateProgress(task.id);
+  updatesStore.startUpdateProgress(task.id);
   try {
     const executed = await executeUpdateTask(task.id);
     const mapped = mapUpdateTask(executed);
@@ -1404,12 +1343,12 @@ async function executeUpdate(task: UpdateTask) {
     if (index >= 0) {
       updateTasks.value[index] = mapped;
     }
-    startUpdateProgress(task.id);
+    updatesStore.startUpdateProgress(task.id);
     await refreshLogsAndOverview();
   } catch (error) {
     task.status = "partial_failed";
     task.lastEvent = "后端执行失败";
-    stopUpdateProgress(task.id);
+    updatesStore.stopUpdateProgress(task.id);
     prependLocalLog("执行更新任务", `更新任务：${task.id}`, "blocked", "执行失败，请检查后端任务状态。");
   }
 }
@@ -1431,7 +1370,7 @@ async function cancelUpdate(task: UpdateTask) {
     if (index >= 0) {
       updateTasks.value[index] = mapped;
     }
-    stopUpdateProgress(task.id);
+    updatesStore.stopUpdateProgress(task.id);
     await refreshLogsAndOverview();
   } catch (error) {
     prependLocalLog("取消更新任务", `更新任务：${task.id}`, "blocked", "取消任务失败，请检查后端任务状态。");
@@ -1573,9 +1512,7 @@ onBeforeUnmount(() => {
   for (const deviceId of sshSockets.keys()) {
     disconnectSshSession(deviceId);
   }
-  for (const taskId of updateProgressSockets.keys()) {
-    stopUpdateProgress(taskId);
-  }
+  updatesStore.stopAllProgress();
   for (const deviceId of vncClients.keys()) {
     disconnectVncSession(deviceId, false);
   }

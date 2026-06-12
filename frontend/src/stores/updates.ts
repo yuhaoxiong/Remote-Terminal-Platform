@@ -1,7 +1,7 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 
-import { type UpdateTaskDeviceRead, type UpdateTaskRead } from "../api/platform";
+import { buildApiWebSocketUrl, getAccessToken, type UpdateTaskDeviceRead, type UpdateTaskRead } from "../api/platform";
 
 export type UpdateStatus = "pending" | "running" | "completed" | "canceled" | "partial_failed";
 export type ExecutionMode = "dry_run" | "ssh_command";
@@ -89,5 +89,83 @@ export const useUpdatesStore = defineStore("updates", () => {
   const pendingTaskCount = computed(
     () => updateTasks.value.filter((task) => ["pending", "running"].includes(task.status)).length,
   );
-  return { updateTasks, pendingTaskCount };
+
+  // 每个任务一条 WebSocket 的实时进度连接。连接需跨 section 导航存活(执行任务后切走仍接收进度),
+  // 故由 store 持有(而非随会卸载的视图组件),仅在应用卸载或任务结束时关闭。
+  const progressSockets = new Map<number, WebSocket>();
+
+  function updateTaskFromSnapshot(snapshot: UpdateTaskRead) {
+    const mapped = mapUpdateTask(snapshot);
+    const index = updateTasks.value.findIndex((item) => item.id === mapped.id);
+    if (index >= 0) {
+      updateTasks.value[index] = mapped;
+    } else {
+      updateTasks.value.push(mapped);
+    }
+    if (mapped.status !== "running") {
+      stopUpdateProgress(mapped.id);
+    }
+  }
+
+  function startUpdateProgress(taskId: number) {
+    if (typeof WebSocket === "undefined") {
+      return;
+    }
+    stopUpdateProgress(taskId);
+    const token = getAccessToken();
+    if (!token) {
+      return;
+    }
+    const websocketUrl = buildApiWebSocketUrl(`/api/ws/update-tasks/${taskId}`, token);
+    const socket = new WebSocket(websocketUrl);
+    progressSockets.set(taskId, socket);
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(String(event.data)) as { type?: string; task?: UpdateTaskRead };
+        if (payload.type === "task.snapshot" && payload.task) {
+          updateTaskFromSnapshot(payload.task);
+        }
+      } catch {
+        const task = updateTasks.value.find((item) => item.id === taskId);
+        if (task) {
+          task.lastEvent = "更新任务进度消息解析失败";
+        }
+      }
+    };
+    socket.onerror = () => {
+      const task = updateTasks.value.find((item) => item.id === taskId);
+      if (task && task.status === "running") {
+        task.lastEvent = "实时进度连接异常，仍可刷新任务状态";
+      }
+    };
+    socket.onclose = () => {
+      if (progressSockets.get(taskId) === socket) {
+        progressSockets.delete(taskId);
+      }
+    };
+  }
+
+  function stopUpdateProgress(taskId: number) {
+    const socket = progressSockets.get(taskId);
+    if (!socket) {
+      return;
+    }
+    progressSockets.delete(taskId);
+    socket.close();
+  }
+
+  function stopAllProgress() {
+    for (const taskId of progressSockets.keys()) {
+      stopUpdateProgress(taskId);
+    }
+  }
+
+  return {
+    updateTasks,
+    pendingTaskCount,
+    startUpdateProgress,
+    stopUpdateProgress,
+    updateTaskFromSnapshot,
+    stopAllProgress,
+  };
 });
