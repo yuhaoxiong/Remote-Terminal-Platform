@@ -260,3 +260,47 @@ git log --oneline -6
 ### 下次继续点
 
 UpdatesPanel（前置全齐，配方已验证，体量大需稳扎稳打）。之后是 DevicesPanel / RemoteView / dashboard / logs，最后 Phase 3 切 router + 清理。
+
+---
+
+## 十二、2026-06-12 下午 session 继续战果（16→17 提交）
+
+**本 session 新增 3 个提交**（UpdatesPanel + LogsPanel + 本文档更新），App.vue **再瘦身 114 行**。
+
+| 维度 | 最终状态 |
+|------|----------|
+| **App.vue** | **2876 → 1866 行（−1010 行，−35%）** |
+| **已抽 Panel** | **5 个**：DiagnosticsPanel ① / FilesPanel ② / GroupsPanel ③ / UpdatesPanel ④ / LogsPanel ⑤ |
+| **剩余待抽** | dashboard（114 行，ECharts 图表）→ devices（195 行，最大最复杂）→ remote（147 行，WebSocket 最谨慎）→ Phase 3 |
+
+### 新增提交清单（本 session）
+
+| Commit | 内容 | 类别 |
+|--------|------|------|
+| `a310699` | **UpdatesPanel**（section ④，最大最精细）：115 行模板 + 8 处理函数 + 3 子组件，WS 进度调 store action，App.vue 传 props（confirmRealSshTask/targetSummaryForFilter/targetSummaryForTask） | Phase 2b 组件化 |
+| `3092c1a` | **LogsPanel**（section ⑤，快速干净）：45 行模板 + 4 处理函数，loadLogs 下沉 logs store，按需加载（不再全局 loadPlatformData） | Phase 2b 组件化 |
+
+### UpdatesPanel 关键细节（最大最精细）
+
+- **8 个处理函数**：openUpdateCreate / saveUpdate / executeUpdate / cancelUpdate / openRetryFailedTask / downloadUpdateTaskResults / applyUpdateTemplate / handleUpdateTargetChange / handleUpdateTargetPreview
+- **3 个子组件**：UpdateTaskTemplatePanel / DeviceTargetSelector / UpdateTaskResultTable（从 App.vue 迁移）
+- **共享 helper 作为 props**：confirmRealSshTask / targetSummaryForFilter / targetSummaryForTask（多处共用或非 updates 专属）
+- **WS 进度持久化**：executeUpdate/cancelUpdate 调 updatesStore.startUpdateProgress/stopUpdateProgress（d1f9ead 已将 WS 连接下沉 store）
+
+### LogsPanel 关键细节（最简洁高效）
+
+- **loadLogs 下沉 store**：之前在 App.vue 的 loadLogs 函数（listLogs API + mapLog + 错误处理）完整迁移到 logs store
+- **按需加载**：日志不再在 loadPlatformData 全局加载（减少初始负载），LogsPanel 挂载时按需调用 loadLogs
+- **自包含 filters/pagination**：logFilters / logPagination 本地管理，applyLogFilters/handleLogPageChange 触发 store action
+- **logStatusText 内联**：从 App.vue 移除并内联到 LogsPanel（App.vue dashboard 仍需此映射，故保留一份）
+
+### 推进策略调整：先易后难
+
+原计划：DevicesPanel（最大）→ RemoteView → dashboard → logs  
+**实际执行**：UpdatesPanel（前置完备）→ **logs（最简单 45 行）**→ 下次：dashboard（114 行）→ devices（195 行）→ remote（147 行）
+
+**理由**：logs 最简单快速拿下建立节奏，UpdatesPanel 虽最大但前置已齐（updates store + WS 持久化）可稳扎稳打。之后 dashboard（图表独立）→ devices（最复杂留后）→ remote（WebSocket 最谨慎压轴）。
+
+### 下次继续点（已就绪）
+
+**dashboard（114 行）**：ECharts 图表渲染逻辑独立，提取后可验证图表生命周期（onMounted/onUnmounted）。之后 devices（195 行，最大最复杂，设备 CRUD + 状态刷新 + 凭据管理）→ remote（147 行，SSH/VNC WebSocket 生命周期最谨慎）→ Phase 3（router-view + 删死代码 + 拆 api/platform.ts + max-lines warn→error）。
