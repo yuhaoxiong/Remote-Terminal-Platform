@@ -63,7 +63,6 @@ import {
   type FrpsDiscoveredDevice,
   type FrpsImportRequest,
   type GroupCreateRequest,
-  type GroupRead,
   type GroupUpdateRequest,
   type ListLogsParams,
   type MonitoringOverviewResponse,
@@ -75,7 +74,7 @@ import {
 import { fetchHealth } from "./api/health";
 import { useAuthStore } from "./stores/auth";
 import { useDevicesStore, type Device, type DeviceStatus } from "./stores/devices";
-import { useGroupsStore, type Group } from "./stores/groups";
+import { useGroupsStore, mapGroup, type Group } from "./stores/groups";
 import { useLogsStore, type AuditLog } from "./stores/logs";
 import { formatTime } from "./utils/format";
 import AlertCenterPanel from "./components/AlertCenterPanel.vue";
@@ -182,6 +181,7 @@ const {
 } = storeToRefs(devicesStore);
 const groupsStore = useGroupsStore();
 const { groups } = storeToRefs(groupsStore);
+const { recalculateGroupCounts } = groupsStore;
 const logsStore = useLogsStore();
 const { auditLogs, auditLogsTotal } = storeToRefs(logsStore);
 const { mapLog, prependLocalLog } = logsStore;
@@ -598,16 +598,6 @@ function mapDevice(device: DeviceRead, sourceGroups = groups.value): Device {
   };
 }
 
-function mapGroup(group: GroupRead, sourceDevices = devices.value): Group {
-  return {
-    id: group.id,
-    name: group.name,
-    parent_id: group.parent_id,
-    description: group.description || "暂无描述",
-    deviceCount: sourceDevices.filter((device) => device.group_id === group.id).length,
-  };
-}
-
 function mapUpdateTask(task: UpdateTaskRead): UpdateTask {
   const completed = task.devices.filter((device) => ["success", "completed", "failed", "skipped"].includes(device.status)).length;
   const targetFilter = task.target_filter ?? {};
@@ -637,13 +627,6 @@ function mapUpdateTask(task: UpdateTaskRead): UpdateTask {
 
 function statusTextForTask(status: string): string {
   return updateStatusText[normalizeUpdateStatus(status)] ?? status;
-}
-
-function recalculateGroupCounts() {
-  groups.value = groups.value.map((group) => ({
-    ...group,
-    deviceCount: devices.value.filter((device) => device.group_id === group.id).length,
-  }));
 }
 
 function logQueryParams(): ListLogsParams {
@@ -1177,7 +1160,7 @@ async function saveGroup() {
         description: groupForm.description || undefined,
       };
       const created = await createGroup(payload);
-      groups.value.push(mapGroup(created));
+      groups.value.push(mapGroup(created, devices.value));
     } else {
       const payload: GroupUpdateRequest = {
         name: groupForm.name,
@@ -1187,13 +1170,13 @@ async function saveGroup() {
       const updated = await updateGroup(groupEditId.value, payload);
       const index = groups.value.findIndex((group) => group.id === updated.id);
       if (index >= 0) {
-        groups.value[index] = mapGroup(updated);
+        groups.value[index] = mapGroup(updated, devices.value);
       }
       devices.value = devices.value.map((device) =>
         device.group_id === updated.id ? { ...device, group: updated.name } : device,
       );
     }
-    recalculateGroupCounts();
+    recalculateGroupCounts(devices.value);
     await refreshLogsAndOverview();
     groupFormOpen.value = false;
   } catch (error) {
@@ -1298,7 +1281,7 @@ async function saveDevice() {
         devices.value[index] = mapDevice(updated);
       }
     }
-    recalculateGroupCounts();
+    recalculateGroupCounts(devices.value);
     await refreshLogsAndOverview();
     deviceCreateOpen.value = false;
   } catch (error) {
@@ -1319,7 +1302,7 @@ async function removeDevice(device: Device) {
   try {
     await deleteDevice(device.id);
     devices.value = devices.value.filter((item) => item.id !== device.id);
-    recalculateGroupCounts();
+    recalculateGroupCounts(devices.value);
     await refreshLogsAndOverview();
   } catch (error) {
     prependLocalLog("删除设备", `设备：${device.id}`, "blocked", "删除设备失败，请检查后端返回。");
