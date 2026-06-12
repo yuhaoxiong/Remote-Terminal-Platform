@@ -62,7 +62,6 @@ import {
   type ListLogsParams,
   type MonitoringOverviewResponse,
   type UpdateTaskCreateRequest,
-  type UpdateTaskDeviceRead,
   type UpdateTaskRead,
   type UpdateTaskTemplateRead,
 } from "./api/platform";
@@ -71,6 +70,15 @@ import { useAuthStore } from "./stores/auth";
 import { useDevicesStore, type Device, type DeviceStatus } from "./stores/devices";
 import { useGroupsStore, mapGroup } from "./stores/groups";
 import { useLogsStore, type AuditLog } from "./stores/logs";
+import {
+  useUpdatesStore,
+  mapUpdateTask,
+  updateStatusText,
+  executionModeText,
+  type UpdateStatus,
+  type ExecutionMode,
+  type UpdateTask,
+} from "./stores/updates";
 import { formatTime } from "./utils/format";
 import AlertCenterPanel from "./components/AlertCenterPanel.vue";
 import AppSidebar from "./components/AppSidebar.vue";
@@ -91,25 +99,6 @@ import UpdateTaskResultTable from "./components/UpdateTaskResultTable.vue";
 import UpdateTaskTemplatePanel from "./components/UpdateTaskTemplatePanel.vue";
 
 type SectionId = "dashboard" | "devices" | "groups" | "remote" | "files" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics" | "settings";
-type UpdateStatus = "pending" | "running" | "completed" | "canceled" | "partial_failed";
-type ExecutionMode = "dry_run" | "ssh_command";
-
-interface UpdateTask {
-  id: number;
-  name: string;
-  command: string;
-  target_filter: Record<string, unknown>;
-  project_id: string;
-  execution_mode: ExecutionMode;
-  failure_strategy: "continue" | "pause" | "rollback";
-  concurrency_limit: number;
-  status: UpdateStatus;
-  matched: number;
-  completed: number;
-  lastEvent: string;
-  devices: UpdateTaskDeviceRead[];
-}
-
 type RemoteSessionStatus = "idle" | "connecting" | "ready" | "connected" | "failed" | "disconnected";
 
 interface RemoteSessionUi {
@@ -181,6 +170,8 @@ const { recalculateGroupCounts } = groupsStore;
 const logsStore = useLogsStore();
 const { auditLogs, auditLogsTotal } = storeToRefs(logsStore);
 const { mapLog, prependLocalLog } = logsStore;
+const updatesStore = useUpdatesStore();
+const { updateTasks, pendingTaskCount } = storeToRefs(updatesStore);
 const activeSection = ref<SectionId>("dashboard");
 
 const loginUsername = ref("admin");
@@ -243,7 +234,6 @@ const frpsForm = reactive({
   overwrite_project_location: false,
 });
 
-const updateTasks = ref<UpdateTask[]>([]);
 const updateTargetPreview = ref<UpdateTaskTargetPreviewResponse | null>(null);
 const selectedAuditLog = ref<AuditLog | null>(null);
 const auditLogDetailOpen = ref(false);
@@ -288,25 +278,12 @@ const deviceStatusText: Record<DeviceStatus, string> = {
   unknown: "未知",
 };
 
-const updateStatusText: Record<UpdateStatus, string> = {
-  pending: "待执行",
-  running: "执行中",
-  completed: "已完成",
-  canceled: "已取消",
-  partial_failed: "部分失败",
-};
-
 const logStatusText: Record<string, string> = {
   success: "成功",
   completed: "已完成",
   blocked: "已阻止",
   generated: "已生成",
   ready: "就绪",
-};
-
-const executionModeText: Record<ExecutionMode, string> = {
-  dry_run: "演练模式",
-  ssh_command: "真实 SSH 执行",
 };
 
 const taskDeviceStatusText: Record<string, string> = {
@@ -383,7 +360,6 @@ const overview = computed(() => {
   };
 });
 
-const pendingTaskCount = computed(() => updateTasks.value.filter((task) => ["pending", "running"].includes(task.status)).length);
 
 const abnormalDevices = computed(() => {
   const items: Array<{ key: string; device: Device; type: string; description: string; tagType: "danger" | "warning" | "info" }> = [];
@@ -467,13 +443,6 @@ function normalizeDeviceStatus(status: string): DeviceStatus {
     return status;
   }
   return "unknown";
-}
-
-function normalizeUpdateStatus(status: string): UpdateStatus {
-  if (["pending", "running", "completed", "canceled", "partial_failed"].includes(status)) {
-    return status as UpdateStatus;
-  }
-  return "pending";
 }
 
 function parseTags(value: string): string[] {
@@ -583,37 +552,6 @@ function mapDevice(device: DeviceRead, sourceGroups = groups.value): Device {
     metricStale: false,
     metricLoadFailed: false,
   };
-}
-
-function mapUpdateTask(task: UpdateTaskRead): UpdateTask {
-  const completed = task.devices.filter((device) => ["success", "completed", "failed", "skipped"].includes(device.status)).length;
-  const targetFilter = task.target_filter ?? {};
-  const projectId = typeof targetFilter.project_id === "string" ? targetFilter.project_id : "全部项目";
-  const lastDevice = task.devices.at(-1);
-  return {
-    id: task.id,
-    name: task.name,
-    command: task.command,
-    target_filter: targetFilter,
-    project_id: projectId,
-    execution_mode: task.execution_mode,
-    failure_strategy: task.failure_strategy as "continue" | "pause" | "rollback",
-    concurrency_limit: task.concurrency_limit,
-    status: normalizeUpdateStatus(task.status),
-    matched: task.device_count,
-    completed,
-    lastEvent:
-      lastDevice?.error_message ||
-      lastDevice?.stdout_summary ||
-      lastDevice?.stderr_summary ||
-      lastDevice?.output_summary ||
-      statusTextForTask(task.status),
-    devices: task.devices,
-  };
-}
-
-function statusTextForTask(status: string): string {
-  return updateStatusText[normalizeUpdateStatus(status)] ?? status;
 }
 
 function logQueryParams(): ListLogsParams {
