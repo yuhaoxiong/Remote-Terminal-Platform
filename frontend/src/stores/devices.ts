@@ -43,6 +43,7 @@ export const useDevicesStore = defineStore("devices", () => {
   const deviceStatusFilter = ref<DeviceStatus | "">("");
   const deviceProjectFilter = ref("");
   const deviceTagFilter = ref("");
+  const filePanelDevice = ref<Device | null>(null);
 
   const monitoringAvailability = computed(() => {
     const withMetrics = devices.value.filter((device) => device.metricRecordedAt && !device.metricLoadFailed).length;
@@ -78,6 +79,11 @@ export const useDevicesStore = defineStore("devices", () => {
     });
   });
 
+  // 文件管理当前选中的设备(设备区内联面板与文件区共享)
+  function openFilePanel(device: Device) {
+    filePanelDevice.value = device;
+  }
+
   return {
     devices,
     deviceSearch,
@@ -85,7 +91,9 @@ export const useDevicesStore = defineStore("devices", () => {
     deviceStatusFilter,
     deviceProjectFilter,
     deviceTagFilter,
+    filePanelDevice,
     monitoringAvailability,
     visibleDevices,
+    openFilePanel,
   };
 });
