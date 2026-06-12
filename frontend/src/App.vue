@@ -76,6 +76,7 @@ import {
 import { fetchHealth } from "./api/health";
 import { useAuthStore } from "./stores/auth";
 import { useDevicesStore, type Device, type DeviceStatus } from "./stores/devices";
+import { useGroupsStore, type Group } from "./stores/groups";
 import { formatTime } from "./utils/format";
 import AlertCenterPanel from "./components/AlertCenterPanel.vue";
 import AppSidebar from "./components/AppSidebar.vue";
@@ -96,14 +97,6 @@ import UpdateTaskTemplatePanel from "./components/UpdateTaskTemplatePanel.vue";
 type SectionId = "dashboard" | "devices" | "groups" | "remote" | "files" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics" | "settings";
 type UpdateStatus = "pending" | "running" | "completed" | "canceled" | "partial_failed";
 type ExecutionMode = "dry_run" | "ssh_command";
-
-interface Group {
-  id: number;
-  name: string;
-  parent_id: number | null;
-  description: string;
-  deviceCount: number;
-}
 
 interface UpdateTask {
   id: number;
@@ -186,6 +179,8 @@ const authStore = useAuthStore();
 const { authenticated, currentUser, isAdmin } = storeToRefs(authStore);
 const devicesStore = useDevicesStore();
 const { devices } = storeToRefs(devicesStore);
+const groupsStore = useGroupsStore();
+const { groups } = storeToRefs(groupsStore);
 const activeSection = ref<SectionId>("dashboard");
 
 const loginUsername = ref("admin");
@@ -262,7 +257,6 @@ const frpsForm = reactive({
   overwrite_project_location: false,
 });
 
-const groups = ref<Group[]>([]);
 const updateTasks = ref<UpdateTask[]>([]);
 const updateTargetPreview = ref<UpdateTaskTargetPreviewResponse | null>(null);
 const auditLogs = ref<AuditLog[]>([]);
