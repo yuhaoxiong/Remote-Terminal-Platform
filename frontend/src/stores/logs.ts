@@ -1,7 +1,7 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
 
-import { type OperationLogRead } from "../api/platform";
+import { listLogs, type ListLogsParams, type OperationLogRead } from "../api/platform";
 import { formatTime } from "../utils/format";
 
 /**
@@ -52,5 +52,15 @@ export const useLogsStore = defineStore("logs", () => {
     });
   }
 
-  return { auditLogs, auditLogsTotal, mapLog, prependLocalLog };
+  async function loadLogs(params: ListLogsParams) {
+    try {
+      const response = await listLogs(params);
+      auditLogs.value = response.items.map(mapLog);
+      auditLogsTotal.value = response.total;
+    } catch (error) {
+      prependLocalLog("加载操作日志", "系统", "blocked", "无法加载操作日志，请检查后端服务。");
+    }
+  }
+
+  return { auditLogs, auditLogsTotal, mapLog, prependLocalLog, loadLogs };
 });

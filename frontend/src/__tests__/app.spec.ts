@@ -1300,7 +1300,7 @@ describe("App", () => {
     expect(api.setAuthTokens).toHaveBeenCalledWith("access-token", "refresh-token");
     expect(api.listDevices).toHaveBeenCalled();
     expect(api.listGroups).toHaveBeenCalled();
-    expect(api.listLogs).toHaveBeenCalled();
+    expect(api.listUpdateTasks).toHaveBeenCalled();
     expect(api.listUpdateTasks).toHaveBeenCalled();
     expect(api.getMonitoringOverview).toHaveBeenCalled();
     expect(wrapper.text()).toContain("设备运维");

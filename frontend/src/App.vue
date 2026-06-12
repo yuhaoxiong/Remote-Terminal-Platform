@@ -25,7 +25,6 @@ import {
   clearAuthTokens,
   createDevice,
   deleteDevice,
-  exportLogs,
   getAlertSummary,
   getAccessToken,
   getCurrentUser,
@@ -37,7 +36,6 @@ import {
   listDevices,
   listDeviceMetrics,
   listGroups,
-  listLogs,
   listUpdateTasks,
   loginAdmin,
   openSshSession,
@@ -82,8 +80,8 @@ import FilesPanel from "./components/FilesPanel.vue";
 import GroupsPanel from "./components/GroupsPanel.vue";
 import DiagnosticsPanel from "./components/DiagnosticsPanel.vue";
 import LayoutShell from "./components/LayoutShell.vue";
+import LogsPanel from "./components/LogsPanel.vue";
 import MetricCard from "./components/MetricCard.vue";
-import OperationLogDetailDrawer from "./components/OperationLogDetailDrawer.vue";
 import ScheduledTaskPanel from "./components/ScheduledTaskPanel.vue";
 import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
 import UpdatesPanel from "./components/UpdatesPanel.vue";
@@ -214,8 +212,6 @@ const frpsForm = reactive({
   overwrite_project_location: false,
 });
 
-const selectedAuditLog = ref<AuditLog | null>(null);
-const auditLogDetailOpen = ref(false);
 const frpsImportItems = ref<FrpsDiscoveredDevice[]>([]);
 const serverOverview = ref<MonitoringOverviewResponse | null>(null);
 const alertSummary = ref<AlertSummaryResponse | null>(null);
@@ -230,17 +226,6 @@ const remoteSessions = reactive<Record<string, RemoteSessionUi>>({});
 const sshSockets = new Map<number, WebSocket>();
 const sshTerminals = new Map<number, SshTerminalHandle>();
 const vncClients = new Map<number, VncClient>();
-
-const logFilters = reactive({
-  action: "",
-  target_type: "",
-  status: "",
-});
-
-const logPagination = reactive({
-  offset: 0,
-  limit: 50,
-});
 
 const statusType: Record<DeviceStatus, "success" | "warning" | "danger" | "info"> = {
   online: "success",
@@ -525,16 +510,6 @@ function mapDevice(device: DeviceRead, sourceGroups = groups.value): Device {
     metricRecordedAt: null,
     metricStale: false,
     metricLoadFailed: false,
-  };
-}
-
-function logQueryParams(): ListLogsParams {
-  return {
-    offset: logPagination.offset,
-    limit: logPagination.limit,
-    action: logFilters.action || undefined,
-    target_type: logFilters.target_type || undefined,
-    status: logFilters.status || undefined,
   };
 }
 
@@ -888,11 +863,10 @@ async function loadPlatformData() {
   loading.value = true;
   operationError.value = "";
   try {
-    const [userResponse, groupResponse, deviceResponse, logResponse, updateResponse, overviewResponse, alertSummaryResponse] = await Promise.all([
+    const [userResponse, groupResponse, deviceResponse, updateResponse, overviewResponse, alertSummaryResponse] = await Promise.all([
       getCurrentUser(),
       listGroups(),
       listDevices(),
-      listLogs(logQueryParams()),
       listUpdateTasks(),
       getMonitoringOverview(),
       getAlertSummary(),
@@ -902,8 +876,6 @@ async function loadPlatformData() {
     const mappedDevices = deviceResponse.items.map((device) => mapDevice(device, mappedGroups));
     devices.value = await attachLatestMetrics(mappedDevices);
     groups.value = groupResponse.items.map((group) => mapGroup(group, devices.value));
-    auditLogs.value = logResponse.items.map(mapLog);
-    auditLogsTotal.value = logResponse.total;
     updateTasks.value = updateResponse.items.map(mapUpdateTask);
     serverOverview.value = overviewResponse;
     alertSummary.value = alertSummaryResponse;
@@ -926,21 +898,12 @@ async function loadPlatformData() {
 }
 
 async function refreshLogsAndOverview() {
-  const [logResponse, overviewResponse, alertSummaryResponse] = await Promise.all([
-    listLogs(logQueryParams()),
+  const [overviewResponse, alertSummaryResponse] = await Promise.all([
     getMonitoringOverview(),
     getAlertSummary(),
   ]);
-  auditLogs.value = logResponse.items.map(mapLog);
-  auditLogsTotal.value = logResponse.total;
   serverOverview.value = overviewResponse;
   alertSummary.value = alertSummaryResponse;
-}
-
-async function loadLogs() {
-  const logResponse = await listLogs(logQueryParams());
-  auditLogs.value = logResponse.items.map(mapLog);
-  auditLogsTotal.value = logResponse.total;
 }
 
 async function login() {
@@ -1218,39 +1181,6 @@ function targetSummaryForFilter(targetFilter: Record<string, unknown>): string {
 
 function targetSummaryForTask(task: UpdateTask): string {
   return `${targetSummaryForFilter(task.target_filter)}，匹配 ${task.matched} 台`;
-}
-
-async function applyLogFilters() {
-  logPagination.offset = 0;
-  await loadLogs();
-}
-
-async function handleLogPageChange(page: number) {
-  logPagination.offset = (page - 1) * logPagination.limit;
-  await loadLogs();
-}
-
-async function downloadLogs() {
-  try {
-    const blob = await exportLogs({
-      action: logFilters.action || undefined,
-      target_type: logFilters.target_type || undefined,
-      status: logFilters.status || undefined,
-    });
-    const url = window.URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "operation_logs.csv";
-    anchor.click();
-    window.URL.revokeObjectURL(url);
-  } catch {
-    prependLocalLog("导出操作日志", "操作日志", "blocked", "导出 CSV 失败，请检查后端服务。");
-  }
-}
-
-function openAuditLogDetail(log: AuditLog) {
-  selectedAuditLog.value = log;
-  auditLogDetailOpen.value = true;
 }
 
 async function loadDiagnosticsConfig() {
@@ -1924,51 +1854,7 @@ onBeforeUnmount(() => {
 
         <UserManagementPanel v-if="activeSection === 'users' && isAdmin" />
 
-        <section v-if="activeSection === 'logs'" class="page-section">
-          <div class="toolbar">
-            <h3>操作日志</h3>
-            <el-button data-testid="export-logs" :icon="Document" @click="downloadLogs">导出 CSV</el-button>
-          </div>
-          <div class="form-panel">
-            <div class="form-grid">
-              <div data-testid="log-action" class="input-wrap"><el-input v-model="logFilters.action" placeholder="操作，例如 device.create" /></div>
-              <div data-testid="log-target-type" class="input-wrap"><el-input v-model="logFilters.target_type" placeholder="目标类型，例如 device" /></div>
-              <div data-testid="log-status" class="input-wrap"><el-input v-model="logFilters.status" placeholder="状态，例如 success" /></div>
-            </div>
-            <div class="form-actions">
-              <el-button data-testid="apply-log-filters" type="primary" @click="applyLogFilters">筛选</el-button>
-            </div>
-          </div>
-          <div class="table-panel">
-            <el-table :data="auditLogs" row-key="id" empty-text="暂无日志">
-              <el-table-column prop="created_at" label="时间" width="160" />
-              <el-table-column prop="action" label="操作" min-width="150" />
-              <el-table-column prop="target" label="目标" min-width="130" />
-              <el-table-column label="状态" width="110">
-                <template #default="{ row }">
-                  <el-tag :type="row.status === 'blocked' ? 'warning' : 'success'">{{ logStatusText[row.status] ?? row.status }}</el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column prop="detail" label="详情" min-width="220" />
-              <el-table-column label="操作" width="100" fixed="right">
-                <template #default="{ row }">
-                  <el-button :data-testid="`open-log-detail-${row.id}`" size="small" text @click="openAuditLogDetail(row)">详情</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-          <el-pagination
-            layout="prev, pager, next, total"
-            :total="auditLogsTotal"
-            :page-size="logPagination.limit"
-            :current-page="Math.floor(logPagination.offset / logPagination.limit) + 1"
-            @current-change="handleLogPageChange"
-          />
-          <OperationLogDetailDrawer v-model="auditLogDetailOpen" :log="selectedAuditLog" />
-          <span v-if="auditLogDetailOpen && selectedAuditLog" data-testid="selected-log-detail" class="visually-hidden">
-            操作详情 {{ selectedAuditLog.detail }}
-          </span>
-        </section>
+        <LogsPanel v-if="activeSection === 'logs'" />
 
         <DiagnosticsPanel
           v-if="activeSection === 'diagnostics'"
