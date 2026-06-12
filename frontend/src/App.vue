@@ -67,7 +67,6 @@ import {
   type GroupUpdateRequest,
   type ListLogsParams,
   type MonitoringOverviewResponse,
-  type OperationLogRead,
   type UpdateTaskCreateRequest,
   type UpdateTaskDeviceRead,
   type UpdateTaskRead,
@@ -77,6 +76,7 @@ import { fetchHealth } from "./api/health";
 import { useAuthStore } from "./stores/auth";
 import { useDevicesStore, type Device, type DeviceStatus } from "./stores/devices";
 import { useGroupsStore, type Group } from "./stores/groups";
+import { useLogsStore, type AuditLog } from "./stores/logs";
 import { formatTime } from "./utils/format";
 import AlertCenterPanel from "./components/AlertCenterPanel.vue";
 import AppSidebar from "./components/AppSidebar.vue";
@@ -112,15 +112,6 @@ interface UpdateTask {
   completed: number;
   lastEvent: string;
   devices: UpdateTaskDeviceRead[];
-}
-
-interface AuditLog {
-  id: number;
-  action: string;
-  target: string;
-  status: string;
-  detail: string;
-  created_at: string;
 }
 
 type RemoteSessionStatus = "idle" | "connecting" | "ready" | "connected" | "failed" | "disconnected";
@@ -181,6 +172,9 @@ const devicesStore = useDevicesStore();
 const { devices } = storeToRefs(devicesStore);
 const groupsStore = useGroupsStore();
 const { groups } = storeToRefs(groupsStore);
+const logsStore = useLogsStore();
+const { auditLogs, auditLogsTotal } = storeToRefs(logsStore);
+const { mapLog, prependLocalLog } = logsStore;
 const activeSection = ref<SectionId>("dashboard");
 
 const loginUsername = ref("admin");
@@ -259,10 +253,8 @@ const frpsForm = reactive({
 
 const updateTasks = ref<UpdateTask[]>([]);
 const updateTargetPreview = ref<UpdateTaskTargetPreviewResponse | null>(null);
-const auditLogs = ref<AuditLog[]>([]);
 const selectedAuditLog = ref<AuditLog | null>(null);
 const auditLogDetailOpen = ref(false);
-const auditLogsTotal = ref(0);
 const frpsImportItems = ref<FrpsDiscoveredDevice[]>([]);
 const serverOverview = ref<MonitoringOverviewResponse | null>(null);
 const alertSummary = ref<AlertSummaryResponse | null>(null);
@@ -658,18 +650,6 @@ function mapUpdateTask(task: UpdateTaskRead): UpdateTask {
   };
 }
 
-function mapLog(log: OperationLogRead): AuditLog {
-  const target = log.target_type && log.target_id !== null ? `${log.target_type}:${log.target_id}` : log.target_type || "-";
-  return {
-    id: log.id,
-    action: log.action,
-    target,
-    status: log.status,
-    detail: log.detail || "",
-    created_at: formatTime(log.created_at),
-  };
-}
-
 function statusTextForTask(status: string): string {
   return updateStatusText[normalizeUpdateStatus(status)] ?? status;
 }
@@ -679,17 +659,6 @@ function recalculateGroupCounts() {
     ...group,
     deviceCount: devices.value.filter((device) => device.group_id === group.id).length,
   }));
-}
-
-function prependLocalLog(action: string, target: string, status: string, detail: string) {
-  auditLogs.value.unshift({
-    id: Date.now(),
-    action,
-    target,
-    status,
-    detail,
-    created_at: new Date().toLocaleString("sv-SE").slice(0, 16),
-  });
 }
 
 function logQueryParams(): ListLogsParams {
