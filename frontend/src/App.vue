@@ -25,9 +25,7 @@ import {
   changePassword,
   clearAuthTokens,
   createDevice,
-  createGroup,
   createUpdateTask,
-  deleteGroup,
   deleteDevice,
   executeUpdateTask,
   exportLogs,
@@ -52,7 +50,6 @@ import {
   setAuthTokens,
   syncDeviceConfig,
   updateDevice,
-  updateGroup,
   type AlertSummaryResponse,
   type CurrentUserResponse,
   type DiagnosticsConfigResponse,
@@ -62,8 +59,6 @@ import {
   type DeviceUpdateRequest,
   type FrpsDiscoveredDevice,
   type FrpsImportRequest,
-  type GroupCreateRequest,
-  type GroupUpdateRequest,
   type ListLogsParams,
   type MonitoringOverviewResponse,
   type UpdateTaskCreateRequest,
@@ -74,7 +69,7 @@ import {
 import { fetchHealth } from "./api/health";
 import { useAuthStore } from "./stores/auth";
 import { useDevicesStore, type Device, type DeviceStatus } from "./stores/devices";
-import { useGroupsStore, mapGroup, type Group } from "./stores/groups";
+import { useGroupsStore, mapGroup } from "./stores/groups";
 import { useLogsStore, type AuditLog } from "./stores/logs";
 import { formatTime } from "./utils/format";
 import AlertCenterPanel from "./components/AlertCenterPanel.vue";
@@ -83,6 +78,7 @@ import AppTopbar from "./components/AppTopbar.vue";
 import DeviceDetailDrawer from "./components/DeviceDetailDrawer.vue";
 import DeviceFilePanel from "./components/DeviceFilePanel.vue";
 import FilesPanel from "./components/FilesPanel.vue";
+import GroupsPanel from "./components/GroupsPanel.vue";
 import DeviceTargetSelector from "./components/DeviceTargetSelector.vue";
 import DiagnosticsPanel from "./components/DiagnosticsPanel.vue";
 import LayoutShell from "./components/LayoutShell.vue";
@@ -199,8 +195,6 @@ const frpsImporting = ref(false);
 const frpsImportResult = ref("");
 const updateCreateOpen = ref(false);
 const passwordChangeOpen = ref(false);
-const groupFormOpen = ref(false);
-const groupEditId = ref<number | null>(null);
 const loading = ref(false);
 const operationError = ref("");
 const remoteDeviceSearch = ref("");
@@ -224,12 +218,6 @@ const passwordForm = reactive({
   old_password: "",
   new_password: "",
   confirm_password: "",
-});
-
-const groupForm = reactive({
-  name: "",
-  parent_id: null as number | null,
-  description: "",
 });
 
 const updateForm = reactive({
@@ -370,7 +358,6 @@ const selectedVncSession = computed(() =>
 );
 
 const deviceFormTitle = computed(() => (deviceEditId.value === null ? "创建设备" : "编辑设备"));
-const groupFormTitle = computed(() => (groupEditId.value === null ? "创建分组" : "编辑分组"));
 const selectedGroupName = computed(() => groupNameFor(selectedGroupId.value));
 const updateInitialDeviceIds = computed(() => {
   const deviceIds = updateForm.target_filter.device_ids;
@@ -1124,88 +1111,6 @@ async function savePasswordChange() {
     logout();
   } catch (error) {
     prependLocalLog("修改密码", "管理员账户", "blocked", "修改失败，请检查原密码是否正确");
-  }
-}
-
-function openGroupCreate() {
-  groupEditId.value = null;
-  Object.assign(groupForm, {
-    name: "",
-    parent_id: null,
-    description: "",
-  });
-  groupFormOpen.value = true;
-}
-
-function openGroupEdit(group: Group) {
-  groupEditId.value = group.id;
-  Object.assign(groupForm, {
-    name: group.name,
-    parent_id: group.parent_id,
-    description: group.description === "暂无描述" ? "" : group.description,
-  });
-  groupFormOpen.value = true;
-}
-
-async function saveGroup() {
-  if (!groupForm.name) {
-    prependLocalLog("分组校验", "分组", "blocked", "分组名称为必填项");
-    return;
-  }
-  try {
-    if (groupEditId.value === null) {
-      const payload: GroupCreateRequest = {
-        name: groupForm.name,
-        parent_id: groupForm.parent_id,
-        description: groupForm.description || undefined,
-      };
-      const created = await createGroup(payload);
-      groups.value.push(mapGroup(created, devices.value));
-    } else {
-      const payload: GroupUpdateRequest = {
-        name: groupForm.name,
-        parent_id: groupForm.parent_id,
-        description: groupForm.description || undefined,
-      };
-      const updated = await updateGroup(groupEditId.value, payload);
-      const index = groups.value.findIndex((group) => group.id === updated.id);
-      if (index >= 0) {
-        groups.value[index] = mapGroup(updated, devices.value);
-      }
-      devices.value = devices.value.map((device) =>
-        device.group_id === updated.id ? { ...device, group: updated.name } : device,
-      );
-    }
-    recalculateGroupCounts(devices.value);
-    await refreshLogsAndOverview();
-    groupFormOpen.value = false;
-  } catch (error) {
-    prependLocalLog(groupEditId.value === null ? "创建分组" : "编辑分组", "分组", "blocked", "保存分组失败，请检查后端返回。");
-  }
-}
-
-async function removeGroup(group: Group) {
-  try {
-    await ElMessageBox.confirm(`确定删除分组 ${group.name}？`, "删除分组", {
-      type: "warning",
-      confirmButtonText: "删除",
-      cancelButtonText: "取消",
-    });
-  } catch {
-    return;
-  }
-  try {
-    await deleteGroup(group.id);
-    groups.value = groups.value.filter((item) => item.id !== group.id);
-    if (selectedGroupId.value === group.id) {
-      selectedGroupId.value = null;
-    }
-    devices.value = devices.value.map((device) =>
-      device.group_id === group.id ? { ...device, group_id: null, group: "未分组" } : device,
-    );
-    await refreshLogsAndOverview();
-  } catch (error) {
-    prependLocalLog("删除分组", `分组：${group.id}`, "blocked", "删除分组失败，请检查后端返回。");
   }
 }
 
@@ -2166,52 +2071,11 @@ onBeforeUnmount(() => {
           @refresh="loadPlatformData"
         />
 
-        <section v-if="activeSection === 'groups'" class="page-section">
-          <div class="toolbar">
-            <div>
-              <h3>分组管理</h3>
-              <p class="muted">维护设备分组，并快速按分组进入设备列表。</p>
-            </div>
-            <el-button data-testid="open-group-create" type="primary" :icon="Plus" @click="openGroupCreate">新建分组</el-button>
-          </div>
-
-          <section v-if="groupFormOpen" class="form-panel" :aria-label="groupFormTitle">
-            <div class="panel-header">
-              <h3>{{ groupFormTitle }}</h3>
-              <el-button text @click="groupFormOpen = false">关闭</el-button>
-            </div>
-            <div class="form-grid">
-              <div data-testid="group-name" class="input-wrap"><el-input v-model="groupForm.name" placeholder="分组名称" /></div>
-              <el-select v-model="groupForm.parent_id" placeholder="上级分组" clearable>
-                <el-option
-                  v-for="group in groups.filter((item) => item.id !== groupEditId)"
-                  :key="group.id"
-                  :label="group.name"
-                  :value="group.id"
-                />
-              </el-select>
-              <div data-testid="group-description" class="input-wrap textarea-wrap">
-                <el-input v-model="groupForm.description" type="textarea" :rows="3" placeholder="分组描述" />
-              </div>
-            </div>
-            <div class="form-actions">
-              <el-button data-testid="save-group" type="primary" @click="saveGroup">保存分组</el-button>
-            </div>
-          </section>
-
-          <div class="list-grid">
-            <div v-for="group in groups" :key="group.id" class="item-card">
-              <h3>{{ group.name }}</h3>
-              <p>{{ group.description }}</p>
-              <el-tag>{{ group.deviceCount }} 台设备</el-tag>
-              <div class="form-actions">
-                <el-button :data-testid="`filter-group-${group.id}`" size="small" @click="selectGroup(group.id)">查看设备</el-button>
-                <el-button :data-testid="`edit-group-${group.id}`" size="small" @click="openGroupEdit(group)">编辑</el-button>
-                <el-button :data-testid="`delete-group-${group.id}`" size="small" type="danger" @click="removeGroup(group)">删除</el-button>
-              </div>
-            </div>
-          </div>
-        </section>
+        <GroupsPanel
+          v-if="activeSection === 'groups'"
+          @changed="refreshLogsAndOverview"
+          @view-devices="selectGroup"
+        />
 
         <section v-if="activeSection === 'remote'" class="page-section">
           <div class="remote-workspace">
