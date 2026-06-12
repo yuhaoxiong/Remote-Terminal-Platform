@@ -1,4 +1,5 @@
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
@@ -55,6 +56,13 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    # sqlite 相对路径(如 CI、全新部署、克隆)下父目录可能不存在,
+    # alembic 自建 engine 绕过了 database.py 的建目录保护,故在此补齐。
+    url = config.get_main_option("sqlalchemy.url")
+    if url and url.startswith("sqlite:///"):
+        db_path = Path(url.replace("sqlite:///", "", 1))
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
