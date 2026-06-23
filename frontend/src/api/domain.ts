@@ -1,6 +1,7 @@
-import { api, ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, AUTH_EXPIRED_EVENT, buildApiWebSocketUrl } from "./core";
+import { api, ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, AUTH_EXPIRED_EVENT, buildApiWebSocketUrl, type TokenResponse } from "./core";
 
-old_password: string;
+export interface PasswordChangeRequest {
+  old_password: string;
   new_password: string;
 }
 
