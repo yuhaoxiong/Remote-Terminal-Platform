@@ -30,3 +30,13 @@ export function formatSize(size: number): string {
   }
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
+
+/**
+ * 按逗号分隔字符串为标签数组。
+ */
+export function parseTags(value: string): string[] {
+  return value
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
