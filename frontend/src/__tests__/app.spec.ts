@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import { createPinia } from "pinia";
 import { createRouter, createMemoryHistory } from "vue-router";
+import { TEST_ROUTES } from "../router/test-routes";
 
 import App from "../App.vue";
 import * as healthApi from "../api/health";
@@ -12,7 +13,7 @@ import * as platformApi from "../api/platform";
 async function mountApp() {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: "/:pathMatch(.*)*", component: { template: "<div></div>" } }],
+    routes: TEST_ROUTES,
   });
   router.push("/");
   await router.isReady();
