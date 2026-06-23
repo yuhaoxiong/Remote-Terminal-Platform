@@ -16,6 +16,20 @@ export interface Group {
 }
 
 /**
+ * 在后端 GroupRead -> 前端 Group 的映射中,以及目标筛选展示中
+ * 按 group_id 查找分组名称。若未找到则返回 "未分组" 或 "分组 ${id}"。
+ */
+export function groupNameFor(
+  groupId: number | null,
+  sourceGroups: Array<{ id: number; name: string }> = [],
+): string {
+  if (groupId === null) {
+    return "未分组";
+  }
+  return sourceGroups.find((group) => group.id === groupId)?.name ?? `分组 ${groupId}`;
+}
+
+/**
  * 后端 GroupRead -> 前端 Group。deviceCount 依据传入的设备列表实时算出。
  */
 export function mapGroup(group: GroupRead, devices: Device[]): Group {

@@ -7,6 +7,7 @@ import {
   type DeviceRead,
   type UpdateTaskDeviceRead,
 } from "../api/platform";
+import { groupNameFor } from "./groups";
 
 export type DeviceStatus = "online" | "offline" | "degraded" | "unknown";
 
@@ -18,6 +19,38 @@ export function normalizeDeviceStatus(status: string): DeviceStatus {
     return status;
   }
   return "unknown";
+}
+
+/**
+ * 后端 DeviceRead -> 前端 Device。
+ * sourceGroups 用于解析分组名称(与 mapGroup 使用同款 groupNameFor)。
+ */
+export function mapDevice(
+  device: DeviceRead,
+  sourceGroups: Array<{ id: number; name: string }> = [],
+): Device {
+  return {
+    id: device.id,
+    name: device.name,
+    device_sn: device.device_sn,
+    project_id: device.project_id,
+    group: groupNameFor(device.group_id, sourceGroups),
+    group_id: device.group_id,
+    location: device.location || "未分配",
+    tags: device.tags ?? [],
+    status: normalizeDeviceStatus(device.status),
+    ssh_port: device.ssh_port,
+    vnc_port: device.vnc_port,
+    ssh_user: device.ssh_user,
+    ssh_auth_type: device.ssh_auth_type,
+    ssh_credential_configured: device.ssh_credential_configured,
+    cpu: null,
+    memory: null,
+    disk: null,
+    metricRecordedAt: null,
+    metricStale: false,
+    metricLoadFailed: false,
+  };
 }
 
 /**

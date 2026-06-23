@@ -58,8 +58,8 @@ import {
 } from "./api/platform";
 import { fetchHealth } from "./api/health";
 import { useAuthStore } from "./stores/auth";
-import { useDevicesStore, normalizeDeviceStatus, type Device, type DeviceStatus } from "./stores/devices";
-import { useGroupsStore, mapGroup } from "./stores/groups";
+import { useDevicesStore, mapDevice, normalizeDeviceStatus, type Device, type DeviceStatus } from "./stores/devices";
+import { useGroupsStore, mapGroup, groupNameFor } from "./stores/groups";
 import { useLogsStore, type AuditLog } from "./stores/logs";
 import {
   useUpdatesStore,
@@ -298,13 +298,6 @@ function parseTags(value: string): string[] {
     .filter(Boolean);
 }
 
-function groupNameFor(groupId: number | null, sourceGroups = groups.value): string {
-  if (groupId === null) {
-    return "未分组";
-  }
-  return sourceGroups.find((group) => group.id === groupId)?.name ?? `分组 ${groupId}`;
-}
-
 function withLatestMetric(device: Device, metric: DeviceMetricRead | undefined): Device {
   if (!metric) {
     return {
@@ -351,31 +344,6 @@ async function attachLatestMetrics(sourceDevices: Device[]): Promise<Device[]> {
   );
   metricLoadWarning.value = failedCount > 0 ? `有 ${failedCount} 台设备指标加载失败` : "";
   return enriched;
-}
-
-function mapDevice(device: DeviceRead, sourceGroups = groups.value): Device {
-  return {
-    id: device.id,
-    name: device.name,
-    device_sn: device.device_sn,
-    project_id: device.project_id,
-    group: groupNameFor(device.group_id, sourceGroups),
-    group_id: device.group_id,
-    location: device.location || "未分配",
-    tags: device.tags ?? [],
-    status: normalizeDeviceStatus(device.status),
-    ssh_port: device.ssh_port,
-    vnc_port: device.vnc_port,
-    ssh_user: device.ssh_user,
-    ssh_auth_type: device.ssh_auth_type,
-    ssh_credential_configured: device.ssh_credential_configured,
-    cpu: null,
-    memory: null,
-    disk: null,
-    metricRecordedAt: null,
-    metricStale: false,
-    metricLoadFailed: false,
-  };
 }
 
 function remoteSessionKey(deviceId: number, sessionType: "ssh" | "vnc"): string {
