@@ -11,7 +11,7 @@ module.exports = {
   extends: ["plugin:vue/vue3-essential"],
   rules: {
     "vue/multi-word-component-names": "off",
-    "max-lines": ["warn", { max: 400, skipBlankLines: true, skipComments: true }],
+    "max-lines": ["error", { max: 2500, skipBlankLines: true, skipComments: true }],
     "max-lines-per-function": ["warn", { max: 150, skipBlankLines: true, skipComments: true }],
   },
 };
