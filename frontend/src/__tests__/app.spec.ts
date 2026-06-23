@@ -2,8 +2,9 @@
 import ElementPlus, { ElMessageBox } from "element-plus";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
-import { createPinia } from "pinia";
+import { createPinia, setActivePinia } from "pinia";
 import { createRouter, createMemoryHistory, type Router } from "vue-router";
+import { installRouteGuards } from "../router/guards";
 import { TEST_ROUTES } from "../router/test-routes";
 
 import App from "../App.vue";
@@ -11,15 +12,18 @@ import * as healthApi from "../api/health";
 import * as platformApi from "../api/platform";
 
 async function mountApp() {
+  const pinia = createPinia();
+  setActivePinia(pinia);
   const router = createRouter({
     history: createMemoryHistory(),
     routes: TEST_ROUTES,
   });
+  installRouteGuards(router);
   router.push("/");
   await router.isReady();
   const wrapper = mount(App, {
     global: {
-      plugins: [ElementPlus, createPinia(), router],
+      plugins: [ElementPlus, pinia, router],
       stubs: { teleport: true },
     },
   });
@@ -1410,6 +1414,14 @@ describe("App", () => {
     expect(wrapper.find('[data-testid="nav-users"]').exists()).toBe(false);
     expect(wrapper.find('[data-testid="nav-settings"]').exists()).toBe(false);
     expect(wrapper.text()).toContain("operator · 运维人员");
+
+    await router.push("/users");
+    await waitUntil(() => expect(router.currentRoute.value.name).toBe("dashboard"));
+    expect(wrapper.text()).not.toContain("用户管理");
+
+    await router.push("/settings");
+    await waitUntil(() => expect(router.currentRoute.value.name).toBe("dashboard"));
+    expect(wrapper.text()).not.toContain("系统设置");
   });
 
   it("shows one validation message for incorrect credentials", async () => {
@@ -1422,6 +1434,18 @@ describe("App", () => {
 
     expect(wrapper.text()).toContain("用户名或密码不正确");
     expect(wrapper.findAll(".form-error")).toHaveLength(1);
+  });
+
+  it("redirects unknown paths to dashboard", async () => {
+    const { wrapper, router } = await mountApp();
+
+    await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+    await wrapper.find('[data-testid="login-submit"]').trigger("click");
+    await flushAsync();
+    await router.push("/not-found");
+    await waitUntil(() => expect(router.currentRoute.value.name).toBe("dashboard"));
+
+    expect(wrapper.text()).toContain("设备运维");
   });
 
   it("keeps the authenticated surface visible when a data endpoint fails after login", async () => {

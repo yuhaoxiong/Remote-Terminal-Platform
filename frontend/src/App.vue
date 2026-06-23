@@ -223,7 +223,10 @@ const taskDeviceStatusText: Record<string, string> = {
 const metricLoadWarning = ref("");
 
 const visibleNavItems = computed(() => navItems.filter((item) => !item.adminOnly || isAdmin.value));
-const activeSectionTitle = computed(() => navItems.find((item) => item.id === activeSection.value)?.label ?? "仪表盘");
+const activeSectionTitle = computed(() => {
+  const routeLabel = route.meta.label;
+  return typeof routeLabel === "string" ? routeLabel : navItems.find((item) => item.id === activeSection.value)?.label ?? "仪表盘";
+});
 const currentRoleLabel = computed(() => (isAdmin.value ? "管理员" : "运维人员"));
 const schedulerRunning = computed(() => diagnosticsConfig.value?.scheduler.running ?? null);
 
@@ -806,6 +809,14 @@ async function selectSection(section: SectionId) {
 watch([activeSection, authenticated], ([section, isAuthenticated]) => {
   if (section === "diagnostics" && isAuthenticated) {
     void loadDiagnosticsConfig();
+  }
+});
+
+watch([authenticated, currentUser, activeSection], ([isAuthenticated, user, section]) => {
+  const navItem = navItems.find((item) => item.id === section);
+  if (isAuthenticated && user && navItem?.adminOnly && user.role !== "admin") {
+    operationError.value = section === "users" ? "当前账号无权限访问用户管理。" : "当前账号无权限访问系统设置。";
+    void router.replace({ name: "dashboard" });
   }
 });
 

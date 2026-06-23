@@ -240,7 +240,7 @@
 - 删除 `src/__tests__/app.spec.ts` 中 2 个旧的 `it.skip` 远程连接用例，将 RemotePanel 内部生命周期从 App 大测试迁出。
 - 验证结果：`npm test -- --run` 为 25 passed、0 skipped；`npm run lint` / `npm run typecheck` / `npm run build` 均通过，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
 
-### P4.2 路由权限守卫与直达路径行为
+### P4.2 路由权限守卫与直达路径行为（✅ 已完成，本次提交）
 
 - **问题**：当前 admin 页面主要依靠侧边栏隐藏和 App 内条件渲染；operator 仍可能直接输入 `/users` 或 `/settings`。
 - **改动**：
@@ -250,6 +250,14 @@
   - 补测试：operator `router.push("/users")`/`router.push("/settings")` 不渲染管理页，导航 active 回到安全页面。
 - **验证**：`npm run typecheck`、`npm test -- --run`、`npm run build`。
 - **完成标准**：导航隐藏与 URL 直达权限一致，刷新和深链接行为稳定。
+
+**执行结果（2026-06-23）**：
+
+- 新增 `src/router/routes.ts`，生产 router 与测试 router 共用同一份 route meta（`requiresAuth` / `adminOnly` / `label`）和 catch-all 重定向。
+- 新增 `src/router/guards.ts`，统一安装路由守卫：未登录直达业务页回 dashboard，operator 直达 adminOnly 页面回 dashboard。
+- `App.vue` 的标题优先从 route meta 派生，并在用户资料加载后兜底处理 adminOnly route，覆盖刷新直达 admin URL 后才知道角色的场景。
+- `src/__tests__/app.spec.ts` 接入同一套 route guard，补充 operator 直达 `/users`、`/settings` 与未知路径 `/not-found` 的断言。
+- 验证结果：`npm run lint` / `npm run typecheck` / `npm test -- --run` / `npm run build` 均通过；测试为 26 passed，0 skipped，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
 
 ### P4.3 App.vue 编排层继续下沉，接近纯壳
 
@@ -301,7 +309,7 @@
 ### Phase 4 推荐顺序
 
 1. **P4.1 RemotePanel 测试补齐**：✅ 已完成，skipped 已清零，最高风险 WebSocket 生命周期已有组件级安全网。
-2. **P4.2 路由权限守卫**：router-view 已落地，下一步补齐 URL 直达权限边界。
+2. **P4.2 路由权限守卫**：✅ 已完成，URL 直达权限边界已补齐。
 3. **P4.3 App.vue 纯壳化**：在测试和权限稳定后，再继续迁走编排层。
 4. **P4.4 API domain 拆分**：独立于 UI，可在 App 瘦身后按域推进。
 5. **P4.5 测试瘦身**：伴随 P4.1/P4.3 增量迁移，最后清 warning。
