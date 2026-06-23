@@ -198,7 +198,7 @@
 | T0.2 防膨胀红线（warn） | ✅ 完成 | `7b27548` |
 | T0.3 最简 CI | ✅ 完成 | `e0534cc` |
 | T1.1 mountApp 测试 helper | ✅ 完成 | `e055063` |
-| T1.2 App.vue 接入 router-view | ✅ 完成（route 驱动页面状态，测试改用 router.push） | 待提交 |
+| T1.2 App.vue 接入 router-view | ✅ 完成（route 驱动页面状态，测试改用 router.push） | `174be3d` |
 | T1.3 stores/auth.ts | ✅ 完成 | `98cdfcb` |
 | 阶段 2a-1 提取 `utils/format.ts`（formatTime/formatSize 去重 7+1 处） | ✅ 完成 | `5a61282` |
 | 阶段 2a-2 提取 `stores/devices.ts`（设备列表 + monitoringAvailability） | ✅ 完成 | `4645b72` |
@@ -209,7 +209,7 @@
 | T2.5 迁移 remote 视图 | ✅ 完成 | `2da04dd` |
 | T3.1 删除死代码 Dashboard.vue | ✅ 完成 | `de23be2` |
 | T3.2 拆分 api/platform.ts | ✅ 完成（platform.ts 保留 re-export 壳，主体进入 core/domain） | `4d3e475`/`64b421a` |
-| T3.3 App.vue 减重到纯壳 | 🟡 部分完成（router-view 已接入；App.vue 仍保留编排层，当前约 926 行） | 待提交 |
+| T3.3 App.vue 减重到纯壳 | 🟡 部分完成（router-view 已接入；App.vue 仍保留编排层，当前约 926 行） | `174be3d` |
 | T3.4 红线转正 | ✅ 完成（max-lines error，阈值按现状调整为 2500） | `87a3467` |
 
 ### 2026-06-23 续作校准
@@ -217,3 +217,86 @@
 - `App.vue` 已从本地 `activeSection` 写入切换为 `useRoute()` 派生当前 section，侧边栏、Dashboard 跳转、分组查看设备、设备文件/远程入口均经 `router.push()` 导航。
 - 页面区域已接入 `<RouterView>` slot，但为了保持现有编排层稳定，仍由 `App.vue` 按 route name 给各 Panel 传入既有 props/events；这一步完成了 URL/刷新/前进后退骨架，不等同于 App 纯壳。
 - `src/__tests__/app.spec.ts` 的页面切换用例已改为显式 `router.push()`，保留 21 passed + 2 skipped 的现状；2 个 skipped 仍是 RemotePanel SSH/VNC 生命周期专项测试债务。
+
+## 7. Phase 4 — 收尾补充计划
+
+> Phase 4 的目标不是继续扩大重构面，而是把已立起的 router/store/Panel 骨架补到可长期维护的状态。每个任务仍按独立 commit 执行，完成后至少跑 `npm run lint`、`npm run typecheck`、`npm test -- --run`；涉及打包或路由懒加载时加跑 `npm run build`。
+
+### P4.1 RemotePanel 专项测试补齐（优先级最高）
+
+- **问题**：`src/__tests__/app.spec.ts` 仍有 2 个 SSH/VNC 相关 `it.skip`。RemotePanel 已自管理 WebSocket 生命周期，旧 App 级测试无法可靠观察组件内部资源。
+- **改动**：
+  - 新建 `src/components/__tests__/RemotePanel.spec.ts` 或同等组件级测试文件。
+  - 抽复用 mock：WebSocket、xterm terminal、FitAddon、noVNC RFB、`openSshSession`/`openVncSession`/`buildApiWebSocketUrl`。
+  - 覆盖 SSH：选择设备、创建 session、WebSocket open/message/input/close、错误态展示、组件卸载关闭 socket。
+  - 覆盖 VNC：创建 session、RFB connect/disconnect/securityfailure、手动断开、组件卸载 disconnect。
+  - 将 `app.spec.ts` 中 2 个 `it.skip` 删除或改成不重复 RemotePanel 内部细节的 App 级导航冒烟测试。
+- **验证**：`npm test -- --run` 应恢复为 23 passed、0 skipped；`npm run typecheck` 通过。
+- **完成标准**：RemotePanel 生命周期有组件级覆盖，测试结果无 skipped。
+
+### P4.2 路由权限守卫与直达路径行为
+
+- **问题**：当前 admin 页面主要依靠侧边栏隐藏和 App 内条件渲染；operator 仍可能直接输入 `/users` 或 `/settings`。
+- **改动**：
+  - 在 `router/index.ts` 增加路由 `meta`：`requiresAuth`、`adminOnly`、`label`。
+  - 增加 `beforeEach` 守卫：未登录访问业务页跳回默认登录态/保留目标；operator 访问 adminOnly 跳转 dashboard 或显示权限错误；未知路径重定向 dashboard。
+  - AppTopbar 标题优先从 route meta 派生，避免 navItems 与 routes 双份标签长期漂移。
+  - 补测试：operator `router.push("/users")`/`router.push("/settings")` 不渲染管理页，导航 active 回到安全页面。
+- **验证**：`npm run typecheck`、`npm test -- --run`、`npm run build`。
+- **完成标准**：导航隐藏与 URL 直达权限一致，刷新和深链接行为稳定。
+
+### P4.3 App.vue 编排层继续下沉，接近纯壳
+
+- **问题**：`App.vue` 已接入 `<RouterView>`，但仍保留数据加载、跨 Panel props/events、远程入口、诊断加载等编排逻辑，当前约 926 行。
+- **改动**：
+  - 建 `views/` 或 `route-shells/` wrapper：如 `DashboardView.vue`、`DevicesView.vue`、`UpdatesView.vue`、`DiagnosticsView.vue`，把对应 route 的 props/events 适配从 App.vue 迁出。
+  - 将 `loadPlatformData`、`refreshLogsAndOverview`、overview/alertSummary/diagnosticsConfig 等跨页状态逐步下沉到 store 或 composable。
+  - App.vue 只保留：登录态入口、LayoutShell、sidebar/topbar、全局错误/密码弹窗、`<RouterView>`。
+- **建议拆分**：
+  - P4.3a：抽 `stores/platformOverview.ts` 或 composable，承接 overview/alertSummary/backend health。
+  - P4.3b：抽 Dashboard/Diagnostics route wrapper。
+  - P4.3c：抽 Devices/Files/Remote route wrapper，处理跨页入口。
+  - P4.3d：抽 Updates/Logs/Groups/Scheduled/Alerts/Admin route wrapper，最终瘦 App.vue。
+- **验证**：每个小步跑 `npm test -- --run`；最终加跑 `npm run build`。
+- **完成标准**：App.vue 降到约 150 行以内；不再按 route name 手写 12 个 Panel 分支。
+
+### P4.4 API domain.ts 按域继续拆分
+
+- **问题**：`api/platform.ts` 已是 re-export 壳，但 `api/domain.ts` 仍接近 1000 行，API 聚合债务只是从 platform 文件转移到 domain 文件。
+- **改动顺序**：
+  - 先拆纯类型：`api/types/devices.ts`、`api/types/updates.ts`、`api/types/alerts.ts`、`api/types/system.ts`。
+  - 再拆函数：`api/devices.ts`、`api/groups.ts`、`api/logs.ts`、`api/updates.ts`、`api/alerts.ts`、`api/system.ts`、`api/remote.ts`。
+  - 保留 `api/platform.ts` 作为兼容出口，统一 re-export，先不改调用方 import。
+  - 每拆一域用 `rg` 确认类型/函数只从新域或兼容出口导出一次。
+- **验证**：每拆一域跑 `npm run typecheck`；阶段末跑 `npm test -- --run`。
+- **完成标准**：单个 API 文件低于 max-lines 红线；platform 仍兼容旧 import；domain.ts 删除或仅保留极少聚合导出。
+
+### P4.5 测试文件瘦身与 lint warning 清零
+
+- **问题**：`src/__tests__/app.spec.ts` 超 2000 行，`lint` 仍有 2 个 `max-lines-per-function` warning。
+- **改动**：
+  - 抽 `tests/fixtures/platform.ts`：mock API 响应、设备/分组/日志/更新任务 fixture。
+  - 抽 `tests/helpers/app.ts`：`mountApp`、`flushAsync`、`navigateTo`、登录 helper。
+  - 将已组件化 Panel 的细节测试逐步迁到组件级 spec，App spec 只保留登录、布局、权限、核心跨页流程。
+  - 将 `max-lines-per-function` warning 降到 0 后，再考虑把规则从 warn 升到 error。
+- **验证**：`npm run lint` 0 warning（或仅保留明确豁免）；`npm test -- --run`。
+- **完成标准**：App spec 可扫描、fixture 可复用、lint warning 清零。
+
+### P4.6 构建体积优化
+
+- **问题**：`npm run build` 通过，但 Vite 仍提示多个 chunk 超过 500 kB。router 已接入后，可以重新启用更自然的路由级拆包。
+- **改动**：
+  - 将生产路由组件从直接 import 改回 `() => import(...)`，测试路由继续保留直接 import，避免 Vitest 异步组件噪声。
+  - 如仍超标，再配置 `build.rollupOptions.output.manualChunks`，优先拆 `xterm`、`@novnc/novnc`、`echarts`、`element-plus`。
+  - 对 RemotePanel 的 xterm/noVNC 依赖保持按需加载，避免主包携带远程连接重依赖。
+- **验证**：`npm run build`，记录 chunk 变化；`npm test -- --run` 确认测试路由不受影响。
+- **完成标准**：首屏主 chunk 明显下降；Vite 大 chunk warning 消除或只剩可解释的 vendor chunk。
+
+### Phase 4 推荐顺序
+
+1. **P4.1 RemotePanel 测试补齐**：先清掉 skipped，保证最高风险 WebSocket 生命周期有安全网。
+2. **P4.2 路由权限守卫**：router-view 已落地，下一步补齐 URL 直达权限边界。
+3. **P4.3 App.vue 纯壳化**：在测试和权限稳定后，再继续迁走编排层。
+4. **P4.4 API domain 拆分**：独立于 UI，可在 App 瘦身后按域推进。
+5. **P4.5 测试瘦身**：伴随 P4.1/P4.3 增量迁移，最后清 warning。
+6. **P4.6 构建体积优化**：放在路由和 wrapper 稳定后处理，避免与结构重构交织。
