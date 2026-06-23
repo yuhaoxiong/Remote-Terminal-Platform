@@ -79,9 +79,9 @@ import DeviceFilePanel from "./components/DeviceFilePanel.vue";
 import FilesPanel from "./components/FilesPanel.vue";
 import GroupsPanel from "./components/GroupsPanel.vue";
 import DiagnosticsPanel from "./components/DiagnosticsPanel.vue";
+import DashboardPanel from "./components/DashboardPanel.vue";
 import LayoutShell from "./components/LayoutShell.vue";
 import LogsPanel from "./components/LogsPanel.vue";
-import MetricCard from "./components/MetricCard.vue";
 import ScheduledTaskPanel from "./components/ScheduledTaskPanel.vue";
 import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
 import UpdatesPanel from "./components/UpdatesPanel.vue";
@@ -259,17 +259,7 @@ const taskDeviceStatusText: Record<string, string> = {
   completed: "已完成",
 };
 
-const METRIC_STALE_THRESHOLD_MS = 10 * 60 * 1000;
-const CPU_HIGH_THRESHOLD = 90;
-const MEMORY_HIGH_THRESHOLD = 85;
-const DISK_HIGH_THRESHOLD = 90;
-
 const metricLoadWarning = ref("");
-const statusChartRef = ref<HTMLElement | null>(null);
-const riskChartRef = ref<HTMLElement | null>(null);
-let statusChart: { setOption: (options: unknown) => void; resize: () => void; dispose: () => void } | null = null;
-let riskChart: { setOption: (options: unknown) => void; resize: () => void; dispose: () => void } | null = null;
-
 
 const visibleNavItems = computed(() => navItems.filter((item) => !item.adminOnly || isAdmin.value));
 const activeSectionTitle = computed(() => navItems.find((item) => item.id === activeSection.value)?.label ?? "仪表盘");
@@ -300,102 +290,6 @@ const selectedVncSession = computed(() =>
 const deviceFormTitle = computed(() => (deviceEditId.value === null ? "创建设备" : "编辑设备"));
 const selectedGroupName = computed(() => groupNameFor(selectedGroupId.value));
 
-const overview = computed(() => {
-  if (serverOverview.value) {
-    return {
-      devices: serverOverview.value.total_devices,
-      online: serverOverview.value.online_devices,
-      degraded: serverOverview.value.offline_devices + serverOverview.value.unknown_devices,
-      updates: updateTasks.value.filter((task) => task.status === "completed").length,
-    };
-  }
-  const online = devices.value.filter((device) => device.status === "online").length;
-  const degraded = devices.value.filter((device) => device.status !== "online").length;
-  return {
-    devices: devices.value.length,
-    online,
-    degraded,
-    updates: updateTasks.value.filter((task) => task.status === "completed").length,
-  };
-});
-
-
-const abnormalDevices = computed(() => {
-  const items: Array<{ key: string; device: Device; type: string; description: string; tagType: "danger" | "warning" | "info" }> = [];
-  for (const device of devices.value) {
-    if (device.status === "offline") {
-      items.push({ key: `${device.id}-offline`, device, type: "离线", description: "设备当前处于离线状态", tagType: "danger" });
-    } else if (device.status === "unknown") {
-      items.push({ key: `${device.id}-unknown`, device, type: "未知", description: "设备状态暂不可确认", tagType: "info" });
-    }
-    if (device.metricLoadFailed) {
-      items.push({ key: `${device.id}-metric-failed`, device, type: "指标失败", description: "最新指标读取失败", tagType: "warning" });
-      continue;
-    }
-    if (device.metricStale) {
-      items.push({ key: `${device.id}-stale`, device, type: "指标过期", description: "最新指标超过 10 分钟未更新", tagType: "warning" });
-    }
-    if (device.cpu !== null && device.cpu >= CPU_HIGH_THRESHOLD) {
-      items.push({ key: `${device.id}-cpu`, device, type: "高负载", description: `CPU ${device.cpu}%`, tagType: "danger" });
-    }
-    if (device.memory !== null && device.memory >= MEMORY_HIGH_THRESHOLD) {
-      items.push({ key: `${device.id}-memory`, device, type: "高内存", description: `内存 ${device.memory}%`, tagType: "warning" });
-    }
-    if (device.disk !== null && device.disk >= DISK_HIGH_THRESHOLD) {
-      items.push({ key: `${device.id}-disk`, device, type: "磁盘紧张", description: `磁盘 ${device.disk}%`, tagType: "danger" });
-    }
-  }
-  return items.slice(0, 8);
-});
-
-const statusDistribution = computed(() => {
-  const online = devices.value.filter((device) => device.status === "online").length;
-  const offline = devices.value.filter((device) => device.status === "offline").length;
-  const unknown = devices.value.filter((device) => device.status === "unknown").length;
-  return [
-    { name: "在线", value: online },
-    { name: "离线", value: offline },
-    { name: "未知", value: unknown },
-    { name: "异常", value: abnormalDevices.value.length },
-  ];
-});
-
-const resourceRiskDistribution = computed(() => {
-  let normal = 0;
-  let highCpu = 0;
-  let highMemory = 0;
-  let highDisk = 0;
-  let noMetric = 0;
-  for (const device of devices.value) {
-    if (device.metricLoadFailed || device.metricRecordedAt === null) {
-      noMetric += 1;
-      continue;
-    }
-    if (device.cpu !== null && device.cpu >= CPU_HIGH_THRESHOLD) {
-      highCpu += 1;
-    }
-    if (device.memory !== null && device.memory >= MEMORY_HIGH_THRESHOLD) {
-      highMemory += 1;
-    }
-    if (device.disk !== null && device.disk >= DISK_HIGH_THRESHOLD) {
-      highDisk += 1;
-    }
-    if (
-      (device.cpu === null || device.cpu < CPU_HIGH_THRESHOLD) &&
-      (device.memory === null || device.memory < MEMORY_HIGH_THRESHOLD) &&
-      (device.disk === null || device.disk < DISK_HIGH_THRESHOLD)
-    ) {
-      normal += 1;
-    }
-  }
-  return [
-    { name: "正常", value: normal },
-    { name: "CPU 高", value: highCpu },
-    { name: "内存高", value: highMemory },
-    { name: "磁盘高", value: highDisk },
-    { name: "无指标", value: noMetric },
-  ];
-});
 
 function normalizeDeviceStatus(status: string): DeviceStatus {
   if (status === "online" || status === "offline" || status === "degraded") {
@@ -418,32 +312,6 @@ function groupNameFor(groupId: number | null, sourceGroups = groups.value): stri
   return sourceGroups.find((group) => group.id === groupId)?.name ?? `分组 ${groupId}`;
 }
 
-function metricPercent(value: number | null): number {
-  if (value === null || Number.isNaN(value)) {
-    return 0;
-  }
-  return Math.max(0, Math.min(100, Math.round(value)));
-}
-
-function metricText(value: number | null): string {
-  return value === null ? "暂无指标" : `${metricPercent(value)}%`;
-}
-
-function hasMetric(device: Device): boolean {
-  return device.cpu !== null || device.memory !== null || device.disk !== null;
-}
-
-function isMetricStale(recordedAt: string | null): boolean {
-  if (!recordedAt) {
-    return false;
-  }
-  const timestamp = new Date(recordedAt).getTime();
-  if (Number.isNaN(timestamp)) {
-    return false;
-  }
-  return Date.now() - timestamp > METRIC_STALE_THRESHOLD_MS;
-}
-
 function withLatestMetric(device: Device, metric: DeviceMetricRead | undefined): Device {
   if (!metric) {
     return {
@@ -463,7 +331,11 @@ function withLatestMetric(device: Device, metric: DeviceMetricRead | undefined):
     memory: metric.memory_percent,
     disk: metric.disk_percent,
     metricRecordedAt: metric.recorded_at,
-    metricStale: isMetricStale(metric.recorded_at),
+    metricStale: (() => {
+      if (!metric.recorded_at) return false;
+      const ts = new Date(metric.recorded_at).getTime();
+      return !Number.isNaN(ts) && Date.now() - ts > 10 * 60 * 1000;
+    })(),
     metricLoadFailed: false,
   };
 }
@@ -806,59 +678,6 @@ function isGatewayFailure(error: unknown): boolean {
   return status === 502 || status === 503 || status === 504;
 }
 
-function pieChartOptions(title: string, data: Array<{ name: string; value: number }>) {
-  return {
-    title: {
-      text: title,
-      left: "center",
-      top: 0,
-      textStyle: {
-        fontSize: 13,
-        fontWeight: 600,
-        color: "#334155",
-      },
-    },
-    tooltip: {
-      trigger: "item",
-    },
-    legend: {
-      bottom: 0,
-      itemWidth: 10,
-      itemHeight: 10,
-      textStyle: {
-        color: "#64748b",
-      },
-    },
-    series: [
-      {
-        type: "pie",
-        radius: ["42%", "68%"],
-        center: ["50%", "48%"],
-        avoidLabelOverlap: true,
-        label: {
-          formatter: "{b}: {c}",
-        },
-        data,
-      },
-    ],
-  };
-}
-
-async function renderDashboardCharts() {
-  if (import.meta.env.MODE === "test" || activeSection.value !== "dashboard") {
-    return;
-  }
-  await nextTick();
-  if (!statusChartRef.value || !riskChartRef.value) {
-    return;
-  }
-  const echarts = await import("echarts");
-  statusChart ??= echarts.init(statusChartRef.value);
-  riskChart ??= echarts.init(riskChartRef.value);
-  statusChart.setOption(pieChartOptions("设备状态分布", statusDistribution.value));
-  riskChart.setOption(pieChartOptions("资源风险分布", resourceRiskDistribution.value));
-}
-
 async function loadPlatformData() {
   loading.value = true;
   operationError.value = "";
@@ -879,7 +698,6 @@ async function loadPlatformData() {
     updateTasks.value = updateResponse.items.map(mapUpdateTask);
     serverOverview.value = overviewResponse;
     alertSummary.value = alertSummaryResponse;
-    void renderDashboardCharts();
   } catch (error) {
     if (isAuthFailure(error)) {
       operationError.value = "登录状态已过期，请重新登录。";
@@ -1234,7 +1052,6 @@ function selectSection(section: SectionId) {
     void loadDiagnosticsConfig();
   }
   if (section === "dashboard") {
-    void renderDashboardCharts();
   }
 }
 
@@ -1248,8 +1065,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
-  statusChart?.dispose();
-  riskChart?.dispose();
   for (const deviceId of sshSockets.keys()) {
     disconnectSshSession(deviceId);
   }
@@ -1375,118 +1190,15 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section v-if="activeSection === 'dashboard'" class="page-section">
-          <div class="stat-grid">
-            <MetricCard label="设备总数" :value="overview.devices" unit="台" trend="统一纳管设备" :icon="Cpu" />
-            <MetricCard label="在线设备" :value="overview.online" unit="台" tone="success" trend="可远程连接" :icon="Monitor" />
-            <MetricCard label="离线/未知" :value="overview.degraded" unit="台" tone="warning" trend="需优先排查" :icon="WarningFilled" />
-            <MetricCard label="活跃告警" :value="alertSummary?.active_count ?? 0" unit="条" tone="danger" trend="待确认或恢复" :icon="WarningFilled" />
-            <MetricCard label="待执行任务" :value="pendingTaskCount" unit="个" tone="info" trend="批量或定时任务" :icon="Finished" />
-          </div>
-
-          <div class="two-column">
-            <section class="panel">
-              <div class="panel-header">
-                <h3>资源快照</h3>
-                <el-button :icon="Refresh" text :loading="loading" @click="loadPlatformData">刷新</el-button>
-              </div>
-              <el-alert
-                v-if="metricLoadWarning"
-                class="validation-alert"
-                type="warning"
-                show-icon
-                :closable="false"
-                :title="metricLoadWarning"
-              />
-              <div v-for="device in devices" :key="device.id" class="metric-row">
-                <div class="metric-title">
-                  <div>
-                    <strong>{{ device.name }}</strong>
-                    <span>{{ device.project_id }}</span>
-                  </div>
-                  <div class="metric-tags">
-                    <el-tag size="small" :type="statusType[device.status]">{{ deviceStatusText[device.status] }}</el-tag>
-                    <el-tag v-if="device.metricLoadFailed" size="small" type="warning">指标加载失败</el-tag>
-                    <el-tag v-else-if="device.metricStale" size="small" type="warning">指标过期</el-tag>
-                    <el-tag v-else-if="!hasMetric(device)" size="small" type="info">暂无指标</el-tag>
-                  </div>
-                </div>
-                <div v-if="device.metricLoadFailed" class="metric-empty">指标加载失败</div>
-                <div v-else-if="!hasMetric(device)" class="metric-empty">暂无指标</div>
-                <div v-else class="metric-bars">
-                  <div class="metric-bar">
-                    <span>CPU {{ metricText(device.cpu) }}</span>
-                    <el-progress :percentage="metricPercent(device.cpu)" :stroke-width="10" />
-                  </div>
-                  <div class="metric-bar">
-                    <span>内存 {{ metricText(device.memory) }}</span>
-                    <el-progress :percentage="metricPercent(device.memory)" :stroke-width="10" color="#4f46e5" />
-                  </div>
-                  <div class="metric-bar">
-                    <span>磁盘 {{ metricText(device.disk) }}</span>
-                    <el-progress :percentage="metricPercent(device.disk)" :stroke-width="10" color="#dc2626" />
-                  </div>
-                </div>
-                <small>{{ device.metricRecordedAt ? `最近指标 ${formatTime(device.metricRecordedAt)}` : "未上报" }}</small>
-              </div>
-              <el-empty v-if="!devices.length" description="暂无设备" />
-            </section>
-
-            <section class="panel">
-              <div class="panel-header">
-                <h3>异常设备</h3>
-                <el-button text @click="selectSection('devices')">进入设备管理</el-button>
-              </div>
-              <div v-if="abnormalDevices.length" class="alert-list">
-                <div v-for="item in abnormalDevices" :key="item.key" class="alert-row">
-                  <el-tag size="small" :type="item.tagType">{{ item.type }}</el-tag>
-                  <div>
-                    <strong>{{ item.device.name }}</strong>
-                    <span>{{ item.device.project_id }} · {{ item.description }}</span>
-                  </div>
-                </div>
-              </div>
-              <el-empty v-else description="暂无异常设备" />
-            </section>
-          </div>
-
-          <div class="two-column chart-row">
-            <section class="panel">
-              <div class="panel-header">
-                <h3>监控分布</h3>
-              </div>
-              <div v-if="devices.length" class="chart-grid">
-                <div ref="statusChartRef" class="chart-box" aria-label="设备状态分布"></div>
-                <div ref="riskChartRef" class="chart-box" aria-label="资源风险分布"></div>
-                <div class="chart-summary">
-                  <div v-for="item in statusDistribution" :key="item.name">
-                    <span>{{ item.name }}</span>
-                    <strong>{{ item.value }}</strong>
-                  </div>
-                  <div v-for="item in resourceRiskDistribution" :key="item.name">
-                    <span>{{ item.name }}</span>
-                    <strong>{{ item.value }}</strong>
-                  </div>
-                </div>
-              </div>
-              <el-empty v-else description="暂无监控数据" />
-            </section>
-
-            <section class="panel">
-              <div class="panel-header">
-                <h3>最近审计</h3>
-                <el-button text @click="selectSection('logs')">查看全部</el-button>
-              </div>
-              <div v-for="log in auditLogs.slice(0, 5)" :key="log.id" class="log-row">
-                <el-tag size="small" :type="log.status === 'success' || log.status === 'completed' ? 'success' : 'warning'">
-                  {{ logStatusText[log.status] ?? log.status }}
-                </el-tag>
-                <span>{{ log.action }}</span>
-                <small>{{ log.detail }}</small>
-              </div>
-            </section>
-          </div>
-        </section>
+        <DashboardPanel
+          v-if="activeSection === 'dashboard'"
+          :server-overview="serverOverview"
+          :alert-summary="alertSummary"
+          :metric-load-warning="metricLoadWarning"
+          :loading="loading"
+          @refresh="loadPlatformData"
+          @navigate="(section: string) => selectSection(section as SectionId)"
+        />
 
         <section v-if="activeSection === 'devices'" class="page-section">
           <div class="page-title-row">
