@@ -1,4 +1,4 @@
-import { api, ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, AUTH_EXPIRED_EVENT, buildApiWebSocketUrl } from "./core";
+import { api, ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, AUTH_EXPIRED_EVENT, buildApiWebSocketUrl, type TokenResponse } from "./core";
 
 
 export async function loginAdmin(username: string, password: string): Promise<TokenResponse> {

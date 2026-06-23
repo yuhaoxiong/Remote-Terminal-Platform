@@ -1,7 +1,7 @@
 import axios, { AxiosHeaders, type AxiosError, type InternalAxiosRequestConfig } from "axios";
 
-const ACCESS_TOKEN_KEY = "edge-platform-access-token";
-const REFRESH_TOKEN_KEY = "edge-platform-refresh-token";
+export const ACCESS_TOKEN_KEY = "edge-platform-access-token";
+export const REFRESH_TOKEN_KEY = "edge-platform-refresh-token";
 export const AUTH_EXPIRED_EVENT = "edge-platform-auth-expired";
 
 type AuthRequestConfig = InternalAxiosRequestConfig & {
@@ -9,7 +9,7 @@ type AuthRequestConfig = InternalAxiosRequestConfig & {
   skipAuthRefresh?: boolean;
 };
 
-const api = axios.create({
+export const api = axios.create({
   baseURL: "/api",
 });
 
@@ -87,8 +87,6 @@ export interface TokenResponse {
   refresh_token: string;
   token_type: string;
 }
-
-export interface PasswordChangeRequest {
 
 export function hasStoredAccessToken(): boolean {
   return Boolean(window.localStorage.getItem(ACCESS_TOKEN_KEY));
