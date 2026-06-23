@@ -222,7 +222,7 @@
 
 > Phase 4 的目标不是继续扩大重构面，而是把已立起的 router/store/Panel 骨架补到可长期维护的状态。每个任务仍按独立 commit 执行，完成后至少跑 `npm run lint`、`npm run typecheck`、`npm test -- --run`；涉及打包或路由懒加载时加跑 `npm run build`。
 
-### P4.1 RemotePanel 专项测试补齐（优先级最高）
+### P4.1 RemotePanel 专项测试补齐（✅ 已完成，本次提交）
 
 - **问题**：`src/__tests__/app.spec.ts` 仍有 2 个 SSH/VNC 相关 `it.skip`。RemotePanel 已自管理 WebSocket 生命周期，旧 App 级测试无法可靠观察组件内部资源。
 - **改动**：
@@ -233,6 +233,12 @@
   - 将 `app.spec.ts` 中 2 个 `it.skip` 删除或改成不重复 RemotePanel 内部细节的 App 级导航冒烟测试。
 - **验证**：`npm test -- --run` 应恢复为 23 passed、0 skipped；`npm run typecheck` 通过。
 - **完成标准**：RemotePanel 生命周期有组件级覆盖，测试结果无 skipped。
+
+**执行结果（2026-06-23）**：
+
+- 新增 `src/components/__tests__/RemotePanel.spec.ts`，组件级覆盖 SSH 成功连接/终端输入输出/断开、SSH 创建失败、VNC 连接/断开、SSH/VNC 组件卸载清理。
+- 删除 `src/__tests__/app.spec.ts` 中 2 个旧的 `it.skip` 远程连接用例，将 RemotePanel 内部生命周期从 App 大测试迁出。
+- 验证结果：`npm test -- --run` 为 25 passed、0 skipped；`npm run lint` / `npm run typecheck` / `npm run build` 均通过，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
 
 ### P4.2 路由权限守卫与直达路径行为
 
@@ -294,7 +300,7 @@
 
 ### Phase 4 推荐顺序
 
-1. **P4.1 RemotePanel 测试补齐**：先清掉 skipped，保证最高风险 WebSocket 生命周期有安全网。
+1. **P4.1 RemotePanel 测试补齐**：✅ 已完成，skipped 已清零，最高风险 WebSocket 生命周期已有组件级安全网。
 2. **P4.2 路由权限守卫**：router-view 已落地，下一步补齐 URL 直达权限边界。
 3. **P4.3 App.vue 纯壳化**：在测试和权限稳定后，再继续迁走编排层。
 4. **P4.4 API domain 拆分**：独立于 UI，可在 App 瘦身后按域推进。
