@@ -15,7 +15,8 @@ import {
   WarningFilled,
 } from "@element-plus/icons-vue";
 import { ElMessageBox } from "element-plus";
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, type Component } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, type Component } from "vue";
+import { RouterView, useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 
 import {
@@ -150,7 +151,13 @@ const { auditLogs, auditLogsTotal } = storeToRefs(logsStore);
 const { mapLog, prependLocalLog } = logsStore;
 const updatesStore = useUpdatesStore();
 const { updateTasks, pendingTaskCount } = storeToRefs(updatesStore);
-const activeSection = ref<SectionId>("dashboard");
+const router = useRouter();
+const route = useRoute();
+
+const activeSection = computed<SectionId>(() => {
+  const routeName = typeof route.name === "string" ? route.name : "";
+  return navItems.some((item) => item.id === routeName) ? (routeName as SectionId) : "dashboard";
+});
 
 const loginUsername = ref("admin");
 const loginPassword = ref("");
@@ -316,7 +323,7 @@ function setRemoteSession(deviceId: number, sessionType: "ssh" | "vnc", update: 
 
 function openFilePanel(device: Device) {
   filePanelDevice.value = device;
-  activeSection.value = "files";
+  void selectSection("files");
 }
 
 function selectRemoteDevice(device: Device) {
@@ -325,14 +332,14 @@ function selectRemoteDevice(device: Device) {
 
 async function openSshFromDevice(device: Device) {
   selectRemoteDevice(device);
-  activeSection.value = "remote";
+  await selectSection("remote");
   await nextTick();
   await startSshSession(device);
 }
 
 async function openVncFromDevice(device: Device) {
   selectRemoteDevice(device);
-  activeSection.value = "remote";
+  await selectSection("remote");
   await nextTick();
   await startVncSession(device);
 }
@@ -717,7 +724,7 @@ async function savePasswordChange() {
 
 function selectGroup(groupId: number | null) {
   selectedGroupId.value = groupId;
-  activeSection.value = "devices";
+  void selectSection("devices");
 }
 
 function targetSummaryForFilter(targetFilter: Record<string, unknown>): string {
@@ -787,18 +794,20 @@ async function confirmRealSshTask(command: string, target: string): Promise<bool
   }
 }
 
-function selectSection(section: SectionId) {
+async function selectSection(section: SectionId) {
   if ((section === "users" || section === "settings") && !isAdmin.value) {
     operationError.value = section === "users" ? "当前账号无权限访问用户管理。" : "当前账号无权限访问系统设置。";
     return;
   }
-  activeSection.value = section;
-  if (section === "diagnostics") {
+  operationError.value = "";
+  await router.push({ name: section });
+}
+
+watch([activeSection, authenticated], ([section, isAuthenticated]) => {
+  if (section === "diagnostics" && isAuthenticated) {
     void loadDiagnosticsConfig();
   }
-  if (section === "dashboard") {
-  }
-}
+});
 
 onMounted(() => {
   window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
@@ -889,7 +898,7 @@ onBeforeUnmount(() => {
 
   <LayoutShell v-else>
     <template #sidebar>
-      <AppSidebar :active="activeSection" :items="visibleNavItems" @select="(id) => selectSection(id as SectionId)" />
+      <AppSidebar :active="activeSection" :items="visibleNavItems" @select="(id) => void selectSection(id as SectionId)" />
     </template>
     <template #topbar>
       <AppTopbar
@@ -935,63 +944,64 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <DashboardPanel
-          v-if="activeSection === 'dashboard'"
-          :server-overview="serverOverview"
-          :alert-summary="alertSummary"
-          :metric-load-warning="metricLoadWarning"
-          :loading="loading"
-          @refresh="loadPlatformData"
-          @navigate="(section: string) => selectSection(section as SectionId)"
-        />
+        <RouterView v-slot="{ route }">
+          <DashboardPanel
+            v-if="route.name === 'dashboard'"
+            :server-overview="serverOverview"
+            :alert-summary="alertSummary"
+            :metric-load-warning="metricLoadWarning"
+            :loading="loading"
+            @refresh="loadPlatformData"
+            @navigate="(section: string) => void selectSection(section as SectionId)"
+          />
 
-                <DevicesPanel
-          v-if="activeSection === 'devices'"
-          :remote-unavailable-reason="remoteUnavailableReason"
-          @changed="refreshLogsAndOverview"
-          @ssh="(device: Device) => openSshFromDevice(device)"
-          @vnc="(device: Device) => openVncFromDevice(device)"
-          @open-files="(device: Device) => openFilePanel(device)"
-        />
+          <DevicesPanel
+            v-if="route.name === 'devices'"
+            :remote-unavailable-reason="remoteUnavailableReason"
+            @changed="refreshLogsAndOverview"
+            @ssh="(device: Device) => openSshFromDevice(device)"
+            @vnc="(device: Device) => openVncFromDevice(device)"
+            @open-files="(device: Device) => openFilePanel(device)"
+          />
 
-        <FilesPanel
-          v-if="activeSection === 'files'"
-          :loading="loading"
-          @refresh="loadPlatformData"
-        />
+          <FilesPanel
+            v-if="route.name === 'files'"
+            :loading="loading"
+            @refresh="loadPlatformData"
+          />
 
-        <GroupsPanel
-          v-if="activeSection === 'groups'"
-          @changed="refreshLogsAndOverview"
-          @view-devices="selectGroup"
-        />
+          <GroupsPanel
+            v-if="route.name === 'groups'"
+            @changed="refreshLogsAndOverview"
+            @view-devices="selectGroup"
+          />
 
-                <RemotePanel v-if="activeSection === 'remote'" />
+          <RemotePanel v-if="route.name === 'remote'" />
 
+          <UpdatesPanel
+            v-if="route.name === 'updates'"
+            :confirm-real-ssh-task="confirmRealSshTask"
+            :target-summary-for-filter="targetSummaryForFilter"
+            :target-summary-for-task="targetSummaryForTask"
+            @changed="refreshLogsAndOverview"
+          />
 
-        <UpdatesPanel
-          v-if="activeSection === 'updates'"
-          :confirm-real-ssh-task="confirmRealSshTask"
-          :target-summary-for-filter="targetSummaryForFilter"
-          :target-summary-for-task="targetSummaryForTask"
-          @changed="refreshLogsAndOverview"
-        />
+          <ScheduledTaskPanel v-if="route.name === 'scheduled'" :can-manage="isAdmin" />
 
-        <ScheduledTaskPanel v-if="activeSection === 'scheduled'" :can-manage="isAdmin" />
+          <AlertCenterPanel v-if="route.name === 'alerts'" :can-manage="isAdmin" />
 
-        <AlertCenterPanel v-if="activeSection === 'alerts'" :can-manage="isAdmin" />
+          <SystemSettingsPanel v-if="route.name === 'settings' && isAdmin" />
 
-        <SystemSettingsPanel v-if="activeSection === 'settings' && isAdmin" />
+          <UserManagementPanel v-if="route.name === 'users' && isAdmin" />
 
-        <UserManagementPanel v-if="activeSection === 'users' && isAdmin" />
+          <LogsPanel v-if="route.name === 'logs'" />
 
-        <LogsPanel v-if="activeSection === 'logs'" />
-
-        <DiagnosticsPanel
-          v-if="activeSection === 'diagnostics'"
-          :config="diagnosticsConfig"
-          :loading="diagnosticsLoading"
-          @refresh="loadDiagnosticsConfig"
-        />
+          <DiagnosticsPanel
+            v-if="route.name === 'diagnostics'"
+            :config="diagnosticsConfig"
+            :loading="diagnosticsLoading"
+            @refresh="loadDiagnosticsConfig"
+          />
+        </RouterView>
   </LayoutShell>
 </template>

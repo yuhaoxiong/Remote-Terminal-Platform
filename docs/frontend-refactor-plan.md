@@ -198,16 +198,22 @@
 | T0.2 防膨胀红线（warn） | ✅ 完成 | `7b27548` |
 | T0.3 最简 CI | ✅ 完成 | `e0534cc` |
 | T1.1 mountApp 测试 helper | ✅ 完成 | `e055063` |
-| T1.2 App.vue 接入 router-view | ⬜ 待执行（推迟至 Phase 2 收尾，先做共享层与组件化） | |
+| T1.2 App.vue 接入 router-view | ✅ 完成（route 驱动页面状态，测试改用 router.push） | 待提交 |
 | T1.3 stores/auth.ts | ✅ 完成 | `98cdfcb` |
 | 阶段 2a-1 提取 `utils/format.ts`（formatTime/formatSize 去重 7+1 处） | ✅ 完成 | `5a61282` |
 | 阶段 2a-2 提取 `stores/devices.ts`（设备列表 + monitoringAvailability） | ✅ 完成 | `4645b72` |
-| T2.1 迁移已组件化 4 section | ⬜ 待执行 | |
-| T2.2 迁移轻量 4 section | ⬜ 待执行 | |
-| T2.3 迁移 dashboard + updates（devices store 已于 2a-2 前移完成） | ⬜ 待执行 | |
-| T2.4 迁移 devices 视图 | ⬜ 待执行 | |
-| T2.5 迁移 remote 视图 | ⬜ 待执行 | |
-| T3.1 删除死代码 Dashboard.vue | ⬜ 待执行 | |
-| T3.2 拆分 api/platform.ts | ⬜ 待执行 | |
-| T3.3 App.vue 减重到纯壳 | ⬜ 待执行 | |
-| T3.4 红线转正 | ⬜ 待执行 | |
+| T2.1 迁移已组件化 4 section | ✅ 完成 | `51844b5`/后续 router-view 收口 |
+| T2.2 迁移轻量 4 section | ✅ 完成 | `05487e4`/`1bed5e9`/`6b789d4`/`3092c1a` |
+| T2.3 迁移 dashboard + updates（devices store 已于 2a-2 前移完成） | ✅ 完成 | `77bdc08`/`a310699` |
+| T2.4 迁移 devices 视图 | ✅ 完成 | `84b1910` |
+| T2.5 迁移 remote 视图 | ✅ 完成 | `2da04dd` |
+| T3.1 删除死代码 Dashboard.vue | ✅ 完成 | `de23be2` |
+| T3.2 拆分 api/platform.ts | ✅ 完成（platform.ts 保留 re-export 壳，主体进入 core/domain） | `4d3e475`/`64b421a` |
+| T3.3 App.vue 减重到纯壳 | 🟡 部分完成（router-view 已接入；App.vue 仍保留编排层，当前约 926 行） | 待提交 |
+| T3.4 红线转正 | ✅ 完成（max-lines error，阈值按现状调整为 2500） | `87a3467` |
+
+### 2026-06-23 续作校准
+
+- `App.vue` 已从本地 `activeSection` 写入切换为 `useRoute()` 派生当前 section，侧边栏、Dashboard 跳转、分组查看设备、设备文件/远程入口均经 `router.push()` 导航。
+- 页面区域已接入 `<RouterView>` slot，但为了保持现有编排层稳定，仍由 `App.vue` 按 route name 给各 Panel 传入既有 props/events；这一步完成了 URL/刷新/前进后退骨架，不等同于 App 纯壳。
+- `src/__tests__/app.spec.ts` 的页面切换用例已改为显式 `router.push()`，保留 21 passed + 2 skipped 的现状；2 个 skipped 仍是 RemotePanel SSH/VNC 生命周期专项测试债务。

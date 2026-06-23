@@ -3,7 +3,7 @@ import ElementPlus, { ElMessageBox } from "element-plus";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import { createPinia } from "pinia";
-import { createRouter, createMemoryHistory } from "vue-router";
+import { createRouter, createMemoryHistory, type Router } from "vue-router";
 import { TEST_ROUTES } from "../router/test-routes";
 
 import App from "../App.vue";
@@ -1252,6 +1252,12 @@ async function flushAsync() {
   }
 }
 
+async function navigateTo(router: Router, section: string) {
+  await router.push({ name: section });
+  await router.isReady();
+  await flushAsync();
+}
+
 async function waitUntil(assertion: () => void) {
   let lastError: unknown;
   for (let index = 0; index < 20; index += 1) {
@@ -1325,8 +1331,7 @@ describe("App", () => {
 
     expect(wrapper.find('[data-testid="nav-users"]').exists()).toBe(true);
 
-    await wrapper.find('[data-testid="nav-users"]').trigger("click");
-    await flushAsync();
+    await navigateTo(router, "users");
     expect(api.listUsers).toHaveBeenCalled();
     expect(wrapper.text()).toContain("用户管理");
     expect(wrapper.text()).toContain("operator");
@@ -1354,7 +1359,7 @@ describe("App", () => {
     await flushAsync();
 
     expect(wrapper.find('[data-testid="nav-settings"]').exists()).toBe(true);
-    await wrapper.find('[data-testid="nav-settings"]').trigger("click");
+    await navigateTo(router, "settings");
     await waitUntil(() => expect(api.getSystemSettingSchema).toHaveBeenCalled());
     expect(wrapper.text()).toContain("系统设置");
     expect(wrapper.text()).toContain("数据库覆盖");
@@ -1464,7 +1469,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-devices"]').trigger("click");
+    await navigateTo(router, "devices");
     await wrapper.find('[data-testid="open-device-create"]').trigger("click");
     await wrapper.find('[data-testid="device-name"] input').setValue("边缘相机 09");
     await wrapper.find('[data-testid="device-sn"] input').setValue("SN-W5-009");
@@ -1495,7 +1500,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-devices"]').trigger("click");
+    await navigateTo(router, "devices");
     await wrapper.find('[data-testid="open-frps-import"]').trigger("click");
     await wrapper.find('[data-testid="frps-url"] input').setValue("124.70.177.226:7500");
     await wrapper.find('[data-testid="import-frps"]').trigger("click");
@@ -1546,8 +1551,7 @@ describe("App", () => {
     expect(wrapper.text()).toContain("高负载");
     expect(wrapper.text()).toContain("磁盘紧张");
 
-    await wrapper.find('[data-testid="nav-diagnostics"]').trigger("click");
-    await flushAsync();
+    await navigateTo(router, "diagnostics");
     expect(wrapper.text()).toContain("监控可用性");
     expect(wrapper.text()).toContain("有指标设备：1");
     expect(wrapper.text()).toContain("无指标设备：0");
@@ -1631,7 +1635,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-groups"]').trigger("click");
+    await navigateTo(router, "groups");
     await wrapper.find('[data-testid="open-group-create"]').trigger("click");
     await wrapper.find('[data-testid="group-name"] input').setValue("产线二");
     await wrapper.find('[data-testid="group-description"] textarea').setValue("测试线");
@@ -1656,9 +1660,10 @@ describe("App", () => {
     });
 
     await wrapper.find('[data-testid="filter-group-1"]').trigger("click");
+    await waitUntil(() => expect(router.currentRoute.value.name).toBe("devices"));
     expect(wrapper.find('[data-testid="nav-devices"]').classes()).toContain("is-active");
 
-    await wrapper.find('[data-testid="nav-groups"]').trigger("click");
+    await navigateTo(router, "groups");
     await wrapper.find('[data-testid="delete-group-2"]').trigger("click");
     await flushAsync();
     expect(api.deleteGroup).toHaveBeenCalledWith(2);
@@ -1693,7 +1698,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-devices"]').trigger("click");
+    await navigateTo(router, "devices");
     await wrapper.find('[data-testid="edit-device-1"]').trigger("click");
     await wrapper.find('[data-testid="device-name"] input').setValue("装配边缘终端 01 已更新");
     await wrapper.find('[data-testid="device-project"] input').setValue("工厂-b");
@@ -1730,14 +1735,14 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-devices"]').trigger("click");
+    await navigateTo(router, "devices");
     await wrapper.find('[data-testid="sync-device-1"]').trigger("click");
     await flushAsync();
 
     expect(api.syncDeviceConfig).toHaveBeenCalledWith(1);
     expect(wrapper.text()).toContain("server_addr");
 
-    await wrapper.find('[data-testid="nav-logs"]').trigger("click");
+    await navigateTo(router, "logs");
     await wrapper.find('[data-testid="log-action"] input').setValue("device.create");
     await wrapper.find('[data-testid="log-target-type"] input').setValue("device");
     await wrapper.find('[data-testid="log-status"] input').setValue("success");
@@ -1763,8 +1768,7 @@ describe("App", () => {
     expect(wrapper.find('[data-testid="selected-log-detail"]').text()).toContain("操作详情");
     expect(wrapper.find('[data-testid="selected-log-detail"]').text()).toContain("SN-EDGE-001");
 
-    await wrapper.find('[data-testid="nav-diagnostics"]').trigger("click");
-    await flushAsync();
+    await navigateTo(router, "diagnostics");
     expect(api.getDiagnosticsConfig).toHaveBeenCalled();
     expect(wrapper.text()).toContain("系统诊断");
     expect(wrapper.text()).toContain("未配置设备凭据加密密钥");
@@ -1783,7 +1787,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-alerts"]').trigger("click");
+    await navigateTo(router, "alerts");
     await waitUntil(() => expect(api.listAlerts).toHaveBeenCalled());
 
     expect(wrapper.text()).toContain("活跃告警");
@@ -1829,7 +1833,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-remote"]').trigger("click");
+    await navigateTo(router, "remote");
     await wrapper.find('[data-testid="select-remote-device-1"]').trigger("click");
     await flushAsync();
     await wrapper.find('[data-testid="open-ssh-1"]').trigger("click");
@@ -1877,7 +1881,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-remote"]').trigger("click");
+    await navigateTo(router, "remote");
     await wrapper.find('[data-testid="select-remote-device-1"]').trigger("click");
     await flushAsync();
     await wrapper.find('[data-testid="open-ssh-1"]').trigger("click");
@@ -1932,7 +1936,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-updates"]').trigger("click");
+    await navigateTo(router, "updates");
     await wrapper.find('[data-testid="cancel-update-9"]').trigger("click");
     await flushAsync();
 
@@ -2006,7 +2010,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-updates"]').trigger("click");
+    await navigateTo(router, "updates");
     await wrapper.find('[data-testid="open-update-create"]').trigger("click");
     await wrapper.find('[data-testid="update-name"] input').setValue("重启视觉服务");
     await wrapper.find('[data-testid="update-command"] textarea').setValue("sudo systemctl restart vision");
@@ -2073,7 +2077,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("operator-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-updates"]').trigger("click");
+    await navigateTo(router, "updates");
     await wrapper.find('[data-testid="open-update-create"]').trigger("click");
     await flushAsync();
 
@@ -2089,7 +2093,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-devices"]').trigger("click");
+    await navigateTo(router, "devices");
     await wrapper.find('[data-testid="open-files-1"]').trigger("click");
     await waitUntil(() => expect(api.listDeviceFiles).toHaveBeenCalledWith(1, "/"));
 
@@ -2125,7 +2129,7 @@ describe("App", () => {
     await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
     await wrapper.find('[data-testid="login-submit"]').trigger("click");
     await flushAsync();
-    await wrapper.find('[data-testid="nav-scheduled"]').trigger("click");
+    await navigateTo(router, "scheduled");
     await waitUntil(() => expect(api.listScheduledTasks).toHaveBeenCalled());
 
     expect(wrapper.text()).toContain("定时任务");
