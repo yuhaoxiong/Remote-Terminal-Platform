@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { Monitor, Search, VideoPlay } from "@element-plus/icons-vue";
-import { computed, nextTick, onBeforeUnmount, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 
 import { buildApiWebSocketUrl, getAccessToken, openSshSession, openVncSession } from "../api/platform";
 import { useDevicesStore, type Device, type DeviceStatus } from "../stores/devices";
 
 const devicesStore = useDevicesStore();
-const { devices } = storeToRefs(devicesStore);
+const { devices, remoteSessionRequest } = storeToRefs(devicesStore);
+const { clearRemoteSessionRequest } = devicesStore;
 
 interface RemoteSessionUi { status: "idle" | "connecting" | "ready" | "connected" | "failed" | "disconnected"; message: string; websocketUrl: string; output: string; }
 interface SshTerminalHandle { terminal: { cols: number; rows: number; loadAddon(addon: unknown): void; open(element: HTMLElement): void; write(data: string): void; writeln(data: string): void; onData(callback: (data: string) => void): { dispose: () => void }; dispose(): void }; fitAddon: { fit(): void; dispose?: () => void }; dataDisposable: { dispose: () => void }; resizeObserver: ResizeObserver | null; }
@@ -120,6 +121,24 @@ function disconnectVncSession(deviceId: number, updateStatus = true) {
   if (updateStatus) setRemoteSession(deviceId, "vnc", { status: "disconnected", message: "VNC 已断开" });
 }
 function requestVncFullscreen() { vncCanvasHostRef.value?.requestFullscreen?.(); }
+
+watch(
+  remoteSessionRequest,
+  async (request) => {
+    if (!request) return;
+    const device = devices.value.find((item) => item.id === request.deviceId);
+    clearRemoteSessionRequest();
+    if (!device) return;
+    selectRemoteDevice(device);
+    await nextTick();
+    if (request.sessionType === "ssh") {
+      await startSshSession(device);
+      return;
+    }
+    await startVncSession(device);
+  },
+  { immediate: true },
+);
 
 onBeforeUnmount(() => { for (const id of sshSockets.keys()) disconnectSshSession(id); for (const id of vncClients.keys()) disconnectVncSession(id, false); });
 </script>

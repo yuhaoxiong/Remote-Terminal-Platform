@@ -6,33 +6,26 @@ import {
   FolderOpened,
   Monitor,
   Operation,
-  Plus,
-  Refresh,
-  Search,
   Setting,
   UserFilled,
   VideoPlay,
   WarningFilled,
 } from "@element-plus/icons-vue";
 import { ElMessageBox } from "element-plus";
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, type Component } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, type Component } from "vue";
 import { RouterView, useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 
 import {
   AUTH_EXPIRED_EVENT,
-  buildApiWebSocketUrl,
   changePassword,
   clearAuthTokens,
-  getAccessToken,
   getCurrentUser,
   listDevices,
   listDeviceMetrics,
   listGroups,
   listUpdateTasks,
   loginAdmin,
-  openSshSession,
-  openVncSession,
   setAuthTokens,
   type CurrentUserResponse,
   type DeviceMetricRead,
@@ -40,7 +33,7 @@ import {
   type UpdateTaskRead,
 } from "./api/platform";
 import { useAuthStore } from "./stores/auth";
-import { useDevicesStore, mapDevice, normalizeDeviceStatus, type Device, type DeviceStatus } from "./stores/devices";
+import { useDevicesStore, mapDevice, normalizeDeviceStatus, type Device } from "./stores/devices";
 import { useGroupsStore, mapGroup, groupNameFor } from "./stores/groups";
 import { useLogsStore, type AuditLog } from "./stores/logs";
 import { usePlatformOverviewStore } from "./stores/platformOverview";
@@ -57,56 +50,20 @@ import { formatTime } from "./utils/format";
 import AlertCenterPanel from "./components/AlertCenterPanel.vue";
 import AppSidebar from "./components/AppSidebar.vue";
 import AppTopbar from "./components/AppTopbar.vue";
-import FilesPanel from "./components/FilesPanel.vue";
 import GroupsPanel from "./components/GroupsPanel.vue";
-import DevicesPanel from "./components/DevicesPanel.vue";
 import LayoutShell from "./components/LayoutShell.vue";
 import LogsPanel from "./components/LogsPanel.vue";
-import RemotePanel from "./components/RemotePanel.vue";
 import ScheduledTaskPanel from "./components/ScheduledTaskPanel.vue";
 import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
 import UpdatesPanel from "./components/UpdatesPanel.vue";
 import UserManagementPanel from "./components/UserManagementPanel.vue";
 import DashboardView from "./views/DashboardView.vue";
+import DevicesView from "./views/DevicesView.vue";
 import DiagnosticsView from "./views/DiagnosticsView.vue";
+import FilesView from "./views/FilesView.vue";
+import RemoteView from "./views/RemoteView.vue";
 
 type SectionId = "dashboard" | "devices" | "groups" | "remote" | "files" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics" | "settings";
-type RemoteSessionStatus = "idle" | "connecting" | "ready" | "connected" | "failed" | "disconnected";
-
-interface RemoteSessionUi {
-  status: RemoteSessionStatus;
-  message: string;
-  websocketUrl: string;
-  output: string;
-}
-
-interface XtermTerminal {
-  cols: number;
-  rows: number;
-  loadAddon(addon: unknown): void;
-  open(element: HTMLElement): void;
-  write(data: string): void;
-  writeln(data: string): void;
-  onData(callback: (data: string) => void): { dispose: () => void };
-  dispose(): void;
-}
-
-interface XtermFitAddon {
-  fit(): void;
-  dispose?: () => void;
-}
-
-interface SshTerminalHandle {
-  terminal: XtermTerminal;
-  fitAddon: XtermFitAddon;
-  dataDisposable: { dispose: () => void };
-  resizeObserver: ResizeObserver | null;
-}
-
-interface VncClient {
-  disconnect(): void;
-  addEventListener(type: string, callback: (event: Event) => void): void;
-}
 
 const navItems: Array<{ id: SectionId; label: string; icon: Component; group: "overview" | "operations" | "governance"; adminOnly?: boolean }> = [
   { id: "dashboard", label: "仪表盘", icon: Monitor, group: "overview" },
@@ -133,7 +90,6 @@ const {
   deviceStatusFilter,
   deviceProjectFilter,
   deviceTagFilter,
-  filePanelDevice,
   visibleDevices,
 } = storeToRefs(devicesStore);
 const groupsStore = useGroupsStore();
@@ -169,10 +125,6 @@ const loginError = ref("");
 const passwordChangeOpen = ref(false);
 const loading = ref(false);
 const operationError = ref("");
-const remoteDeviceSearch = ref("");
-const selectedRemoteDeviceId = ref<number | null>(null);
-const sshTerminalHostRef = ref<HTMLElement | null>(null);
-const vncCanvasHostRef = ref<HTMLElement | null>(null);
 
 const passwordForm = reactive({
   old_password: "",
@@ -181,19 +133,7 @@ const passwordForm = reactive({
 });
 
 
-const remoteSessions = reactive<Record<string, RemoteSessionUi>>({});
-const sshSockets = new Map<number, WebSocket>();
-const sshTerminals = new Map<number, SshTerminalHandle>();
-const vncClients = new Map<number, VncClient>();
-
-const statusType: Record<DeviceStatus, "success" | "warning" | "danger" | "info"> = {
-  online: "success",
-  offline: "danger",
-  degraded: "warning",
-  unknown: "info",
-};
-
-const deviceStatusText: Record<DeviceStatus, string> = {
+const deviceStatusText: Record<string, string> = {
   online: "在线",
   offline: "离线",
   degraded: "异常",
@@ -225,29 +165,6 @@ const activeSectionTitle = computed(() => {
 });
 const currentRoleLabel = computed(() => (isAdmin.value ? "管理员" : "运维人员"));
 const schedulerRunning = computed(() => diagnosticsConfig.value?.scheduler.running ?? null);
-
-const remoteVisibleDevices = computed(() => {
-  const keyword = remoteDeviceSearch.value.trim().toLowerCase();
-  return devices.value.filter((device) => {
-    if (!keyword) {
-      return true;
-    }
-    return [device.name, device.device_sn, device.project_id, device.location, device.group, String(device.ssh_port ?? ""), String(device.vnc_port ?? "")]
-      .join(" ")
-      .toLowerCase()
-      .includes(keyword);
-  });
-});
-
-const selectedRemoteDevice = computed(() => devices.value.find((device) => device.id === selectedRemoteDeviceId.value) ?? null);
-const selectedSshSession = computed(() =>
-  selectedRemoteDevice.value ? remoteSessionFor(selectedRemoteDevice.value.id, "ssh") : null,
-);
-const selectedVncSession = computed(() =>
-  selectedRemoteDevice.value ? remoteSessionFor(selectedRemoteDevice.value.id, "vnc") : null,
-);
-
-
 
 function parseTags(value: string): string[] {
   return value
@@ -302,279 +219,6 @@ async function attachLatestMetrics(sourceDevices: Device[]): Promise<Device[]> {
   );
   setMetricLoadWarning(failedCount > 0 ? `有 ${failedCount} 台设备指标加载失败` : "");
   return enriched;
-}
-
-function remoteSessionKey(deviceId: number, sessionType: "ssh" | "vnc"): string {
-  return `${sessionType}:${deviceId}`;
-}
-
-function remoteSessionFor(deviceId: number, sessionType: "ssh" | "vnc"): RemoteSessionUi {
-  const key = remoteSessionKey(deviceId, sessionType);
-  if (!remoteSessions[key]) {
-    remoteSessions[key] = { status: "idle", message: "未连接", websocketUrl: "", output: "" };
-  }
-  return remoteSessions[key];
-}
-
-function setRemoteSession(deviceId: number, sessionType: "ssh" | "vnc", update: Partial<RemoteSessionUi>) {
-  Object.assign(remoteSessionFor(deviceId, sessionType), update);
-}
-
-function openFilePanel(device: Device) {
-  filePanelDevice.value = device;
-  void selectSection("files");
-}
-
-function selectRemoteDevice(device: Device) {
-  selectedRemoteDeviceId.value = device.id;
-}
-
-async function openSshFromDevice(device: Device) {
-  selectRemoteDevice(device);
-  await selectSection("remote");
-  await nextTick();
-  await startSshSession(device);
-}
-
-async function openVncFromDevice(device: Device) {
-  selectRemoteDevice(device);
-  await selectSection("remote");
-  await nextTick();
-  await startVncSession(device);
-}
-
-function remoteUnavailableReason(device: Device, sessionType: "ssh" | "vnc"): string {
-  if (sessionType === "ssh") {
-    if (device.ssh_port === null) {
-      return "缺少 SSH 端口";
-    }
-    if (!device.ssh_credential_configured) {
-      return "凭据未配置";
-    }
-  }
-  if (sessionType === "vnc" && device.vnc_port === null) {
-    return "缺少 VNC 端口";
-  }
-  return "";
-}
-
-function canOpenRemote(device: Device, sessionType: "ssh" | "vnc"): boolean {
-  return remoteUnavailableReason(device, sessionType) === "";
-}
-
-function remoteErrorMessage(error: unknown, fallback: string): string {
-  const detail = (error as { response?: { data?: { detail?: string } } }).response?.data?.detail;
-  if (typeof detail === "string" && detail.trim()) {
-    return detail;
-  }
-  if (isGatewayFailure(error)) {
-    return "远程代理或后端服务暂不可达";
-  }
-  return fallback;
-}
-
-function disposeSshTerminal(deviceId: number) {
-  const handle = sshTerminals.get(deviceId);
-  if (!handle) {
-    return;
-  }
-  handle.resizeObserver?.disconnect();
-  handle.dataDisposable.dispose();
-  handle.fitAddon.dispose?.();
-  handle.terminal.dispose();
-  sshTerminals.delete(deviceId);
-}
-
-function fitAndReportSshSize(deviceId: number) {
-  const handle = sshTerminals.get(deviceId);
-  if (!handle) {
-    return;
-  }
-  handle.fitAddon.fit();
-  const socket = sshSockets.get(deviceId);
-  if (socket && typeof WebSocket !== "undefined" && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: "resize", columns: handle.terminal.cols || 120, rows: handle.terminal.rows || 32 }));
-  }
-}
-
-async function prepareSshTerminal(deviceId: number): Promise<XtermTerminal | null> {
-  await nextTick();
-  const host = sshTerminalHostRef.value;
-  if (!host) {
-    return null;
-  }
-  disposeSshTerminal(deviceId);
-  host.replaceChildren();
-  const [{ Terminal }, { FitAddon }] = await Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit")]);
-  const terminal = new Terminal({
-    cursorBlink: true,
-    convertEol: true,
-    fontFamily: "Consolas, 'Courier New', monospace",
-    fontSize: 13,
-    theme: {
-      background: "#0f172a",
-      foreground: "#d1fae5",
-      cursor: "#38bdf8",
-    },
-  }) as XtermTerminal;
-  const fitAddon = new FitAddon() as XtermFitAddon;
-  terminal.loadAddon(fitAddon);
-  terminal.open(host);
-  const dataDisposable = terminal.onData((data) => {
-    const socket = sshSockets.get(deviceId);
-    if (socket && typeof WebSocket !== "undefined" && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "input", data }));
-    }
-  });
-  const resizeObserver =
-    typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(() => {
-          fitAndReportSshSize(deviceId);
-        });
-  resizeObserver?.observe(host);
-  sshTerminals.set(deviceId, { terminal, fitAddon, dataDisposable, resizeObserver });
-  fitAndReportSshSize(deviceId);
-  return terminal;
-}
-
-async function startSshSession(device: Device) {
-  if (!canOpenRemote(device, "ssh")) {
-    setRemoteSession(device.id, "ssh", { status: "failed", message: remoteUnavailableReason(device, "ssh") });
-    return;
-  }
-  selectRemoteDevice(device);
-  setRemoteSession(device.id, "ssh", { status: "connecting", message: "正在建立 SSH 会话", output: "" });
-  try {
-    const terminal = await prepareSshTerminal(device.id);
-    terminal?.writeln("正在建立 SSH 会话...");
-    const session = await openSshSession(device.id);
-    const token = getAccessToken();
-    const websocketUrl = session.websocket_url && token ? buildApiWebSocketUrl(session.websocket_url, token) : "";
-    setRemoteSession(device.id, "ssh", {
-      status: "ready",
-      message: `SSH 会话已就绪，远程端口 ${session.remote_port}`,
-      websocketUrl,
-    });
-    if (!websocketUrl || typeof WebSocket === "undefined") {
-      terminal?.writeln("浏览器环境不支持 WebSocket，无法打开 SSH 终端。");
-      return;
-    }
-    sshSockets.get(device.id)?.close();
-    const socket = new WebSocket(websocketUrl);
-    sshSockets.set(device.id, socket);
-    socket.onopen = () => {
-      setRemoteSession(device.id, "ssh", { status: "connected", message: "SSH 已连接" });
-      fitAndReportSshSize(device.id);
-    };
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(String(event.data)) as { type: string; data?: string; status?: string; message?: string };
-        if (message.type === "output") {
-          const current = remoteSessionFor(device.id, "ssh");
-          current.output += message.data ?? "";
-          sshTerminals.get(device.id)?.terminal.write(message.data ?? "");
-        } else if (message.type === "status") {
-          setRemoteSession(device.id, "ssh", { status: "connected", message: `SSH ${message.status ?? "已连接"}` });
-        } else if (message.type === "error") {
-          setRemoteSession(device.id, "ssh", { status: "failed", message: message.message ?? "SSH 连接失败" });
-          sshTerminals.get(device.id)?.terminal.writeln(message.message ?? "SSH 连接失败");
-        }
-      } catch {
-        const current = remoteSessionFor(device.id, "ssh");
-        current.output += String(event.data);
-        sshTerminals.get(device.id)?.terminal.write(String(event.data));
-      }
-    };
-    socket.onerror = () => {
-      setRemoteSession(device.id, "ssh", { status: "failed", message: "SSH WebSocket 连接失败" });
-      sshTerminals.get(device.id)?.terminal.writeln("SSH WebSocket 连接失败");
-    };
-    socket.onclose = () => {
-      if (remoteSessionFor(device.id, "ssh").status !== "failed") {
-        setRemoteSession(device.id, "ssh", { status: "disconnected", message: "SSH 已断开" });
-      }
-      sshSockets.delete(device.id);
-    };
-  } catch (error) {
-    const message = remoteErrorMessage(error, "无法创建 SSH 会话");
-    setRemoteSession(device.id, "ssh", { status: "failed", message });
-    sshTerminals.get(device.id)?.terminal.writeln(message);
-  }
-}
-
-async function startVncSession(device: Device) {
-  if (!canOpenRemote(device, "vnc")) {
-    setRemoteSession(device.id, "vnc", { status: "failed", message: remoteUnavailableReason(device, "vnc") });
-    return;
-  }
-  selectRemoteDevice(device);
-  setRemoteSession(device.id, "vnc", { status: "connecting", message: "正在准备 VNC 代理", output: "" });
-  try {
-    const session = await openVncSession(device.id);
-    const token = getAccessToken();
-    const websocketUrl = session.websocket_url && token ? buildApiWebSocketUrl(session.websocket_url, token) : "";
-    setRemoteSession(device.id, "vnc", {
-      status: "ready",
-      message: `VNC 代理已就绪，远程端口 ${session.remote_port}`,
-      websocketUrl,
-    });
-    await nextTick();
-    if (!websocketUrl || !vncCanvasHostRef.value) {
-      setRemoteSession(device.id, "vnc", { status: "failed", message: "无法创建 VNC 画面容器" });
-      return;
-    }
-    disconnectVncSession(device.id, false);
-    const { default: RFB } = await import("@novnc/novnc");
-    const client = new RFB(vncCanvasHostRef.value, websocketUrl, {}) as VncClient;
-    client.addEventListener("connect", () => {
-      setRemoteSession(device.id, "vnc", { status: "connected", message: "VNC 已连接" });
-    });
-    client.addEventListener("disconnect", () => {
-      if (remoteSessionFor(device.id, "vnc").status !== "failed") {
-        setRemoteSession(device.id, "vnc", { status: "disconnected", message: "VNC 已断开" });
-      }
-      vncClients.delete(device.id);
-    });
-    client.addEventListener("securityfailure", () => {
-      setRemoteSession(device.id, "vnc", { status: "failed", message: "VNC 安全协商失败" });
-    });
-    vncClients.set(device.id, client);
-  } catch (error) {
-    setRemoteSession(device.id, "vnc", { status: "failed", message: remoteErrorMessage(error, "无法创建 VNC 会话") });
-  }
-}
-
-function disconnectSshSession(deviceId: number) {
-  const socket = sshSockets.get(deviceId);
-  if (socket && typeof WebSocket !== "undefined" && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: "close" }));
-  }
-  socket?.close();
-  sshSockets.delete(deviceId);
-  disposeSshTerminal(deviceId);
-  setRemoteSession(deviceId, "ssh", { status: "disconnected", message: "SSH 已断开" });
-}
-
-function disconnectVncSession(deviceId: number, updateStatus = true) {
-  const client = vncClients.get(deviceId);
-  client?.disconnect();
-  vncClients.delete(deviceId);
-  if (updateStatus) {
-    setRemoteSession(deviceId, "vnc", { status: "disconnected", message: "VNC 已断开" });
-  }
-}
-
-async function requestVncFullscreen() {
-  await nextTick();
-  const target = vncCanvasHostRef.value;
-  if (!target?.requestFullscreen) {
-    if (selectedRemoteDevice.value) {
-      setRemoteSession(selectedRemoteDevice.value.id, "vnc", { message: "当前浏览器不支持全屏" });
-    }
-    return;
-  }
-  await target.requestFullscreen();
 }
 
 function isAuthFailure(error: unknown): boolean {
@@ -785,13 +429,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
-  for (const deviceId of sshSockets.keys()) {
-    disconnectSshSession(deviceId);
-  }
   updatesStore.stopAllProgress();
-  for (const deviceId of vncClients.keys()) {
-    disconnectVncSession(deviceId, false);
-  }
 });
 </script>
 
@@ -918,16 +556,9 @@ onBeforeUnmount(() => {
             @navigate="(section: string) => void selectSection(section as SectionId)"
           />
 
-          <DevicesPanel
-            v-if="route.name === 'devices'"
-            :remote-unavailable-reason="remoteUnavailableReason"
-            @changed="refreshLogsAndOverview"
-            @ssh="(device: Device) => openSshFromDevice(device)"
-            @vnc="(device: Device) => openVncFromDevice(device)"
-            @open-files="(device: Device) => openFilePanel(device)"
-          />
+          <DevicesView v-if="route.name === 'devices'" />
 
-          <FilesPanel
+          <FilesView
             v-if="route.name === 'files'"
             :loading="loading"
             @refresh="loadPlatformData"
@@ -939,7 +570,7 @@ onBeforeUnmount(() => {
             @view-devices="selectGroup"
           />
 
-          <RemotePanel v-if="route.name === 'remote'" />
+          <RemoteView v-if="route.name === 'remote'" />
 
           <UpdatesPanel
             v-if="route.name === 'updates'"

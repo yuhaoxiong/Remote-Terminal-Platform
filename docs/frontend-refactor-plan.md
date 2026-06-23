@@ -261,7 +261,7 @@
 
 ### P4.3 App.vue 编排层继续下沉，接近纯壳（🟡 进行中）
 
-- **问题**：`App.vue` 已接入 `<RouterView>`，但仍保留数据加载、跨 Panel props/events、远程入口等编排逻辑，当前约 888 行。
+- **问题**：`App.vue` 已接入 `<RouterView>`，但仍保留数据加载与部分跨 Panel props/events 编排逻辑，当前约 596 行。
 - **改动**：
   - 建 `views/` 或 `route-shells/` wrapper：如 `DashboardView.vue`、`DevicesView.vue`、`UpdatesView.vue`、`DiagnosticsView.vue`，把对应 route 的 props/events 适配从 App.vue 迁出。
   - 将 `loadPlatformData`、`refreshLogsAndOverview`、overview/alertSummary/diagnosticsConfig 等跨页状态逐步下沉到 store 或 composable。
@@ -269,7 +269,7 @@
 - **建议拆分**：
   - P4.3a：✅ 抽 `stores/platformOverview.ts`，承接 overview/alertSummary/backend health/diagnostics/metric warning。
   - P4.3b：✅ 抽 Dashboard/Diagnostics route wrapper。
-  - P4.3c：抽 Devices/Files/Remote route wrapper，处理跨页入口。
+  - P4.3c：✅ 抽 Devices/Files/Remote route wrapper，处理跨页入口。
   - P4.3d：抽 Updates/Logs/Groups/Scheduled/Alerts/Admin route wrapper，最终瘦 App.vue。
 - **验证**：每个小步跑 `npm test -- --run`；最终加跑 `npm run build`。
 - **完成标准**：App.vue 降到约 150 行以内；不再按 route name 手写 12 个 Panel 分支。
@@ -287,6 +287,14 @@
 - 新增 `src/views/DiagnosticsView.vue`，由 wrapper 自取诊断配置并在挂载时加载，`App.vue` 不再直接渲染 `DiagnosticsPanel` 或处理其刷新事件。
 - `router/routes.ts` 的 dashboard/diagnostics 路由已指向 view wrapper；`App.vue` 对这两页只保留 refresh/navigate 的过渡编排。
 - 验证结果：`npm run lint` / `npm run typecheck` / `npm test -- --run` / `npm run build` 均通过；测试为 26 passed，0 skipped，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
+
+**P4.3c 执行结果（2026-06-23）**：
+
+- 新增 `src/views/DevicesView.vue`、`src/views/FilesView.vue`、`src/views/RemoteView.vue`，并将 `router/routes.ts` 中 devices/files/remote 指向对应 wrapper。
+- `DevicesView` 接管设备页跨页入口：文件入口写入 `devicesStore.filePanelDevice` 后跳转 files；SSH/VNC 入口写入 `remoteSessionRequest` 后跳转 remote。
+- `RemotePanel` 消费 `devicesStore.remoteSessionRequest`，自动选择设备并启动 SSH/VNC，会话生命周期仍由 RemotePanel 自管理。
+- `App.vue` 删除旧的 remote section WebSocket/terminal/VNC 实现及卸载清理，远程连接职责彻底移入 RemotePanel；App.vue 约 888 → 596 行。
+- 新增 RemotePanel 测试覆盖跨路由 SSH 请求消费；验证结果：`npm run lint` / `npm run typecheck` / `npm test -- --run src/components/__tests__/RemotePanel.spec.ts` / `npm test -- --run` / `npm run build` 均通过；测试为 27 passed，0 skipped，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
 
 ### P4.4 API domain.ts 按域继续拆分
 

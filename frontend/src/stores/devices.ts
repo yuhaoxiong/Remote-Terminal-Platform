@@ -10,6 +10,13 @@ import {
 import { groupNameFor } from "./groups";
 
 export type DeviceStatus = "online" | "offline" | "degraded" | "unknown";
+export type RemoteSessionType = "ssh" | "vnc";
+
+interface RemoteSessionRequest {
+  deviceId: number;
+  sessionType: RemoteSessionType;
+  requestedAt: number;
+}
 
 /**
  * 将后端返回的状态字符串标准化为 DeviceStatus。
@@ -94,6 +101,7 @@ export const useDevicesStore = defineStore("devices", () => {
   const deviceProjectFilter = ref("");
   const deviceTagFilter = ref("");
   const filePanelDevice = ref<Device | null>(null);
+  const remoteSessionRequest = ref<RemoteSessionRequest | null>(null);
 
   const monitoringAvailability = computed(() => {
     const withMetrics = devices.value.filter((device) => device.metricRecordedAt && !device.metricLoadFailed).length;
@@ -134,6 +142,18 @@ export const useDevicesStore = defineStore("devices", () => {
     filePanelDevice.value = device;
   }
 
+  function requestRemoteSession(device: Device, sessionType: RemoteSessionType) {
+    remoteSessionRequest.value = {
+      deviceId: device.id,
+      sessionType,
+      requestedAt: Date.now(),
+    };
+  }
+
+  function clearRemoteSessionRequest() {
+    remoteSessionRequest.value = null;
+  }
+
   return {
     devices,
     deviceSearch,
@@ -142,8 +162,11 @@ export const useDevicesStore = defineStore("devices", () => {
     deviceProjectFilter,
     deviceTagFilter,
     filePanelDevice,
+    remoteSessionRequest,
     monitoringAvailability,
     visibleDevices,
     openFilePanel,
+    requestRemoteSession,
+    clearRemoteSessionRequest,
   };
 });

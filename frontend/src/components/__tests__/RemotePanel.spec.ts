@@ -298,6 +298,18 @@ describe("RemotePanel", () => {
     expect(wrapper.find('[data-testid="select-remote-device-1"]').exists()).toBe(true);
   });
 
+  it("consumes a cross-route SSH request from the devices store", async () => {
+    const wrapper = await mountRemotePanel();
+    const devicesStore = useDevicesStore();
+
+    devicesStore.requestRemoteSession(remoteDevice(), "ssh");
+    await waitUntil(() => expect(api.openSshSession).toHaveBeenCalledWith(1));
+    await waitUntil(() => expect(mockWebSockets).toHaveLength(1));
+
+    expect(wrapper.find('[data-testid="select-remote-device-1"]').classes()).toContain("is-selected");
+    expect(devicesStore.remoteSessionRequest).toBeNull();
+  });
+
   it("opens VNC, handles disconnect, and disconnects clients on unmount", async () => {
     const wrapper = await mountRemotePanel();
 
