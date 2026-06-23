@@ -24,12 +24,8 @@ import {
   buildApiWebSocketUrl,
   changePassword,
   clearAuthTokens,
-  getAlertSummary,
   getAccessToken,
   getCurrentUser,
-  getDiagnosticsConfig,
-  getMonitoringOverview,
-
   listDevices,
   listDeviceMetrics,
   listGroups,
@@ -38,19 +34,16 @@ import {
   openSshSession,
   openVncSession,
   setAuthTokens,
-  type AlertSummaryResponse,
   type CurrentUserResponse,
-  type DiagnosticsConfigResponse,
   type DeviceMetricRead,
   type ListLogsParams,
-  type MonitoringOverviewResponse,
   type UpdateTaskRead,
 } from "./api/platform";
-import { fetchHealth } from "./api/health";
 import { useAuthStore } from "./stores/auth";
 import { useDevicesStore, mapDevice, normalizeDeviceStatus, type Device, type DeviceStatus } from "./stores/devices";
 import { useGroupsStore, mapGroup, groupNameFor } from "./stores/groups";
 import { useLogsStore, type AuditLog } from "./stores/logs";
+import { usePlatformOverviewStore } from "./stores/platformOverview";
 import {
   useUpdatesStore,
   mapUpdateTask,
@@ -149,6 +142,22 @@ const { recalculateGroupCounts } = groupsStore;
 const logsStore = useLogsStore();
 const { auditLogs, auditLogsTotal } = storeToRefs(logsStore);
 const { mapLog, prependLocalLog } = logsStore;
+const platformOverviewStore = usePlatformOverviewStore();
+const {
+  serverOverview,
+  alertSummary,
+  diagnosticsConfig,
+  diagnosticsLoading,
+  backendHealthStatus,
+  backendHealthDetail,
+  metricLoadWarning,
+} = storeToRefs(platformOverviewStore);
+const {
+  loadBackendHealth,
+  loadDiagnosticsConfig,
+  refreshOverview,
+  setMetricLoadWarning,
+} = platformOverviewStore;
 const updatesStore = useUpdatesStore();
 const { updateTasks, pendingTaskCount } = storeToRefs(updatesStore);
 const router = useRouter();
@@ -177,12 +186,6 @@ const passwordForm = reactive({
 });
 
 
-const serverOverview = ref<MonitoringOverviewResponse | null>(null);
-const alertSummary = ref<AlertSummaryResponse | null>(null);
-const diagnosticsConfig = ref<DiagnosticsConfigResponse | null>(null);
-const diagnosticsLoading = ref(false);
-const backendHealthStatus = ref<"checking" | "healthy" | "failed">("checking");
-const backendHealthDetail = ref("检测中");
 const remoteSessions = reactive<Record<string, RemoteSessionUi>>({});
 const sshSockets = new Map<number, WebSocket>();
 const sshTerminals = new Map<number, SshTerminalHandle>();
@@ -219,8 +222,6 @@ const taskDeviceStatusText: Record<string, string> = {
   canceled: "已取消",
   completed: "已完成",
 };
-
-const metricLoadWarning = ref("");
 
 const visibleNavItems = computed(() => navItems.filter((item) => !item.adminOnly || isAdmin.value));
 const activeSectionTitle = computed(() => {
@@ -304,7 +305,7 @@ async function attachLatestMetrics(sourceDevices: Device[]): Promise<Device[]> {
       }
     }),
   );
-  metricLoadWarning.value = failedCount > 0 ? `有 ${failedCount} 台设备指标加载失败` : "";
+  setMetricLoadWarning(failedCount > 0 ? `有 ${failedCount} 台设备指标加载失败` : "");
   return enriched;
 }
 
@@ -600,13 +601,12 @@ async function loadPlatformData() {
   loading.value = true;
   operationError.value = "";
   try {
-    const [userResponse, groupResponse, deviceResponse, updateResponse, overviewResponse, alertSummaryResponse] = await Promise.all([
+    const [userResponse, groupResponse, deviceResponse, updateResponse] = await Promise.all([
       getCurrentUser(),
       listGroups(),
       listDevices(),
       listUpdateTasks(),
-      getMonitoringOverview(),
-      getAlertSummary(),
+      refreshOverview(),
     ]);
     currentUser.value = userResponse;
     const mappedGroups = groupResponse.items.map((group) => mapGroup(group, []));
@@ -614,8 +614,6 @@ async function loadPlatformData() {
     devices.value = await attachLatestMetrics(mappedDevices);
     groups.value = groupResponse.items.map((group) => mapGroup(group, devices.value));
     updateTasks.value = updateResponse.items.map(mapUpdateTask);
-    serverOverview.value = overviewResponse;
-    alertSummary.value = alertSummaryResponse;
   } catch (error) {
     if (isAuthFailure(error)) {
       operationError.value = "登录状态已过期，请重新登录。";
@@ -634,12 +632,7 @@ async function loadPlatformData() {
 }
 
 async function refreshLogsAndOverview() {
-  const [overviewResponse, alertSummaryResponse] = await Promise.all([
-    getMonitoringOverview(),
-    getAlertSummary(),
-  ]);
-  serverOverview.value = overviewResponse;
-  alertSummary.value = alertSummaryResponse;
+  await refreshOverview();
 }
 
 async function login() {
@@ -678,10 +671,7 @@ function logout() {
   updateTasks.value = [];
   auditLogs.value = [];
   auditLogsTotal.value = 0;
-  serverOverview.value = null;
-  alertSummary.value = null;
-  diagnosticsConfig.value = null;
-  metricLoadWarning.value = "";
+  platformOverviewStore.reset();
 }
 
 function handleAuthExpired() {
@@ -754,30 +744,6 @@ function targetSummaryForFilter(targetFilter: Record<string, unknown>): string {
 
 function targetSummaryForTask(task: UpdateTask): string {
   return `${targetSummaryForFilter(task.target_filter)}，匹配 ${task.matched} 台`;
-}
-
-async function loadDiagnosticsConfig() {
-  diagnosticsLoading.value = true;
-  try {
-    diagnosticsConfig.value = await getDiagnosticsConfig();
-  } catch (error) {
-    prependLocalLog("加载诊断配置", "系统", "blocked", "无法读取诊断配置，请检查后端服务。");
-  } finally {
-    diagnosticsLoading.value = false;
-  }
-}
-
-async function loadBackendHealth() {
-  backendHealthStatus.value = "checking";
-  backendHealthDetail.value = "检测中";
-  try {
-    const health = await fetchHealth();
-    backendHealthStatus.value = health.status === "ok" ? "healthy" : "failed";
-    backendHealthDetail.value = health.status === "ok" ? "正常" : health.status;
-  } catch {
-    backendHealthStatus.value = "failed";
-    backendHealthDetail.value = "异常";
-  }
 }
 
 async function confirmRealSshTask(command: string, target: string): Promise<boolean> {

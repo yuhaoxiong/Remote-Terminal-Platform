@@ -259,20 +259,27 @@
 - `src/__tests__/app.spec.ts` 接入同一套 route guard，补充 operator 直达 `/users`、`/settings` 与未知路径 `/not-found` 的断言。
 - 验证结果：`npm run lint` / `npm run typecheck` / `npm test -- --run` / `npm run build` 均通过；测试为 26 passed，0 skipped，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
 
-### P4.3 App.vue 编排层继续下沉，接近纯壳
+### P4.3 App.vue 编排层继续下沉，接近纯壳（🟡 进行中）
 
-- **问题**：`App.vue` 已接入 `<RouterView>`，但仍保留数据加载、跨 Panel props/events、远程入口、诊断加载等编排逻辑，当前约 926 行。
+- **问题**：`App.vue` 已接入 `<RouterView>`，但仍保留数据加载、跨 Panel props/events、远程入口等编排逻辑，当前约 906 行。
 - **改动**：
   - 建 `views/` 或 `route-shells/` wrapper：如 `DashboardView.vue`、`DevicesView.vue`、`UpdatesView.vue`、`DiagnosticsView.vue`，把对应 route 的 props/events 适配从 App.vue 迁出。
   - 将 `loadPlatformData`、`refreshLogsAndOverview`、overview/alertSummary/diagnosticsConfig 等跨页状态逐步下沉到 store 或 composable。
   - App.vue 只保留：登录态入口、LayoutShell、sidebar/topbar、全局错误/密码弹窗、`<RouterView>`。
 - **建议拆分**：
-  - P4.3a：抽 `stores/platformOverview.ts` 或 composable，承接 overview/alertSummary/backend health。
+  - P4.3a：✅ 抽 `stores/platformOverview.ts`，承接 overview/alertSummary/backend health/diagnostics/metric warning。
   - P4.3b：抽 Dashboard/Diagnostics route wrapper。
   - P4.3c：抽 Devices/Files/Remote route wrapper，处理跨页入口。
   - P4.3d：抽 Updates/Logs/Groups/Scheduled/Alerts/Admin route wrapper，最终瘦 App.vue。
 - **验证**：每个小步跑 `npm test -- --run`；最终加跑 `npm run build`。
 - **完成标准**：App.vue 降到约 150 行以内；不再按 route name 手写 12 个 Panel 分支。
+
+**P4.3a 执行结果（2026-06-23）**：
+
+- 新增 `src/stores/platformOverview.ts`，集中管理 `serverOverview`、`alertSummary`、`diagnosticsConfig`、`backendHealthStatus/backendHealthDetail` 与 `metricLoadWarning`。
+- `App.vue` 不再直接调用 `fetchHealth`、`getMonitoringOverview`、`getAlertSummary`、`getDiagnosticsConfig`；`loadPlatformData` 通过 store action 并发刷新 overview。
+- `logout()` 通过 store reset 清空平台概览态；Dashboard、Topbar、DiagnosticsPanel 的 props 仍由 App.vue 暂时转发，留给 P4.3b 继续下沉。
+- 验证结果：`npm run lint` / `npm run typecheck` / `npm test -- --run` / `npm run build` 均通过；测试为 26 passed，0 skipped，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
 
 ### P4.4 API domain.ts 按域继续拆分
 
