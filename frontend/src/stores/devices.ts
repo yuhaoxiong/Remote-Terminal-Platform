@@ -1,7 +1,24 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 
+import {
+  buildApiWebSocketUrl,
+  getAccessToken,
+  type DeviceRead,
+  type UpdateTaskDeviceRead,
+} from "../api/platform";
+
 export type DeviceStatus = "online" | "offline" | "degraded" | "unknown";
+
+/**
+ * 将后端返回的状态字符串标准化为 DeviceStatus。
+ */
+export function normalizeDeviceStatus(status: string): DeviceStatus {
+  if (status === "online" || status === "offline" || status === "degraded") {
+    return status;
+  }
+  return "unknown";
+}
 
 /**
  * 设备视图模型。承载列表展示与监控所需的全部字段(含最新指标快照),

@@ -58,7 +58,7 @@ import {
 } from "./api/platform";
 import { fetchHealth } from "./api/health";
 import { useAuthStore } from "./stores/auth";
-import { useDevicesStore, type Device, type DeviceStatus } from "./stores/devices";
+import { useDevicesStore, normalizeDeviceStatus, type Device, type DeviceStatus } from "./stores/devices";
 import { useGroupsStore, mapGroup } from "./stores/groups";
 import { useLogsStore, type AuditLog } from "./stores/logs";
 import {
@@ -290,13 +290,6 @@ const selectedVncSession = computed(() =>
 const deviceFormTitle = computed(() => (deviceEditId.value === null ? "创建设备" : "编辑设备"));
 const selectedGroupName = computed(() => groupNameFor(selectedGroupId.value));
 
-
-function normalizeDeviceStatus(status: string): DeviceStatus {
-  if (status === "online" || status === "offline" || status === "degraded") {
-    return status;
-  }
-  return "unknown";
-}
 
 function parseTags(value: string): string[] {
   return value
