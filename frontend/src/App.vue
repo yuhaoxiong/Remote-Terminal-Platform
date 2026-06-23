@@ -70,6 +70,7 @@ import DashboardPanel from "./components/DashboardPanel.vue";
 import DevicesPanel from "./components/DevicesPanel.vue";
 import LayoutShell from "./components/LayoutShell.vue";
 import LogsPanel from "./components/LogsPanel.vue";
+import RemotePanel from "./components/RemotePanel.vue";
 import ScheduledTaskPanel from "./components/ScheduledTaskPanel.vue";
 import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
 import UpdatesPanel from "./components/UpdatesPanel.vue";
@@ -965,150 +966,8 @@ onBeforeUnmount(() => {
           @view-devices="selectGroup"
         />
 
-        <section v-if="activeSection === 'remote'" class="page-section">
-          <div class="remote-workspace">
-            <aside class="remote-device-list" aria-label="远程设备列表">
-              <div class="remote-list-header">
-                <h3>远程设备</h3>
-                <el-input
-                  v-model="remoteDeviceSearch"
-                  data-testid="remote-device-search"
-                  :prefix-icon="Search"
-                  placeholder="按名称、序列号或项目搜索"
-                />
-              </div>
-              <button
-                v-for="device in remoteVisibleDevices"
-                :key="device.id"
-                type="button"
-                class="remote-device-row"
-                :class="{ 'is-selected': selectedRemoteDeviceId === device.id }"
-                :data-testid="`select-remote-device-${device.id}`"
-                @click="selectRemoteDevice(device)"
-              >
-                <span>
-                  <strong>{{ device.name }}</strong>
-                  <small>{{ device.device_sn }} · {{ device.project_id }}</small>
-                </span>
-                <span class="remote-port-tags">
-                  <el-tag size="small" :type="device.ssh_port ? 'success' : 'info'">SSH {{ device.ssh_port ?? "缺失" }}</el-tag>
-                  <el-tag size="small" :type="device.vnc_port ? 'success' : 'info'">VNC {{ device.vnc_port ?? "缺失" }}</el-tag>
-                </span>
-              </button>
-              <el-empty v-if="remoteVisibleDevices.length === 0" description="没有匹配的远程设备" />
-            </aside>
+                <RemotePanel v-if="activeSection === 'remote'" />
 
-            <section class="remote-console" aria-label="远程操作区">
-              <el-empty v-if="!selectedRemoteDevice" description="请选择设备" />
-              <template v-else>
-                <div class="panel-header remote-console-header">
-                  <div>
-                    <h3>{{ selectedRemoteDevice.name }}</h3>
-                    <p class="muted">
-                      {{ selectedRemoteDevice.device_sn }} · {{ selectedRemoteDevice.location }} · {{ selectedRemoteDevice.group }}
-                    </p>
-                  </div>
-                  <div class="remote-session-state">
-                    <el-tag :type="statusType[selectedRemoteDevice.status]">{{ deviceStatusText[selectedRemoteDevice.status] }}</el-tag>
-                    <el-tag :type="selectedRemoteDevice.ssh_credential_configured ? 'success' : 'warning'">
-                      {{ selectedRemoteDevice.ssh_credential_configured ? "凭据已配置" : "凭据未配置" }}
-                    </el-tag>
-                  </div>
-                </div>
-
-                <el-tabs class="remote-tabs">
-                  <el-tab-pane label="SSH 终端">
-                    <section class="remote-panel">
-                      <div class="panel-header">
-                        <div>
-                          <h3>SSH 终端</h3>
-                          <p class="muted">{{ selectedSshSession?.message ?? "未连接" }}</p>
-                        </div>
-                        <div class="remote-actions">
-                          <el-button
-                            :data-testid="`open-ssh-${selectedRemoteDevice.id}`"
-                            type="primary"
-                            :icon="Monitor"
-                            :disabled="!canOpenRemote(selectedRemoteDevice, 'ssh')"
-                            :loading="selectedSshSession?.status === 'connecting'"
-                            @click="startSshSession(selectedRemoteDevice)"
-                          >
-                            连接 SSH
-                          </el-button>
-                          <el-button
-                            :data-testid="`disconnect-ssh-${selectedRemoteDevice.id}`"
-                            :disabled="selectedSshSession?.status !== 'connected'"
-                            @click="disconnectSshSession(selectedRemoteDevice.id)"
-                          >
-                            断开 SSH
-                          </el-button>
-                        </div>
-                      </div>
-                      <p v-if="remoteUnavailableReason(selectedRemoteDevice, 'ssh')" class="remote-warning">
-                        {{ remoteUnavailableReason(selectedRemoteDevice, "ssh") }}
-                      </p>
-                      <div ref="sshTerminalHostRef" data-testid="ssh-terminal" class="ssh-terminal"></div>
-                      <pre v-if="selectedSshSession?.output" data-testid="ssh-transcript" class="terminal-output">{{
-                        selectedSshSession.output
-                      }}</pre>
-                    </section>
-                  </el-tab-pane>
-                  <el-tab-pane label="VNC 桌面">
-                    <section class="remote-panel">
-                      <div class="panel-header">
-                        <div>
-                          <h3>VNC 桌面</h3>
-                          <p class="muted">{{ selectedVncSession?.message ?? "未连接" }}</p>
-                        </div>
-                        <div class="remote-actions">
-                          <el-button
-                            :data-testid="`open-vnc-${selectedRemoteDevice.id}`"
-                            :icon="VideoPlay"
-                            :disabled="!canOpenRemote(selectedRemoteDevice, 'vnc')"
-                            :loading="selectedVncSession?.status === 'connecting'"
-                            @click="startVncSession(selectedRemoteDevice)"
-                          >
-                            连接 VNC
-                          </el-button>
-                          <el-button
-                            :data-testid="`disconnect-vnc-${selectedRemoteDevice.id}`"
-                            :disabled="selectedVncSession?.status !== 'connected'"
-                            @click="disconnectVncSession(selectedRemoteDevice.id)"
-                          >
-                            断开 VNC
-                          </el-button>
-                          <el-button
-                            :data-testid="`fullscreen-vnc-${selectedRemoteDevice.id}`"
-                            :disabled="selectedVncSession?.status !== 'connected'"
-                            @click="requestVncFullscreen"
-                          >
-                            全屏
-                          </el-button>
-                        </div>
-                      </div>
-                      <p v-if="remoteUnavailableReason(selectedRemoteDevice, 'vnc')" class="remote-warning">
-                        {{ remoteUnavailableReason(selectedRemoteDevice, "vnc") }}
-                      </p>
-                      <div ref="vncCanvasHostRef" data-testid="vnc-screen" class="vnc-screen">
-                        <span v-if="selectedVncSession?.status !== 'connected'">VNC 画面将在连接后显示</span>
-                      </div>
-                    </section>
-                  </el-tab-pane>
-                  <el-tab-pane label="连接日志">
-                    <section class="remote-panel">
-                      <h3>连接日志</h3>
-                      <div class="connection-log">
-                        <p>SSH：{{ selectedSshSession?.message ?? "未连接" }}</p>
-                        <p>VNC：{{ selectedVncSession?.message ?? "未连接" }}</p>
-                        <p>远程端口：SSH {{ selectedRemoteDevice.ssh_port ?? "缺失" }} / VNC {{ selectedRemoteDevice.vnc_port ?? "缺失" }}</p>
-                      </div>
-                    </section>
-                  </el-tab-pane>
-                </el-tabs>
-              </template>
-            </section>
-          </div>
-        </section>
 
         <UpdatesPanel
           v-if="activeSection === 'updates'"
