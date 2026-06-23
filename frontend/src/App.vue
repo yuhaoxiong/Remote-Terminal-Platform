@@ -59,8 +59,6 @@ import AppSidebar from "./components/AppSidebar.vue";
 import AppTopbar from "./components/AppTopbar.vue";
 import FilesPanel from "./components/FilesPanel.vue";
 import GroupsPanel from "./components/GroupsPanel.vue";
-import DiagnosticsPanel from "./components/DiagnosticsPanel.vue";
-import DashboardPanel from "./components/DashboardPanel.vue";
 import DevicesPanel from "./components/DevicesPanel.vue";
 import LayoutShell from "./components/LayoutShell.vue";
 import LogsPanel from "./components/LogsPanel.vue";
@@ -69,6 +67,8 @@ import ScheduledTaskPanel from "./components/ScheduledTaskPanel.vue";
 import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
 import UpdatesPanel from "./components/UpdatesPanel.vue";
 import UserManagementPanel from "./components/UserManagementPanel.vue";
+import DashboardView from "./views/DashboardView.vue";
+import DiagnosticsView from "./views/DiagnosticsView.vue";
 
 type SectionId = "dashboard" | "devices" | "groups" | "remote" | "files" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics" | "settings";
 type RemoteSessionStatus = "idle" | "connecting" | "ready" | "connected" | "failed" | "disconnected";
@@ -144,17 +144,12 @@ const { auditLogs, auditLogsTotal } = storeToRefs(logsStore);
 const { mapLog, prependLocalLog } = logsStore;
 const platformOverviewStore = usePlatformOverviewStore();
 const {
-  serverOverview,
-  alertSummary,
   diagnosticsConfig,
-  diagnosticsLoading,
   backendHealthStatus,
   backendHealthDetail,
-  metricLoadWarning,
 } = storeToRefs(platformOverviewStore);
 const {
   loadBackendHealth,
-  loadDiagnosticsConfig,
   refreshOverview,
   setMetricLoadWarning,
 } = platformOverviewStore;
@@ -772,12 +767,6 @@ async function selectSection(section: SectionId) {
   await router.push({ name: section });
 }
 
-watch([activeSection, authenticated], ([section, isAuthenticated]) => {
-  if (section === "diagnostics" && isAuthenticated) {
-    void loadDiagnosticsConfig();
-  }
-});
-
 watch([authenticated, currentUser, activeSection], ([isAuthenticated, user, section]) => {
   const navItem = navItems.find((item) => item.id === section);
   if (isAuthenticated && user && navItem?.adminOnly && user.role !== "admin") {
@@ -922,11 +911,8 @@ onBeforeUnmount(() => {
         </section>
 
         <RouterView v-slot="{ route }">
-          <DashboardPanel
+          <DashboardView
             v-if="route.name === 'dashboard'"
-            :server-overview="serverOverview"
-            :alert-summary="alertSummary"
-            :metric-load-warning="metricLoadWarning"
             :loading="loading"
             @refresh="loadPlatformData"
             @navigate="(section: string) => void selectSection(section as SectionId)"
@@ -973,12 +959,7 @@ onBeforeUnmount(() => {
 
           <LogsPanel v-if="route.name === 'logs'" />
 
-          <DiagnosticsPanel
-            v-if="route.name === 'diagnostics'"
-            :config="diagnosticsConfig"
-            :loading="diagnosticsLoading"
-            @refresh="loadDiagnosticsConfig"
-          />
+          <DiagnosticsView v-if="route.name === 'diagnostics'" />
         </RouterView>
   </LayoutShell>
 </template>

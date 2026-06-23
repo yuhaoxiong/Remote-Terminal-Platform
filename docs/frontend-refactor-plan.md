@@ -209,7 +209,7 @@
 | T2.5 迁移 remote 视图 | ✅ 完成 | `2da04dd` |
 | T3.1 删除死代码 Dashboard.vue | ✅ 完成 | `de23be2` |
 | T3.2 拆分 api/platform.ts | ✅ 完成（platform.ts 保留 re-export 壳，主体进入 core/domain） | `4d3e475`/`64b421a` |
-| T3.3 App.vue 减重到纯壳 | 🟡 部分完成（router-view 已接入；App.vue 仍保留编排层，当前约 926 行） | `174be3d` |
+| T3.3 App.vue 减重到纯壳 | 🟡 进行中（router-view 已接入；App.vue 仍保留部分编排层，当前约 888 行） | `174be3d`/后续 P4.3 |
 | T3.4 红线转正 | ✅ 完成（max-lines error，阈值按现状调整为 2500） | `87a3467` |
 
 ### 2026-06-23 续作校准
@@ -261,14 +261,14 @@
 
 ### P4.3 App.vue 编排层继续下沉，接近纯壳（🟡 进行中）
 
-- **问题**：`App.vue` 已接入 `<RouterView>`，但仍保留数据加载、跨 Panel props/events、远程入口等编排逻辑，当前约 906 行。
+- **问题**：`App.vue` 已接入 `<RouterView>`，但仍保留数据加载、跨 Panel props/events、远程入口等编排逻辑，当前约 888 行。
 - **改动**：
   - 建 `views/` 或 `route-shells/` wrapper：如 `DashboardView.vue`、`DevicesView.vue`、`UpdatesView.vue`、`DiagnosticsView.vue`，把对应 route 的 props/events 适配从 App.vue 迁出。
   - 将 `loadPlatformData`、`refreshLogsAndOverview`、overview/alertSummary/diagnosticsConfig 等跨页状态逐步下沉到 store 或 composable。
   - App.vue 只保留：登录态入口、LayoutShell、sidebar/topbar、全局错误/密码弹窗、`<RouterView>`。
 - **建议拆分**：
   - P4.3a：✅ 抽 `stores/platformOverview.ts`，承接 overview/alertSummary/backend health/diagnostics/metric warning。
-  - P4.3b：抽 Dashboard/Diagnostics route wrapper。
+  - P4.3b：✅ 抽 Dashboard/Diagnostics route wrapper。
   - P4.3c：抽 Devices/Files/Remote route wrapper，处理跨页入口。
   - P4.3d：抽 Updates/Logs/Groups/Scheduled/Alerts/Admin route wrapper，最终瘦 App.vue。
 - **验证**：每个小步跑 `npm test -- --run`；最终加跑 `npm run build`。
@@ -278,7 +278,14 @@
 
 - 新增 `src/stores/platformOverview.ts`，集中管理 `serverOverview`、`alertSummary`、`diagnosticsConfig`、`backendHealthStatus/backendHealthDetail` 与 `metricLoadWarning`。
 - `App.vue` 不再直接调用 `fetchHealth`、`getMonitoringOverview`、`getAlertSummary`、`getDiagnosticsConfig`；`loadPlatformData` 通过 store action 并发刷新 overview。
-- `logout()` 通过 store reset 清空平台概览态；Dashboard、Topbar、DiagnosticsPanel 的 props 仍由 App.vue 暂时转发，留给 P4.3b 继续下沉。
+- `logout()` 通过 store reset 清空平台概览态；Dashboard、Topbar、DiagnosticsPanel 的 props 当时仍由 App.vue 暂时转发，已在 P4.3b 继续下沉。
+- 验证结果：`npm run lint` / `npm run typecheck` / `npm test -- --run` / `npm run build` 均通过；测试为 26 passed，0 skipped，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
+
+**P4.3b 执行结果（2026-06-23）**：
+
+- 新增 `src/views/DashboardView.vue`，由 wrapper 从 `platformOverview` store 读取 dashboard 所需 overview/alert/metric warning，再向 `DashboardPanel` 转发。
+- 新增 `src/views/DiagnosticsView.vue`，由 wrapper 自取诊断配置并在挂载时加载，`App.vue` 不再直接渲染 `DiagnosticsPanel` 或处理其刷新事件。
+- `router/routes.ts` 的 dashboard/diagnostics 路由已指向 view wrapper；`App.vue` 对这两页只保留 refresh/navigate 的过渡编排。
 - 验证结果：`npm run lint` / `npm run typecheck` / `npm test -- --run` / `npm run build` 均通过；测试为 26 passed，0 skipped，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
 
 ### P4.4 API domain.ts 按域继续拆分
