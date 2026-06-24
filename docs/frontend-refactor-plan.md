@@ -209,7 +209,7 @@
 | T2.5 迁移 remote 视图 | ✅ 完成 | `2da04dd` |
 | T3.1 删除死代码 Dashboard.vue | ✅ 完成 | `de23be2` |
 | T3.2 拆分 api/platform.ts | ✅ 完成（platform.ts 保留 re-export 壳，主体进入 core/domain） | `4d3e475`/`64b421a` |
-| T3.3 App.vue 减重到纯壳 | 🟡 进行中（router-view 已接入；App.vue 仍保留部分编排层，当前约 888 行） | `174be3d`/后续 P4.3 |
+| T3.3 App.vue 减重到纯壳 | 🟡 进行中（页面区已收敛为单个 RouterView；App.vue 仍保留登录态、全局弹窗与 shell 编排，当前约 317 行） | `174be3d`/后续 P4.3 |
 | T3.4 红线转正 | ✅ 完成（max-lines error，阈值按现状调整为 2500） | `87a3467` |
 
 ### 2026-06-23 续作校准
@@ -261,7 +261,7 @@
 
 ### P4.3 App.vue 编排层继续下沉，接近纯壳（🟡 进行中）
 
-- **问题**：`App.vue` 已接入 `<RouterView>`，但仍保留数据加载与部分跨 Panel props/events 编排逻辑，当前约 596 行。
+- **问题**：`App.vue` 已接入 `<RouterView>`，但仍保留少量登录态、全局弹窗与 shell 编排逻辑，当前约 317 行。
 - **改动**：
   - 建 `views/` 或 `route-shells/` wrapper：如 `DashboardView.vue`、`DevicesView.vue`、`UpdatesView.vue`、`DiagnosticsView.vue`，把对应 route 的 props/events 适配从 App.vue 迁出。
   - 将 `loadPlatformData`、`refreshLogsAndOverview`、overview/alertSummary/diagnosticsConfig 等跨页状态逐步下沉到 store 或 composable。
@@ -270,7 +270,7 @@
   - P4.3a：✅ 抽 `stores/platformOverview.ts`，承接 overview/alertSummary/backend health/diagnostics/metric warning。
   - P4.3b：✅ 抽 Dashboard/Diagnostics route wrapper。
   - P4.3c：✅ 抽 Devices/Files/Remote route wrapper，处理跨页入口。
-  - P4.3d：抽 Updates/Logs/Groups/Scheduled/Alerts/Admin route wrapper，最终瘦 App.vue。
+  - P4.3d：✅ 抽 Updates/Logs/Groups/Scheduled/Alerts/Admin route wrapper，最终瘦 App.vue。
 - **验证**：每个小步跑 `npm test -- --run`；最终加跑 `npm run build`。
 - **完成标准**：App.vue 降到约 150 行以内；不再按 route name 手写 12 个 Panel 分支。
 
@@ -295,6 +295,14 @@
 - `RemotePanel` 消费 `devicesStore.remoteSessionRequest`，自动选择设备并启动 SSH/VNC，会话生命周期仍由 RemotePanel 自管理。
 - `App.vue` 删除旧的 remote section WebSocket/terminal/VNC 实现及卸载清理，远程连接职责彻底移入 RemotePanel；App.vue 约 888 → 596 行。
 - 新增 RemotePanel 测试覆盖跨路由 SSH 请求消费；验证结果：`npm run lint` / `npm run typecheck` / `npm test -- --run src/components/__tests__/RemotePanel.spec.ts` / `npm test -- --run` / `npm run build` 均通过；测试为 27 passed，0 skipped，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
+
+**P4.3d 执行结果（2026-06-24）**：
+
+- 新增 `src/stores/platformData.ts`，统一承接平台首屏加载、刷新 loading/operationError、登出数据清理和设备指标附加逻辑。
+- 新增 `src/views/GroupsView.vue`、`src/views/UpdatesView.vue`、`src/views/ScheduledView.vue`、`src/views/AlertsView.vue`、`src/views/SettingsView.vue`、`src/views/UsersView.vue`、`src/views/LogsView.vue`，并将对应路由指向 view wrapper。
+- `DashboardView` / `FilesView` 改为直接使用 `platformDataStore`，不再依赖 App 通过 RouterView slot 传 props/events。
+- `App.vue` 页面区域收敛为单个 `<RouterView />`，不再按 route name 手写 12 个 Panel/View 分支；App.vue 约 596 → 317 行。
+- 验证结果：`npm run typecheck` / `npm run lint` / `npm test -- --run` / `npm run build` 均通过；测试为 27 passed，0 skipped，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
 
 ### P4.4 API domain.ts 按域继续拆分
 

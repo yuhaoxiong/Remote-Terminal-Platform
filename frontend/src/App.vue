@@ -11,7 +11,6 @@ import {
   VideoPlay,
   WarningFilled,
 } from "@element-plus/icons-vue";
-import { ElMessageBox } from "element-plus";
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, type Component } from "vue";
 import { RouterView, useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
@@ -20,48 +19,17 @@ import {
   AUTH_EXPIRED_EVENT,
   changePassword,
   clearAuthTokens,
-  getCurrentUser,
-  listDevices,
-  listDeviceMetrics,
-  listGroups,
-  listUpdateTasks,
   loginAdmin,
   setAuthTokens,
-  type CurrentUserResponse,
-  type DeviceMetricRead,
-  type ListLogsParams,
-  type UpdateTaskRead,
 } from "./api/platform";
 import { useAuthStore } from "./stores/auth";
-import { useDevicesStore, mapDevice, normalizeDeviceStatus, type Device } from "./stores/devices";
-import { useGroupsStore, mapGroup, groupNameFor } from "./stores/groups";
-import { useLogsStore, type AuditLog } from "./stores/logs";
+import { useLogsStore } from "./stores/logs";
+import { usePlatformDataStore } from "./stores/platformData";
 import { usePlatformOverviewStore } from "./stores/platformOverview";
-import {
-  useUpdatesStore,
-  mapUpdateTask,
-  updateStatusText,
-  executionModeText,
-  type UpdateStatus,
-  type ExecutionMode,
-  type UpdateTask,
-} from "./stores/updates";
-import { formatTime } from "./utils/format";
-import AlertCenterPanel from "./components/AlertCenterPanel.vue";
+import { useUpdatesStore } from "./stores/updates";
 import AppSidebar from "./components/AppSidebar.vue";
 import AppTopbar from "./components/AppTopbar.vue";
-import GroupsPanel from "./components/GroupsPanel.vue";
 import LayoutShell from "./components/LayoutShell.vue";
-import LogsPanel from "./components/LogsPanel.vue";
-import ScheduledTaskPanel from "./components/ScheduledTaskPanel.vue";
-import SystemSettingsPanel from "./components/SystemSettingsPanel.vue";
-import UpdatesPanel from "./components/UpdatesPanel.vue";
-import UserManagementPanel from "./components/UserManagementPanel.vue";
-import DashboardView from "./views/DashboardView.vue";
-import DevicesView from "./views/DevicesView.vue";
-import DiagnosticsView from "./views/DiagnosticsView.vue";
-import FilesView from "./views/FilesView.vue";
-import RemoteView from "./views/RemoteView.vue";
 
 type SectionId = "dashboard" | "devices" | "groups" | "remote" | "files" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics" | "settings";
 
@@ -82,22 +50,11 @@ const navItems: Array<{ id: SectionId; label: string; icon: Component; group: "o
 
 const authStore = useAuthStore();
 const { authenticated, currentUser, isAdmin } = storeToRefs(authStore);
-const devicesStore = useDevicesStore();
-const {
-  devices,
-  deviceSearch,
-  selectedGroupId,
-  deviceStatusFilter,
-  deviceProjectFilter,
-  deviceTagFilter,
-  visibleDevices,
-} = storeToRefs(devicesStore);
-const groupsStore = useGroupsStore();
-const { groups } = storeToRefs(groupsStore);
-const { recalculateGroupCounts } = groupsStore;
 const logsStore = useLogsStore();
-const { auditLogs, auditLogsTotal } = storeToRefs(logsStore);
-const { mapLog, prependLocalLog } = logsStore;
+const { prependLocalLog } = logsStore;
+const platformDataStore = usePlatformDataStore();
+const { loading, operationError } = storeToRefs(platformDataStore);
+const { loadPlatformData, clearPlatformData, setOperationError, clearOperationError } = platformDataStore;
 const platformOverviewStore = usePlatformOverviewStore();
 const {
   diagnosticsConfig,
@@ -106,11 +63,8 @@ const {
 } = storeToRefs(platformOverviewStore);
 const {
   loadBackendHealth,
-  refreshOverview,
-  setMetricLoadWarning,
 } = platformOverviewStore;
 const updatesStore = useUpdatesStore();
-const { updateTasks, pendingTaskCount } = storeToRefs(updatesStore);
 const router = useRouter();
 const route = useRoute();
 
@@ -123,40 +77,12 @@ const loginUsername = ref("admin");
 const loginPassword = ref("");
 const loginError = ref("");
 const passwordChangeOpen = ref(false);
-const loading = ref(false);
-const operationError = ref("");
 
 const passwordForm = reactive({
   old_password: "",
   new_password: "",
   confirm_password: "",
 });
-
-
-const deviceStatusText: Record<string, string> = {
-  online: "在线",
-  offline: "离线",
-  degraded: "异常",
-  unknown: "未知",
-};
-
-const logStatusText: Record<string, string> = {
-  success: "成功",
-  completed: "已完成",
-  blocked: "已阻止",
-  generated: "已生成",
-  ready: "就绪",
-};
-
-const taskDeviceStatusText: Record<string, string> = {
-  pending: "等待执行",
-  running: "执行中",
-  success: "成功",
-  failed: "失败",
-  skipped: "已跳过",
-  canceled: "已取消",
-  completed: "已完成",
-};
 
 const visibleNavItems = computed(() => navItems.filter((item) => !item.adminOnly || isAdmin.value));
 const activeSectionTitle = computed(() => {
@@ -165,114 +91,6 @@ const activeSectionTitle = computed(() => {
 });
 const currentRoleLabel = computed(() => (isAdmin.value ? "管理员" : "运维人员"));
 const schedulerRunning = computed(() => diagnosticsConfig.value?.scheduler.running ?? null);
-
-function parseTags(value: string): string[] {
-  return value
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean);
-}
-
-function withLatestMetric(device: Device, metric: DeviceMetricRead | undefined): Device {
-  if (!metric) {
-    return {
-      ...device,
-      cpu: null,
-      memory: null,
-      disk: null,
-      metricRecordedAt: null,
-      metricStale: false,
-      metricLoadFailed: false,
-    };
-  }
-  return {
-    ...device,
-    status: normalizeDeviceStatus(metric.status || device.status),
-    cpu: metric.cpu_percent,
-    memory: metric.memory_percent,
-    disk: metric.disk_percent,
-    metricRecordedAt: metric.recorded_at,
-    metricStale: (() => {
-      if (!metric.recorded_at) return false;
-      const ts = new Date(metric.recorded_at).getTime();
-      return !Number.isNaN(ts) && Date.now() - ts > 10 * 60 * 1000;
-    })(),
-    metricLoadFailed: false,
-  };
-}
-
-async function attachLatestMetrics(sourceDevices: Device[]): Promise<Device[]> {
-  let failedCount = 0;
-  const enriched = await Promise.all(
-    sourceDevices.map(async (device) => {
-      try {
-        const response = await listDeviceMetrics(device.id, 1);
-        return withLatestMetric(device, response.items[0]);
-      } catch (error) {
-        if (isAuthFailure(error)) {
-          throw error;
-        }
-        failedCount += 1;
-        return { ...device, metricLoadFailed: true };
-      }
-    }),
-  );
-  setMetricLoadWarning(failedCount > 0 ? `有 ${failedCount} 台设备指标加载失败` : "");
-  return enriched;
-}
-
-function isAuthFailure(error: unknown): boolean {
-  const status = (error as { response?: { status?: number } }).response?.status;
-  return status === 401;
-}
-
-function isPermissionFailure(error: unknown): boolean {
-  const status = (error as { response?: { status?: number } }).response?.status;
-  return status === 403;
-}
-
-function isGatewayFailure(error: unknown): boolean {
-  const status = (error as { response?: { status?: number } }).response?.status;
-  return status === 502 || status === 503 || status === 504;
-}
-
-async function loadPlatformData() {
-  loading.value = true;
-  operationError.value = "";
-  try {
-    const [userResponse, groupResponse, deviceResponse, updateResponse] = await Promise.all([
-      getCurrentUser(),
-      listGroups(),
-      listDevices(),
-      listUpdateTasks(),
-      refreshOverview(),
-    ]);
-    currentUser.value = userResponse;
-    const mappedGroups = groupResponse.items.map((group) => mapGroup(group, []));
-    const mappedDevices = deviceResponse.items.map((device) => mapDevice(device, mappedGroups));
-    devices.value = await attachLatestMetrics(mappedDevices);
-    groups.value = groupResponse.items.map((group) => mapGroup(group, devices.value));
-    updateTasks.value = updateResponse.items.map(mapUpdateTask);
-  } catch (error) {
-    if (isAuthFailure(error)) {
-      operationError.value = "登录状态已过期，请重新登录。";
-      clearAuthTokens();
-      authenticated.value = false;
-      return;
-    }
-    if (isPermissionFailure(error)) {
-      operationError.value = "当前账号无权限加载该数据，请联系管理员调整权限。";
-      return;
-    }
-    operationError.value = isGatewayFailure(error) ? "后端服务不可达或代理配置错误，请检查 Nginx /api 反向代理和后端进程。" : "无法从后端加载平台数据，请确认后端服务已启动。";
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function refreshLogsAndOverview() {
-  await refreshOverview();
-}
 
 async function login() {
   if (!loginUsername.value.trim()) {
@@ -303,19 +121,13 @@ async function login() {
 function logout() {
   authenticated.value = false;
   clearAuthTokens();
-  currentUser.value = null;
   loginPassword.value = "";
-  devices.value = [];
-  groups.value = [];
-  updateTasks.value = [];
-  auditLogs.value = [];
-  auditLogsTotal.value = 0;
-  platformOverviewStore.reset();
+  clearPlatformData();
 }
 
 function handleAuthExpired() {
   logout();
-  operationError.value = "登录状态已过期，请重新登录。";
+  setOperationError("登录状态已过期，请重新登录。");
   loginError.value = "登录状态已过期，请重新登录。";
 }
 
@@ -354,67 +166,19 @@ async function savePasswordChange() {
   }
 }
 
-function selectGroup(groupId: number | null) {
-  selectedGroupId.value = groupId;
-  void selectSection("devices");
-}
-
-function targetSummaryForFilter(targetFilter: Record<string, unknown>): string {
-  const deviceIds = Array.isArray(targetFilter.device_ids) ? targetFilter.device_ids : [];
-  if (deviceIds.length > 0) {
-    return `手动选择 ${deviceIds.length} 台设备`;
-  }
-  const parts: string[] = [];
-  if (typeof targetFilter.project_id === "string" && targetFilter.project_id) {
-    parts.push(`项目 ${targetFilter.project_id}`);
-  }
-  if (typeof targetFilter.group_id === "number") {
-    parts.push(`分组 ${groupNameFor(targetFilter.group_id)}`);
-  }
-  if (typeof targetFilter.status === "string" && targetFilter.status) {
-    parts.push(`状态 ${deviceStatusText[normalizeDeviceStatus(targetFilter.status)]}`);
-  }
-  const tags = Array.isArray(targetFilter.tags) ? targetFilter.tags.filter((tag): tag is string => typeof tag === "string") : [];
-  if (tags.length > 0) {
-    parts.push(`标签 ${tags.join(", ")}`);
-  }
-  return parts.length > 0 ? parts.join("，") : "全部设备";
-}
-
-function targetSummaryForTask(task: UpdateTask): string {
-  return `${targetSummaryForFilter(task.target_filter)}，匹配 ${task.matched} 台`;
-}
-
-async function confirmRealSshTask(command: string, target: string): Promise<boolean> {
-  try {
-    await ElMessageBox.confirm(
-      `将通过 SSH 在目标设备上真实执行命令。\n目标：${target}\n命令：${command}\n建议先使用演练模式确认范围。`,
-      "确认真实 SSH 执行",
-      {
-        type: "warning",
-        confirmButtonText: "确认执行",
-        cancelButtonText: "取消",
-      },
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function selectSection(section: SectionId) {
   if ((section === "users" || section === "settings") && !isAdmin.value) {
-    operationError.value = section === "users" ? "当前账号无权限访问用户管理。" : "当前账号无权限访问系统设置。";
+    setOperationError(section === "users" ? "当前账号无权限访问用户管理。" : "当前账号无权限访问系统设置。");
     return;
   }
-  operationError.value = "";
+  clearOperationError();
   await router.push({ name: section });
 }
 
 watch([authenticated, currentUser, activeSection], ([isAuthenticated, user, section]) => {
   const navItem = navItems.find((item) => item.id === section);
   if (isAuthenticated && user && navItem?.adminOnly && user.role !== "admin") {
-    operationError.value = section === "users" ? "当前账号无权限访问用户管理。" : "当前账号无权限访问系统设置。";
+    setOperationError(section === "users" ? "当前账号无权限访问用户管理。" : "当前账号无权限访问系统设置。");
     void router.replace({ name: "dashboard" });
   }
 });
@@ -548,49 +312,6 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <RouterView v-slot="{ route }">
-          <DashboardView
-            v-if="route.name === 'dashboard'"
-            :loading="loading"
-            @refresh="loadPlatformData"
-            @navigate="(section: string) => void selectSection(section as SectionId)"
-          />
-
-          <DevicesView v-if="route.name === 'devices'" />
-
-          <FilesView
-            v-if="route.name === 'files'"
-            :loading="loading"
-            @refresh="loadPlatformData"
-          />
-
-          <GroupsPanel
-            v-if="route.name === 'groups'"
-            @changed="refreshLogsAndOverview"
-            @view-devices="selectGroup"
-          />
-
-          <RemoteView v-if="route.name === 'remote'" />
-
-          <UpdatesPanel
-            v-if="route.name === 'updates'"
-            :confirm-real-ssh-task="confirmRealSshTask"
-            :target-summary-for-filter="targetSummaryForFilter"
-            :target-summary-for-task="targetSummaryForTask"
-            @changed="refreshLogsAndOverview"
-          />
-
-          <ScheduledTaskPanel v-if="route.name === 'scheduled'" :can-manage="isAdmin" />
-
-          <AlertCenterPanel v-if="route.name === 'alerts'" :can-manage="isAdmin" />
-
-          <SystemSettingsPanel v-if="route.name === 'settings' && isAdmin" />
-
-          <UserManagementPanel v-if="route.name === 'users' && isAdmin" />
-
-          <LogsPanel v-if="route.name === 'logs'" />
-
-          <DiagnosticsView v-if="route.name === 'diagnostics'" />
-        </RouterView>
+        <RouterView />
   </LayoutShell>
 </template>

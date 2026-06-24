@@ -1,15 +1,12 @@
 <script setup lang="ts">
 import FilesPanel from "../components/FilesPanel.vue";
+import { usePlatformDataStore } from "../stores/platformData";
+import { storeToRefs } from "pinia";
 
-defineProps<{
-  loading: boolean;
-}>();
-
-const emit = defineEmits<{
-  refresh: [];
-}>();
+const platformDataStore = usePlatformDataStore();
+const { loading } = storeToRefs(platformDataStore);
 </script>
 
 <template>
-  <FilesPanel :loading="loading" @refresh="emit('refresh')" />
+  <FilesPanel :loading="loading" @refresh="platformDataStore.loadPlatformData" />
 </template>
