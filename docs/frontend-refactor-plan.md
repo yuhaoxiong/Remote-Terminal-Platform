@@ -304,16 +304,16 @@
 - `App.vue` 页面区域收敛为单个 `<RouterView />`，不再按 route name 手写 12 个 Panel/View 分支；App.vue 约 596 → 317 行。
 - 验证结果：`npm run typecheck` / `npm run lint` / `npm test -- --run` / `npm run build` 均通过；测试为 27 passed，0 skipped，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
 
-### P4.4 API domain.ts 按域继续拆分
+### P4.4 API domain.ts 按域继续拆分（✅ 已完成）
 
 - **问题**：`api/platform.ts` 已是 re-export 壳，但 `api/domain.ts` 仍接近 1000 行，API 聚合债务只是从 platform 文件转移到 domain 文件。
 - **改动顺序**：
-  - 先拆纯类型：`api/types/devices.ts`、`api/types/updates.ts`、`api/types/alerts.ts`、`api/types/system.ts`。
-  - 再拆函数：`api/devices.ts`、`api/groups.ts`、`api/logs.ts`、`api/updates.ts`、`api/alerts.ts`、`api/system.ts`、`api/remote.ts`。
+  - ✅ 按业务域拆为 `api/domains/auth.ts`、`users.ts`、`devices.ts`、`groups.ts`、`logs.ts`、`monitoring.ts`、`updates.ts`、`files.ts`、`scheduled.ts`、`remote.ts`、`diagnostics.ts`、`settings.ts`、`alerts.ts`、`frps.ts`。
+  - ✅ 每个域文件同时承载该域类型与 API 函数，避免纯类型和函数拆在两处导致来回跳转。
   - 保留 `api/platform.ts` 作为兼容出口，统一 re-export，先不改调用方 import。
-  - 每拆一域用 `rg` 确认类型/函数只从新域或兼容出口导出一次。
-- **验证**：每拆一域跑 `npm run typecheck`；阶段末跑 `npm test -- --run`。
-- **完成标准**：单个 API 文件低于 max-lines 红线；platform 仍兼容旧 import；domain.ts 删除或仅保留极少聚合导出。
+  - ✅ `api/domain.ts` 收敛为 15 行 re-export hub；最大域文件为 `api/domains/alerts.ts`，约 284 行。
+- **验证**：`npm run typecheck` / `npm run lint` / `npm test -- --run` / `npm run build` 均通过；测试为 27 passed，0 skipped，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
+- **完成标准**：✅ 单个 API 文件低于 max-lines 红线；platform 仍兼容旧 import；domain.ts 仅保留聚合导出。
 
 ### P4.5 测试文件瘦身与 lint warning 清零
 
@@ -340,7 +340,7 @@
 
 1. **P4.1 RemotePanel 测试补齐**：✅ 已完成，skipped 已清零，最高风险 WebSocket 生命周期已有组件级安全网。
 2. **P4.2 路由权限守卫**：✅ 已完成，URL 直达权限边界已补齐。
-3. **P4.3 App.vue 纯壳化**：在测试和权限稳定后，再继续迁走编排层。
-4. **P4.4 API domain 拆分**：独立于 UI，可在 App 瘦身后按域推进。
-5. **P4.5 测试瘦身**：伴随 P4.1/P4.3 增量迁移，最后清 warning。
-6. **P4.6 构建体积优化**：放在路由和 wrapper 稳定后处理，避免与结构重构交织。
+3. **P4.3 App.vue 纯壳化**：✅ 页面区已收敛为单个 RouterView，App 仍保留登录态与全局壳。
+4. **P4.4 API domain 拆分**：✅ 已完成，domain.ts 仅保留聚合导出。
+5. **P4.5 测试瘦身**：下一步优先清理 `app.spec.ts` 的 2 个 max-lines warning。
+6. **P4.6 构建体积优化**：放在测试瘦身后处理，避免与结构重构交织。
