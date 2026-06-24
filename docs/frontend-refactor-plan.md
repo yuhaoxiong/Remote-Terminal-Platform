@@ -1,6 +1,20 @@
 # 前端"立骨架"重构计划
 
+## 0. 当前状态快照（2026-06-24）
+
+> 本文前半部分保留的是重构启动时的历史诊断，用于说明债务来源和迁移路径；当前真实状态以本节与 Phase 4 执行结果为准。
+
+- 分支：`refactor/frontend-skeleton` 已推送到 GitHub；合并前以 `git log --oneline` 的最新提交为准。
+- `App.vue`：已从 2873 行降至约 317 行；页面区域已收敛为单个 `<RouterView />`，不再按 route name 手写 12 个 section 分支。
+- 路由：生产路由使用懒加载 `() => import(...)`；测试路由保留同步组件，并共享同一份 route meta。
+- 状态层：已建立 `auth`、`devices`、`groups`、`logs`、`platformOverview`、`platformData`、`updates` 等 Pinia store。
+- API：`api/platform.ts` 保持兼容 re-export；`api/domain.ts` 仅保留 15 行聚合导出，实际 API 已拆入 `api/domains/*`。
+- 测试：`npm run lint` 为 0 warning；`npm test -- --run` 为 27 passed、0 skipped；`app.spec.ts` 已抽出 fixture/helper。
+- 构建：`npm run build` 通过，Vite 大 chunk warning 已消除；主入口 JS 约 28.37 kB，较大依赖集中在显式 vendor chunk。
+
 ## 1. 背景与动机
+
+> 本节是重构启动时的历史背景，非当前状态。
 
 后端经过 23 个 Wave 迭代，分层架构（`router → service → model`）始终清晰，最大文件约 515 行，工程质量稳定。但前端积累了严重的架构债务：
 
@@ -16,6 +30,8 @@
 本次重构的核心价值，不在于拆完这 2873 行，而在于**立起一根承重梁，使后续新功能无处可堆、只能各归其位**，从而把"被迫的救火式大重构"转为"低成本的日常小重构"。
 
 ## 2. 现状诊断：`App.vue` 的 12 个 section
+
+> 本节记录的是重构启动时的历史现状；所有 section 当前均已迁入 route view / wrapper。
 
 ### 已组件化（4 个，template 中仅一行委托）
 
@@ -336,6 +352,66 @@
   - ✅ 对 RemotePanel 的 xterm/noVNC 依赖保持按需加载，远程连接重依赖不进入主入口。
 - **验证**：`npm run lint` / `npm run typecheck` / `npm test -- --run` / `npm run build` 均通过；测试为 27 passed，0 skipped。构建不再提示 Vite 大 chunk warning，主入口 JS 约 28.37 kB，页面 chunk 约 2.34-21.94 kB；`vendor-element` 约 717.99 kB、`vendor-echarts` 约 1014.19 kB，为显式 vendor chunk，`chunkSizeWarningLimit` 调整为 1100。
 - **完成标准**：✅ 首屏主 chunk 明显下降；Vite 大 chunk warning 已消除，剩余大体积集中在可解释 vendor chunk。
+
+## 8. 后续优化 Backlog（Phase 5+）
+
+> Phase 4 已完成"立骨架"与主要收尾；以下事项不阻塞本次重构合并，可按风险和收益独立排期。
+
+### B5.1 App.vue 进一步纯壳化
+
+- **现状**：`App.vue` 当前约 317 行，页面区已是单个 `<RouterView />`，但仍保留登录页模板、密码修改弹窗、导航定义、auth expired 处理和 topbar/sidebar 编排。
+- **建议**：
+  - 抽 `LoginView.vue` 或 `LoginPanel.vue`，承接未登录态模板和 login 表单状态。
+  - 抽 `PasswordChangeDialog.vue`，承接密码修改表单与校验。
+  - 抽 `appNavigation.ts` 或 `useAppShell()`，集中维护 nav items、active section、标题和权限提示。
+- **目标**：`App.vue` 降到约 150 行以内，只保留登录态切换、LayoutShell、全局提示和 `<RouterView />`。
+
+### B5.2 测试继续分层
+
+- **现状**：`app.spec.ts` 已从超 2000 行降至约 1116 行，lint warning 清零，但仍承担较多页面细节流程。
+- **建议**：
+  - 为 `UserManagementPanel`、`SystemSettingsPanel`、`AlertCenterPanel`、`ScheduledTaskPanel`、`DeviceFilePanel` 等补组件级 spec。
+  - App 集成测试只保留登录、权限、路由守卫、核心跨页入口和全局错误流程。
+- **目标**：App spec 继续瘦身，组件行为测试更贴近所有权边界。
+
+### B5.3 Element Plus 按需化
+
+- **现状**：`main.ts` 仍全量 `app.use(ElementPlus)` 并全局引入 Element Plus CSS；构建中 `vendor-element` 约 717.99 kB。
+- **建议**：
+  - 评估 `unplugin-vue-components` / `unplugin-auto-import` 或手动局部注册 Element Plus 组件。
+  - 将 Element Plus 样式改为按需引入，避免首屏携带完整 UI 库 CSS。
+- **目标**：降低 `vendor-element` 与全局 CSS 体积，同时保持组件使用体验稳定。
+
+### B5.4 Dashboard 图表轻量化
+
+- **现状**：Dashboard 只使用两个饼图，但 `vendor-echarts` 仍约 1014.19 kB。当前已作为显式 vendor chunk 懒加载，不再阻塞首屏主入口。
+- **建议**：
+  - 继续尝试更细粒度 ECharts 入口，或评估轻量 chart/canvas 实现。
+  - 若保留 ECharts，明确其为 Dashboard 按需 vendor，不再追求拆到 500 kB 以下。
+- **目标**：在不牺牲图表能力的前提下降低 Dashboard 首次打开成本。
+
+### B5.5 远程连接样式按需化
+
+- **现状**：xterm/noVNC JS 已在 `RemotePanel` 中按需加载，但 `@xterm/xterm/css/xterm.css` 仍由 `main.ts` 全局引入。
+- **建议**：
+  - 将 xterm CSS 迁入 RemotePanel 路由/组件加载路径，或改成 Remote 专用样式入口。
+- **目标**：进一步减少非 Remote 页面首屏 CSS。
+
+### B5.6 API import 语义化
+
+- **现状**：`api/platform.ts` 仍作为兼容出口，调用方大多继续从 `../api/platform` 导入。
+- **建议**：
+  - 按域逐步把调用方改为 `api/domains/devices`、`api/domains/updates`、`api/domains/alerts` 等直接导入。
+  - 保留 `platform.ts` 一段时间作为兼容层，待调用方迁完后再评估删除。
+- **目标**：让依赖关系更清晰，减少平台级聚合出口继续吸附新 API。
+
+### B5.7 文档归档与状态页
+
+- **现状**：本计划文档同时包含历史诊断、执行过程和当前状态，信息完整但较长。
+- **建议**：
+  - 后续可新增 `docs/frontend-current-architecture.md`，只描述当前路由/store/API/test/build 架构。
+  - 本文档保留为迁移历史与决策记录。
+- **目标**：新加入维护者可先读当前架构，再按需回看重构历史。
 
 ### Phase 4 推荐顺序
 
