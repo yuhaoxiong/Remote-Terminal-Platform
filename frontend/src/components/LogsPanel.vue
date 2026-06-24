@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Document } from "@element-plus/icons-vue";
-import { reactive, ref } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { storeToRefs } from "pinia";
 
 import { exportLogs } from "../api/platform";
@@ -33,26 +33,24 @@ const logStatusText: Record<string, string> = {
   ready: "就绪",
 };
 
-async function applyLogFilters() {
-  logPagination.offset = 0;
-  await loadLogs({
+function buildLogQueryParams() {
+  return {
     offset: logPagination.offset,
     limit: logPagination.limit,
     action: logFilters.action || undefined,
     target_type: logFilters.target_type || undefined,
     status: logFilters.status || undefined,
-  });
+  };
+}
+
+async function applyLogFilters() {
+  logPagination.offset = 0;
+  await loadLogs(buildLogQueryParams());
 }
 
 async function handleLogPageChange(page: number) {
   logPagination.offset = (page - 1) * logPagination.limit;
-  await loadLogs({
-    offset: logPagination.offset,
-    limit: logPagination.limit,
-    action: logFilters.action || undefined,
-    target_type: logFilters.target_type || undefined,
-    status: logFilters.status || undefined,
-  });
+  await loadLogs(buildLogQueryParams());
 }
 
 async function downloadLogs() {
@@ -77,6 +75,10 @@ function openAuditLogDetail(log: AuditLog) {
   selectedAuditLog.value = log;
   auditLogDetailOpen.value = true;
 }
+
+onMounted(() => {
+  void loadLogs(buildLogQueryParams());
+});
 </script>
 
 <template>

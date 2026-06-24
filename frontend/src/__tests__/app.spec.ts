@@ -722,7 +722,11 @@ it("shows sync config, filters logs, exports csv, and loads diagnostics", async 
   expect(api.syncDeviceConfig).toHaveBeenCalledWith(1);
   expect(wrapper.text()).toContain("server_addr");
 
+  api.listLogs.mockClear();
   await navigateTo(router, "logs");
+  await waitUntil(() => expect(api.listLogs).toHaveBeenCalledWith({ offset: 0, limit: 50 }));
+  expect(wrapper.text()).toContain("SN-EDGE-001");
+
   await wrapper.find('[data-testid="log-action"] input').setValue("device.create");
   await wrapper.find('[data-testid="log-target-type"] input').setValue("device");
   await wrapper.find('[data-testid="log-status"] input').setValue("success");
