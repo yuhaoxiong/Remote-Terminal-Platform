@@ -193,7 +193,10 @@ textarea {
 
 .page-section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .stat-grid {
@@ -254,12 +257,18 @@ textarea {
 
 .panel,
 .form-panel {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 18px;
 }
 
 .sub-panel,
 .nested-panel,
 .preview-box {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 14px;
   border: 1px solid #d8e0ea;
   border-radius: 8px;
@@ -422,6 +431,8 @@ textarea {
 }
 
 .table-panel {
+  max-width: 100%;
+  box-sizing: border-box;
   overflow: hidden;
 }
 
@@ -1012,6 +1023,8 @@ body {
 
 .content {
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 28px;
 }
 
@@ -1121,7 +1134,13 @@ body {
 }
 
 .table-panel {
+  max-width: 100%;
+  box-sizing: border-box;
   overflow: hidden;
+}
+
+.el-table {
+  max-width: 100%;
 }
 
 .el-table th.el-table__cell {
