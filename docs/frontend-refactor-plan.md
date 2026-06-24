@@ -315,16 +315,16 @@
 - **验证**：`npm run typecheck` / `npm run lint` / `npm test -- --run` / `npm run build` 均通过；测试为 27 passed，0 skipped，仍保留已知 lint 超长函数 warning 和 Vite 大 chunk warning。
 - **完成标准**：✅ 单个 API 文件低于 max-lines 红线；platform 仍兼容旧 import；domain.ts 仅保留聚合导出。
 
-### P4.5 测试文件瘦身与 lint warning 清零
+### P4.5 测试文件瘦身与 lint warning 清零（✅ 已完成）
 
 - **问题**：`src/__tests__/app.spec.ts` 超 2000 行，`lint` 仍有 2 个 `max-lines-per-function` warning。
 - **改动**：
-  - 抽 `tests/fixtures/platform.ts`：mock API 响应、设备/分组/日志/更新任务 fixture。
-  - 抽 `tests/helpers/app.ts`：`mountApp`、`flushAsync`、`navigateTo`、登录 helper。
+  - ✅ 抽 `src/__tests__/fixtures/platform.ts`：mock API 响应、设备/分组/日志/更新任务 fixture，并按 API 域拆成多个小 setup 函数。
+  - ✅ 抽 `src/__tests__/helpers/app.ts`：`mountApp`、`flushAsync`、`navigateTo`、`waitUntil`，让 App spec 只保留用例本身和本地 mock 壳。
   - 将已组件化 Panel 的细节测试逐步迁到组件级 spec，App spec 只保留登录、布局、权限、核心跨页流程。
-  - 将 `max-lines-per-function` warning 降到 0 后，再考虑把规则从 warn 升到 error。
-- **验证**：`npm run lint` 0 warning（或仅保留明确豁免）；`npm test -- --run`。
-- **完成标准**：App spec 可扫描、fixture 可复用、lint warning 清零。
+  - ✅ `max-lines-per-function` warning 已降到 0，未添加 eslint 豁免。
+- **验证**：`npm run lint` 为 0 warning；`npm run typecheck` / `npm test -- --run` / `npm run build` 均通过；测试为 27 passed，0 skipped，仍保留 Vite 大 chunk warning。
+- **完成标准**：✅ App spec 可扫描、fixture 可复用、lint warning 清零。
 
 ### P4.6 构建体积优化
 
@@ -342,5 +342,5 @@
 2. **P4.2 路由权限守卫**：✅ 已完成，URL 直达权限边界已补齐。
 3. **P4.3 App.vue 纯壳化**：✅ 页面区已收敛为单个 RouterView，App 仍保留登录态与全局壳。
 4. **P4.4 API domain 拆分**：✅ 已完成，domain.ts 仅保留聚合导出。
-5. **P4.5 测试瘦身**：下一步优先清理 `app.spec.ts` 的 2 个 max-lines warning。
-6. **P4.6 构建体积优化**：放在测试瘦身后处理，避免与结构重构交织。
+5. **P4.5 测试瘦身**：✅ 已完成，`app.spec.ts` 的 2 个 max-lines warning 已清零。
+6. **P4.6 构建体积优化**：下一步处理 Vite 大 chunk warning。
