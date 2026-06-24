@@ -1,139 +1,138 @@
-# OpenClaw Deployment Runbook
+# OpenClaw 部署运行手册
 
-## 1. Deployment Target
+本文档用于指导 OpenClaw 将当前远程终端平台部署到一台 Linux 服务器，并配置“推送到 Git 后自动拉取、构建、重启服务”的自动部署流程。
 
-Deploy the current remote terminal platform to one Linux server with:
+## 1. 部署目标
 
-- FastAPI backend managed by `systemd`
-- Vue frontend built into static files and served by Nginx
-- Nginx reverse proxy for REST API and WebSocket API
-- SQLite database stored with the backend runtime data
-- `frps` reachable from the backend for device SSH/VNC tunnels
+在一台服务器上部署：
 
-The repository does not currently provide a Dockerfile or Compose stack. Use the
-`systemd + Nginx` path below unless the operator explicitly requests a container
-deployment design.
+- FastAPI 后端，由 `systemd` 托管。
+- Vue 3 前端，构建为静态文件后由 Nginx 托管。
+- Nginx 统一提供前端、REST API 和 WebSocket 入口。
+- SQLite 数据库和上传文件存放在代码目录之外。
+- Git 推送到指定分支后，服务器自动执行部署脚本。
 
-## 2. Project Interpretation
+推荐拓扑：
 
-This project is a Web remote management platform for Debian edge devices.
+```text
+Browser
+  |
+  | http/https
+  v
+Nginx
+  |-- /                 -> /opt/edge-platform/frontend/dist
+  |-- /api/             -> http://127.0.0.1:8000
+  |-- /api/ws/          -> http://127.0.0.1:8000 WebSocket
+                              |
+                              v
+                        FastAPI + SQLite
+```
 
-Runtime topology:
+当前仓库没有 Dockerfile 或 Compose 文件。除非明确要求容器化，否则 OpenClaw 应使用本文档的 `systemd + Nginx + Git 自动部署` 方案。
 
-1. The browser loads the Vue frontend from Nginx.
-2. Frontend REST calls use the same-domain `/api` prefix.
-3. Frontend SSH/VNC/update-task progress sessions use same-domain `/api/ws/...`
-   WebSocket endpoints.
-4. Nginx proxies `/api/` and `/api/ws/` to FastAPI on `127.0.0.1:8000`.
-5. FastAPI persists platform state in SQLite and opens SSH/SFTP/VNC traffic
-   through frp-exposed device ports.
-6. APScheduler runs inside the backend process for scheduled tasks.
+## 2. OpenClaw 执行前需确认的信息
 
-Default code behavior to keep in mind:
+OpenClaw 开始改服务器前，先向操作者确认或填充以下变量。
 
-- Backend API prefix is `/api`.
-- Backend binds to SQLite at `backend/data/platform.db` when the service working
-  directory is `backend/`.
-- Startup runs Alembic migration to head, then keeps `create_all` and SQLite
-  compatibility guards.
-- Default admin credentials and default secrets are development defaults and
-  must be replaced before production-like use.
-- Device file access defaults to a local mock backend; real device file access
-  requires `FILE_BACKEND=sftp`.
-
-## 3. Inputs OpenClaw Must Collect
-
-Do not begin the server mutation steps until these values are known:
-
-| Variable | Meaning | Example |
+| 变量 | 含义 | 示例 |
 | --- | --- | --- |
-| `REPO_URL` | Git repository URL or source package path | `<repo-url>` |
-| `DEPLOY_REF` | Branch, tag, or commit to deploy | `main` |
-| `APP_ROOT` | Server checkout path | `/opt/edge-platform` |
-| `APP_USER` | Linux service user | `edge-platform` |
-| `DOMAIN` | Public frontend/API domain | `edge.example.com` |
-| `FRPS_HOST` | Host reachable from backend for frps device ports | `127.0.0.1` |
-| `NGINX_SITE` | Nginx site file path | `/etc/nginx/sites-available/edge-platform` |
-| `BACKUP_ROOT` | SQLite backup path outside repo | `/var/backups/edge-platform` |
+| `REPO_URL` | Git 仓库地址 | `git@github.com:org/repo.git` |
+| `DEPLOY_BRANCH` | 自动部署分支 | `main` |
+| `APP_ROOT` | 服务器代码目录 | `/opt/edge-platform` |
+| `APP_USER` | 运行服务的 Linux 用户 | `edge-platform` |
+| `DOMAIN` | 访问域名或服务器 IP | `edge.example.com` |
+| `BACKEND_PORT` | 后端本地监听端口 | `8000` |
+| `FRPS_HOST` | 后端可访问的 frps 地址 | `127.0.0.1` |
+| `DATA_ROOT` | 数据目录 | `/var/lib/edge-platform` |
+| `BACKUP_ROOT` | SQLite 备份目录 | `/var/backups/edge-platform` |
 
-OpenClaw must generate or receive these secret values:
+必须生成或由操作者提供的密钥：
 
-- `JWT_SECRET_KEY`: long random secret, not committed to Git.
-- `DEFAULT_ADMIN_PASSWORD`: initial non-default admin password.
-- `CREDENTIAL_ENCRYPTION_KEY`: one Fernet key. Preserve it across redeploys.
-- Optional stricter SSH host key settings:
-  - `SSH_HOST_KEY_POLICY=warning` or `reject`
-  - `SSH_KNOWN_HOSTS_FILE=/etc/edge-platform/known_hosts`
+- `JWT_SECRET_KEY`：JWT 签名密钥，必须是长随机字符串。
+- `DEFAULT_ADMIN_PASSWORD`：首次管理员密码，不能使用默认值 `admin`。
+- `CREDENTIAL_ENCRYPTION_KEY`：Fernet 密钥，用于加密设备 SSH 密码和 Webhook 敏感配置。该密钥丢失后，已加密的数据无法解密。
 
-## 4. Server Prerequisites
+如果以下信息暂时未知，OpenClaw 可以先完成基础部署，但必须在最终报告中列为待补项：
 
-Target server assumptions:
+- 正式域名和 TLS 证书方案。
+- frps 真实地址和端口开放策略。
+- 是否启用真实设备 SFTP 文件管理。
+- 是否需要更严格的 SSH known_hosts 校验。
 
-- Linux server with `systemd`
-- Nginx installed
-- Git installed
-- Python 3.12 available as `python3.12`
-- Node.js and npm available to build the Vite frontend
-- `curl` available for health checks
-- Firewall and security group rules reviewed before public exposure
+## 3. 项目部署依据
 
-Required network shape:
+OpenClaw 应按以下已确认的项目行为部署：
 
-- Public inbound: `80/tcp` and `443/tcp` after TLS is configured.
-- Backend `8000/tcp`: loopback only, do not expose publicly.
-- frps control/dashboard/device tunnel ports: expose only what the chosen frps
-  topology needs.
-- Browser access to API and WebSocket traffic must stay on the same domain.
+- 后端入口：`backend/app/main.py`，ASGI 对象为 `app.main:app`。
+- 后端依赖：`backend/requirements.txt`。
+- 后端 API 前缀：`/api`。
+- 健康检查：`GET /api/health`。
+- 前端构建命令：在 `frontend/` 下执行 `npm ci` 和 `npm run build`。
+- 前端静态产物：`frontend/dist`。
+- 前端 REST 请求使用同域 `baseURL: "/api"`。
+- 前端 WebSocket 使用当前浏览器域名拼接 `/api/ws/...`。
+- 后端启动时会执行数据库初始化和 Alembic 迁移。
+- 默认 SQLite 路径是相对后端工作目录的 `./data/platform.db`，生产部署应显式改到 `/var/lib/edge-platform/platform.db`。
 
-## 5. Safe Deployment Sequence
+## 4. 服务器前置条件
 
-### 5.1 Prepare Service User and Directories
+目标服务器建议为 Ubuntu/Debian，并具备：
 
-Run as a privileged operator:
+```bash
+sudo apt update
+sudo apt install -y git nginx curl python3.12 python3.12-venv nodejs npm
+```
+
+如果系统没有 `python3.12`，OpenClaw 应停止并提示操作者选择：
+
+- 安装 Python 3.12。
+- 使用 pyenv 安装 Python 3.12。
+- 明确授权改用服务器已有 Python 版本。
+
+网络要求：
+
+- `80/tcp` 和后续 `443/tcp` 对浏览器开放。
+- `8000/tcp` 只监听 `127.0.0.1`，不要直接暴露公网。
+- frps 相关端口按实际设备接入方案开放。
+- `/api/ws/` 必须支持 WebSocket upgrade。
+
+## 5. 首次部署步骤
+
+### 5.1 创建用户和目录
 
 ```bash
 sudo useradd --system --create-home --home-dir /opt/edge-platform --shell /usr/sbin/nologin edge-platform || true
 sudo mkdir -p /opt/edge-platform
 sudo mkdir -p /etc/edge-platform
+sudo mkdir -p /var/lib/edge-platform/uploads
 sudo mkdir -p /var/backups/edge-platform
 sudo chown -R edge-platform:edge-platform /opt/edge-platform
+sudo chown -R edge-platform:edge-platform /var/lib/edge-platform
 sudo chmod 750 /etc/edge-platform
 ```
 
-If `APP_ROOT`, `APP_USER`, or `BACKUP_ROOT` differ from the examples, substitute
-them consistently in every later command.
+### 5.2 拉取代码
 
-### 5.2 Fetch Source
-
-Use one of these paths.
-
-Fresh clone:
+首次部署：
 
 ```bash
 sudo -u edge-platform git clone "$REPO_URL" /opt/edge-platform
 cd /opt/edge-platform
-sudo -u edge-platform git checkout "$DEPLOY_REF"
+sudo -u edge-platform git checkout "$DEPLOY_BRANCH"
+git rev-parse HEAD
 ```
 
-Existing checkout:
+如果目录已经存在：
 
 ```bash
 cd /opt/edge-platform
 sudo -u edge-platform git fetch --all --tags
-sudo -u edge-platform git checkout "$DEPLOY_REF"
-```
-
-Record the deployed revision:
-
-```bash
+sudo -u edge-platform git checkout "$DEPLOY_BRANCH"
+sudo -u edge-platform git pull --ff-only origin "$DEPLOY_BRANCH"
 git rev-parse HEAD
 ```
 
-### 5.3 Install Backend Runtime
-
-The repository has `scripts/deploy/install_backend.ps1`, but the production
-Linux path should use explicit Linux commands below. The current script mixes a
-PowerShell virtualenv executable path with a Linux `systemd` service template.
+### 5.3 安装后端依赖
 
 ```bash
 cd /opt/edge-platform
@@ -142,68 +141,65 @@ sudo -u edge-platform /opt/edge-platform/.venv/bin/python -m pip install --upgra
 sudo -u edge-platform /opt/edge-platform/.venv/bin/python -m pip install -r backend/requirements.txt
 ```
 
-### 5.4 Create Runtime Environment File
+### 5.4 创建环境变量文件
 
-Generate secrets first:
+生成密钥：
 
 ```bash
 python3.12 -c 'import secrets; print(secrets.token_urlsafe(64))'
 /opt/edge-platform/.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
 ```
 
-Create `/etc/edge-platform/edge-platform.env`:
+创建 `/etc/edge-platform/edge-platform.env`：
 
 ```dotenv
+PYTHONPATH=/opt/edge-platform/backend
+DATABASE_URL=sqlite:////var/lib/edge-platform/platform.db
+FILE_STORAGE_DIR=/var/lib/edge-platform/uploads
+
 JWT_SECRET_KEY=<generated-long-secret>
 DEFAULT_ADMIN_USERNAME=admin
-DEFAULT_ADMIN_PASSWORD=<non-default-initial-password>
+DEFAULT_ADMIN_PASSWORD=<non-default-admin-password>
 CREDENTIAL_ENCRYPTION_KEY=<generated-fernet-key>
 
-REMOTE_GATEWAY_HOST=<frps-host-reachable-from-backend>
-VNC_GATEWAY_HOST=<frps-host-reachable-from-backend>
-FILE_BACKEND=sftp
+REMOTE_GATEWAY_HOST=<frps-host>
+VNC_GATEWAY_HOST=<frps-host>
 
 SCHEDULER_ENABLED=true
 SCHEDULER_POLL_INTERVAL_SECONDS=30
 
-DEFAULT_DEVICE_SSH_USER=<deployment-default-device-user>
-DEFAULT_DEVICE_SSH_PASSWORD=<deployment-default-device-password-if-needed>
+# 没有真实设备 SFTP 验证前可先用 local；准备接入真实设备文件管理时改为 sftp。
+FILE_BACKEND=local
 
-# Compatibility-first default. Tighten after known_hosts is ready.
+# 兼容优先。更严格部署可改为 warning 或 reject，并配置 SSH_KNOWN_HOSTS_FILE。
 SSH_HOST_KEY_POLICY=auto_add
 # SSH_KNOWN_HOSTS_FILE=/etc/edge-platform/known_hosts
+
+# 如需给导入设备设置默认 SSH 凭据，部署时再显式填写。
+# DEFAULT_DEVICE_SSH_USER=<device-user>
+# DEFAULT_DEVICE_SSH_PASSWORD=<device-password>
 ```
 
-Protect the file:
+设置权限：
 
 ```bash
 sudo chown root:edge-platform /etc/edge-platform/edge-platform.env
 sudo chmod 640 /etc/edge-platform/edge-platform.env
 ```
 
-Notes:
+### 5.5 创建 systemd 服务
 
-- Do not rotate `CREDENTIAL_ENCRYPTION_KEY` without a migration plan for stored
-  device credentials.
-- If real device SFTP is not ready yet, set `FILE_BACKEND=local` for a smoke
-  deploy and switch to `sftp` only after tunnel and credential validation.
-- `DEFAULT_DEVICE_SSH_PASSWORD` is only a default for device records. Prefer
-  per-device credentials and remove default-password reliance after onboarding.
-
-### 5.5 Create systemd Service
-
-Create `/etc/systemd/system/edge-platform.service`:
+创建 `/etc/systemd/system/edge-platform.service`：
 
 ```ini
 [Unit]
-Description=AI Edge Platform FastAPI backend
+Description=Remote Terminal Platform Backend
 After=network.target
 
 [Service]
 User=edge-platform
 Group=edge-platform
 WorkingDirectory=/opt/edge-platform/backend
-Environment=PYTHONPATH=/opt/edge-platform/backend
 EnvironmentFile=/etc/edge-platform/edge-platform.env
 ExecStart=/opt/edge-platform/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=always
@@ -213,7 +209,7 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
-Enable and start:
+启动：
 
 ```bash
 sudo systemctl daemon-reload
@@ -222,27 +218,17 @@ sudo systemctl restart edge-platform
 sudo systemctl status edge-platform --no-pager
 ```
 
-### 5.6 Build Frontend
+### 5.6 构建前端
 
 ```bash
 cd /opt/edge-platform/frontend
-sudo -u edge-platform npm install
+sudo -u edge-platform npm ci
 sudo -u edge-platform npm run build
 ```
 
-Expected build output:
+### 5.7 配置 Nginx
 
-```text
-/opt/edge-platform/frontend/dist
-```
-
-The frontend already uses `baseURL: "/api"` and builds WebSocket URLs from the
-current browser host. Do not split the frontend, REST API, and WebSocket API
-across unrelated public origins unless the code and proxy strategy are changed.
-
-### 5.7 Configure Nginx
-
-Create the site file selected by `NGINX_SITE`:
+创建 `/etc/nginx/sites-available/edge-platform`：
 
 ```nginx
 server {
@@ -278,7 +264,9 @@ server {
 }
 ```
 
-Enable and reload:
+把 `edge.example.com` 替换为 `DOMAIN`。如果暂时没有域名，可以先使用服务器公网 IP。
+
+启用站点：
 
 ```bash
 sudo ln -sf /etc/nginx/sites-available/edge-platform /etc/nginx/sites-enabled/edge-platform
@@ -286,170 +274,337 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Add TLS with the operator's approved certificate process after the HTTP health
-check is clean. Keep the `/api/ws/` WebSocket upgrade headers after the TLS
-change.
+TLS 证书可以在 HTTP 部署验证通过后再配置。配置 HTTPS 后，必须保留 `/api/ws/` 的 WebSocket upgrade 头。
 
-## 6. First Health Check and Acceptance
+## 6. 自动部署方案
 
-### 6.1 Backend and Proxy Health
+推荐采用：
 
-Run in order:
+```text
+Git push
+  -> GitHub Actions / GitLab CI / Gitee 流水线
+  -> SSH 登录服务器
+  -> 执行 /opt/edge-platform/deploy.sh
+  -> git pull + 备份 SQLite + 安装依赖 + 构建前端 + 重启服务 + 健康检查
+```
+
+### 6.1 创建服务器部署脚本
+
+创建 `/opt/edge-platform/deploy.sh`：
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_ROOT="/opt/edge-platform"
+DEPLOY_BRANCH="main"
+BACKUP_ROOT="/var/backups/edge-platform"
+DB_PATH="/var/lib/edge-platform/platform.db"
+
+echo "[deploy] start: $(date -Is)"
+
+cd "$APP_ROOT"
+
+echo "[deploy] current revision:"
+git rev-parse HEAD || true
+
+echo "[deploy] fetch source"
+sudo -u edge-platform git fetch origin "$DEPLOY_BRANCH"
+sudo -u edge-platform git checkout "$DEPLOY_BRANCH"
+sudo -u edge-platform git pull --ff-only origin "$DEPLOY_BRANCH"
+
+echo "[deploy] new revision:"
+git rev-parse HEAD
+
+echo "[deploy] backup sqlite"
+sudo mkdir -p "$BACKUP_ROOT"
+if [ -f "$DB_PATH" ]; then
+    sudo cp "$DB_PATH" "$BACKUP_ROOT/platform-$(date +%Y%m%d-%H%M%S).db"
+else
+    echo "[deploy] sqlite db not found yet, skip backup: $DB_PATH"
+fi
+
+echo "[deploy] install backend dependencies"
+sudo -u edge-platform python3.12 -m venv "$APP_ROOT/.venv"
+sudo -u edge-platform "$APP_ROOT/.venv/bin/python" -m pip install --upgrade pip
+sudo -u edge-platform "$APP_ROOT/.venv/bin/python" -m pip install -r "$APP_ROOT/backend/requirements.txt"
+
+echo "[deploy] build frontend"
+cd "$APP_ROOT/frontend"
+sudo -u edge-platform npm ci
+sudo -u edge-platform npm run build
+
+echo "[deploy] restart backend"
+sudo systemctl restart edge-platform
+
+echo "[deploy] reload nginx"
+sudo nginx -t
+sudo systemctl reload nginx
+
+echo "[deploy] health check"
+curl -fsS http://127.0.0.1:8000/api/health
+
+echo "[deploy] done: $(date -Is)"
+```
+
+授权：
+
+```bash
+sudo chmod +x /opt/edge-platform/deploy.sh
+```
+
+### 6.2 配置 sudo 免密范围
+
+CI 登录服务器的用户建议为普通用户，例如 `deploy`。该用户只允许执行部署所需命令。
+
+创建用户：
+
+```bash
+sudo useradd --create-home --shell /bin/bash deploy || true
+```
+
+配置 SSH 公钥：
+
+```bash
+sudo mkdir -p /home/deploy/.ssh
+sudo nano /home/deploy/.ssh/authorized_keys
+sudo chown -R deploy:deploy /home/deploy/.ssh
+sudo chmod 700 /home/deploy/.ssh
+sudo chmod 600 /home/deploy/.ssh/authorized_keys
+```
+
+编辑 sudoers：
+
+```bash
+sudo visudo
+```
+
+加入：
+
+```text
+deploy ALL=(edge-platform) NOPASSWD: /usr/bin/git, /usr/bin/python3.12, /opt/edge-platform/.venv/bin/python, /usr/bin/npm
+deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart edge-platform, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t, /usr/bin/mkdir -p /var/backups/edge-platform, /usr/bin/cp /var/lib/edge-platform/platform.db /var/backups/edge-platform/*
+```
+
+如果服务器上的命令路径不同，用 `which systemctl`、`which nginx`、`which cp` 确认后替换。
+
+### 6.3 GitHub Actions 示例
+
+在仓库创建 `.github/workflows/deploy.yml`：
+
+```yaml
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            /opt/edge-platform/deploy.sh
+```
+
+GitHub Secrets：
+
+```text
+SERVER_HOST=<server-ip-or-domain>
+SERVER_USER=deploy
+SERVER_SSH_KEY=<private-key-for-deploy-user>
+```
+
+### 6.4 GitLab CI 示例
+
+创建 `.gitlab-ci.yml`：
+
+```yaml
+stages:
+  - deploy
+
+deploy:
+  stage: deploy
+  image: alpine:3.20
+  only:
+    - main
+  before_script:
+    - apk add --no-cache openssh-client
+    - mkdir -p ~/.ssh
+    - echo "$SERVER_SSH_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
+  script:
+    - ssh "$SERVER_USER@$SERVER_HOST" "/opt/edge-platform/deploy.sh"
+```
+
+GitLab CI/CD Variables：
+
+```text
+SERVER_HOST=<server-ip-or-domain>
+SERVER_USER=deploy
+SERVER_SSH_KEY=<private-key-for-deploy-user>
+```
+
+### 6.5 Gitee 流水线思路
+
+Gitee 流水线同样使用 SSH 方式：
+
+```bash
+ssh deploy@<server-host> "/opt/edge-platform/deploy.sh"
+```
+
+需要在 Gitee 流水线变量中保存：
+
+```text
+SERVER_HOST
+SERVER_USER
+SERVER_SSH_KEY
+```
+
+OpenClaw 如果无法判断 Git 平台，应默认只在服务器上创建 `deploy.sh`，并在交付报告中提示操作者选择 GitHub、GitLab 或 Gitee 的触发配置。
+
+## 7. 部署验证
+
+### 7.1 本机健康检查
 
 ```bash
 curl -i http://127.0.0.1:8000/api/health
 curl -i http://127.0.0.1/api/health
-curl -i http://edge.example.com/api/health
+sudo ss -lntp | grep -E ':80|:8000'
 sudo journalctl -u edge-platform -n 100 --no-pager
 sudo tail -n 100 /var/log/nginx/error.log
 ```
 
-Accept only when:
+验收标准：
 
-- Backend health returns HTTP `200`.
-- Health response shows `database: "ok"`.
-- Nginx same-domain proxy health returns HTTP `200`.
-- Backend logs do not show startup migration failures.
+- `http://127.0.0.1:8000/api/health` 返回 `200`。
+- 响应中 `database` 为 `ok`。
+- `http://127.0.0.1/api/health` 返回 `200`。
+- `8000` 只监听 `127.0.0.1`。
+- Nginx error log 没有持续 502 或 WebSocket upgrade 错误。
 
-### 6.2 Login and Diagnostics
+### 7.2 前端和登录验证
 
-Use the frontend or API login with the configured initial admin password.
-
-After login, open the diagnostics view or call:
-
-```text
-GET /api/diagnostics/config
-```
-
-Required diagnostics checks:
-
-- `security.warnings` has no default JWT secret warning.
-- `security.warnings` has no default admin password warning.
-- `security.credential_encryption_configured` is `true` before storing real
-  device credentials.
-- `migration.has_pending_migrations` is `false`.
-- Scheduler status matches the deployment choice.
-- SSH host key warnings are understood before real SSH command execution.
-
-### 6.3 Functional Smoke Checks
-
-Run these after login:
-
-1. Load device list and group list.
-2. Create one test device or import one known frps-backed device.
-3. Generate one device sync config and inspect the returned frpc text.
-4. Run an update task first in `dry_run` mode with a harmless command such as
-   `hostname`.
-5. Only after tunnel and credentials are verified, test one real
-   `ssh_command` target.
-6. If SFTP mode is enabled, list a safe test directory on a test device.
-7. Open SSH first, then VNC, and verify `/api/ws/` proxying is healthy.
-
-## 7. frps and Edge Device Requirements
-
-### 7.1 frps Side
-
-The backend must reach the frps-exposed device SSH/VNC ports using
-`REMOTE_GATEWAY_HOST` and `VNC_GATEWAY_HOST`.
-
-Default platform-created device port pools are:
-
-- SSH: `10000-10499`
-- VNC: `10500-10999`
-
-If importing pre-existing frps tunnels through the dashboard discovery flow,
-use discovery ranges that match the actual frps ports already in use.
-
-### 7.2 Edge Device Side
-
-Each real Debian edge device needs:
-
-- OpenSSH server running
-- VNC server available for VNC use
-- frpc installed and configured to reach frps
-- SSH credentials recorded per device in the platform
-
-Repository helper:
+浏览器访问：
 
 ```text
-scripts/deploy/edge_bootstrap.sh
+http://<DOMAIN>/
 ```
 
-That script is only a minimal bootstrap starting point. It writes a basic SSH
-registration tunnel with remote port `10000`; it does not complete final
-per-device SSH/VNC config management by itself. After the device exists in the
-platform, use the generated sync config from the platform and deploy the final
-frpc config on the device.
-
-## 8. SQLite Backup and Upgrade Discipline
-
-The default database path for this deployment layout is:
+使用：
 
 ```text
-/opt/edge-platform/backend/data/platform.db
+用户名：admin
+密码：DEFAULT_ADMIN_PASSWORD 中配置的密码
 ```
 
-Before every upgrade:
+登录后检查：
+
+- 仪表盘可以加载。
+- 设备列表可以加载。
+- 系统诊断可以加载。
+- `security.warnings` 中没有默认 JWT 密钥、默认管理员密码、未配置凭据加密密钥等风险。
+- `migration.has_pending_migrations=false`。
+
+### 7.3 自动部署验证
+
+在本地提交并推送一个非业务破坏性改动后，观察流水线和服务器：
+
+```bash
+sudo journalctl -u edge-platform -n 100 --no-pager
+curl -fsS http://127.0.0.1:8000/api/health
+ls -lah /var/backups/edge-platform
+```
+
+验收标准：
+
+- CI 成功通过。
+- 服务器代码 revision 已更新。
+- 前端重新构建成功。
+- 后端重启成功。
+- SQLite 备份目录生成新备份，或首次部署时明确跳过。
+- `/api/health` 正常。
+
+## 8. 远程设备接入检查
+
+真实 SSH/VNC/SFTP 使用前，按顺序验证：
+
+1. 设备端已安装并启动 OpenSSH。
+2. 需要 VNC 时，设备端 VNC 服务可用。
+3. 设备端 frpc 已连接 frps。
+4. 平台设备记录中有 `ssh_port` 和需要时的 `vnc_port`。
+5. 平台设备记录中已配置 SSH 凭据。
+6. 后端服务器能访问 frps 暴露的设备端口。
+7. Nginx `/api/ws/` WebSocket upgrade 正常。
+
+测试端口：
+
+```bash
+nc -vz <frps-host> <ssh-port>
+nc -vz <frps-host> <vnc-port>
+```
+
+建议先执行 `dry_run` 批量任务，再对单台测试设备执行真实 SSH 命令，例如：
+
+```bash
+hostname
+whoami
+```
+
+## 9. 备份与回滚
+
+### 9.1 手动备份
 
 ```bash
 sudo mkdir -p /var/backups/edge-platform
-sudo cp /opt/edge-platform/backend/data/platform.db /var/backups/edge-platform/platform-$(date +%Y%m%d-%H%M%S).db
+sudo cp /var/lib/edge-platform/platform.db /var/backups/edge-platform/platform-$(date +%Y%m%d-%H%M%S).db
 ```
 
-After every upgrade:
+### 9.2 自动部署前备份
 
-1. Restart backend.
-2. Check `/api/health`.
-3. Check diagnostics migration summary.
-4. Check one authenticated frontend route.
-5. Keep the backup outside the deploy checkout.
+`/opt/edge-platform/deploy.sh` 已包含部署前 SQLite 备份逻辑。
 
-The repository also includes `scripts/deploy/backup_sqlite.ps1` for PowerShell
-operators. On Linux, the explicit `cp` command above is the simplest approved
-baseline.
+### 9.3 回滚条件
 
-## 9. Upgrade Procedure
+出现以下任一情况，应回滚：
 
-For a normal in-place upgrade:
+- 后端无法启动。
+- `/api/health` 失败。
+- 数据库状态不是 `ok`。
+- 诊断接口显示迁移异常。
+- 前端核心页面无法加载。
+- `/api/ws/` 影响远程 SSH/VNC 使用。
+
+### 9.4 回滚步骤
 
 ```bash
 cd /opt/edge-platform
-sudo cp backend/data/platform.db /var/backups/edge-platform/platform-$(date +%Y%m%d-%H%M%S).db
-sudo -u edge-platform git fetch --all --tags
-sudo -u edge-platform git checkout "$DEPLOY_REF"
+sudo -u edge-platform git checkout <previous-good-commit-or-tag>
+sudo cp /var/backups/edge-platform/<backup-db-file> /var/lib/edge-platform/platform.db
+
 sudo -u edge-platform /opt/edge-platform/.venv/bin/python -m pip install -r backend/requirements.txt
 cd /opt/edge-platform/frontend
-sudo -u edge-platform npm install
+sudo -u edge-platform npm ci
 sudo -u edge-platform npm run build
+
 sudo systemctl restart edge-platform
 sudo nginx -t
 sudo systemctl reload nginx
+curl -i http://127.0.0.1:8000/api/health
 ```
 
-Then rerun the health and diagnostics checks.
+## 10. 常见问题排查
 
-## 10. Rollback Rule
-
-Rollback when one of these is true:
-
-- Backend cannot start cleanly after dependency and configuration checks.
-- `/api/health` cannot reach `database: "ok"`.
-- Diagnostics show migration errors after restart.
-- Same-domain `/api/ws/` traffic is broken for required remote access tests.
-
-Minimum rollback steps:
-
-1. Stop backend.
-2. Restore the previous Git ref or source package.
-3. Restore the pre-upgrade SQLite backup if the failed release changed schema
-   or data incompatibly.
-4. Reinstall backend dependencies if the previous ref requires it.
-5. Rebuild frontend for the previous ref.
-6. Start backend and re-run health plus diagnostics.
-
-## 11. Troubleshooting Order
-
-For `502`:
+### 10.1 502
 
 ```bash
 curl -i http://127.0.0.1:8000/api/health
@@ -460,36 +615,76 @@ sudo journalctl -u edge-platform -n 100 --no-pager
 sudo tail -n 100 /var/log/nginx/error.log
 ```
 
-For SSH/VNC failure:
+判断：
 
-1. Confirm the platform device record has SSH/VNC ports.
-2. Confirm device SSH credentials are configured.
-3. Confirm backend can reach the frps-exposed port.
-4. Confirm `REMOTE_GATEWAY_HOST` and `VNC_GATEWAY_HOST`.
-5. Confirm `/api/ws/` WebSocket headers and timeout settings.
-6. Confirm frpc is connected on the edge device.
+- 如果 `127.0.0.1:8000` 不通，先修后端。
+- 如果 `127.0.0.1:8000` 通但 Nginx 不通，查 Nginx `proxy_pass`、端口和日志。
 
-For SFTP failure:
+### 10.2 Web SSH 或 VNC 失败
 
-1. Confirm `FILE_BACKEND=sftp`.
-2. Confirm SSH tunnel reachability and credentials.
-3. Confirm the target path is safe and exists on the device.
+检查：
 
-## 12. OpenClaw Execution Contract
+- `/api/ws/` 是否配置了 `Upgrade` 和 `Connection`。
+- `proxy_read_timeout` 是否足够长。
+- 设备 SSH/VNC 端口是否存在。
+- 后端服务器是否能访问 frps 暴露端口。
+- 设备 SSH 凭据是否已配置。
+- `REMOTE_GATEWAY_HOST` 和 `VNC_GATEWAY_HOST` 是否正确。
 
-OpenClaw should:
+### 10.3 文件管理失败
 
-1. Echo the resolved deployment variables before mutating the server.
-2. Refuse to commit secrets to the repository.
-3. Back up SQLite before upgrades.
-4. Keep backend on loopback and expose the app through Nginx.
-5. Preserve `/api/ws/` WebSocket proxy handling.
-6. Report the deployed Git revision, service status, health results,
-   diagnostics summary, and any unresolved warnings.
+检查：
 
-OpenClaw should stop and ask for operator input when:
+- `FILE_BACKEND` 是 `local` 还是 `sftp`。
+- 如果是 `sftp`，设备 SSH 端口和凭据是否可用。
+- Nginx 是否设置了足够的 `client_max_body_size`。
 
-- The target server does not have Python 3.12.
-- frps host, public domain, or admin secret values are missing.
-- Existing Nginx routes conflict with the same-domain `/api` or `/api/ws` plan.
-- A migration or backup step fails.
+### 10.4 自动部署失败
+
+检查：
+
+- CI Secrets 是否正确。
+- `deploy` 用户是否能 SSH 登录服务器。
+- `/opt/edge-platform/deploy.sh` 是否可执行。
+- `deploy` 用户的 sudoers 免密范围是否覆盖脚本需要的命令。
+- 服务器 `git pull --ff-only` 是否因为本地未提交改动失败。
+- `npm ci` 是否因为 `package-lock.json` 不一致失败。
+
+## 11. OpenClaw 执行约束
+
+OpenClaw 必须遵守：
+
+1. 改服务器前先回显最终变量：`REPO_URL`、`DEPLOY_BRANCH`、`APP_ROOT`、`APP_USER`、`DOMAIN`、`DATA_ROOT`、`BACKUP_ROOT`。
+2. 不把密钥、密码、私钥写入 Git 仓库。
+3. 不把 SQLite 数据库放在自动拉取会覆盖的代码目录中。
+4. 后端只绑定 `127.0.0.1`。
+5. 所有公网访问统一经过 Nginx。
+6. 保留 `/api/ws/` WebSocket 代理配置。
+7. 每次升级前备份 SQLite。
+8. 部署后报告 Git revision、systemd 状态、健康检查结果、Nginx 检查结果和诊断摘要。
+9. 如果 Python 3.12、Git 凭据、域名、frps 地址或密钥缺失，应暂停并向操作者确认。
+
+## 12. 可直接给 OpenClaw 的任务描述
+
+```text
+请按照仓库 docs/openclaw-deployment-runbook.md 部署当前远程终端平台。
+
+部署变量：
+- REPO_URL=<填写仓库地址>
+- DEPLOY_BRANCH=main
+- APP_ROOT=/opt/edge-platform
+- APP_USER=edge-platform
+- DOMAIN=<填写域名或服务器IP>
+- BACKEND_PORT=8000
+- DATA_ROOT=/var/lib/edge-platform
+- BACKUP_ROOT=/var/backups/edge-platform
+- FRPS_HOST=<填写frps地址，暂不接入真实设备可先用127.0.0.1>
+
+要求：
+1. 使用 systemd 托管 FastAPI 后端。
+2. 使用 Nginx 托管前端静态文件，并反代 /api/ 和 /api/ws/。
+3. SQLite 和上传文件必须放在 DATA_ROOT，不要放在代码目录。
+4. 创建 /opt/edge-platform/deploy.sh，实现 git pull、备份、安装依赖、构建前端、重启服务、健康检查。
+5. 配置 Git 推送后通过 CI SSH 执行 deploy.sh；如果无法判断 Git 平台，先完成服务器侧 deploy.sh，并输出 GitHub/GitLab/Gitee 的配置建议。
+6. 部署结束后执行 /api/health、Nginx 检查和 systemd 日志检查，并报告结果。
+```
