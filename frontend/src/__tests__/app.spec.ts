@@ -483,6 +483,33 @@ it("imports existing frps proxies into devices", async () => {
   await navigateTo(router, "devices");
   await wrapper.find('[data-testid="open-frps-import"]').trigger("click");
   await wrapper.find('[data-testid="frps-url"] input').setValue("124.70.177.226:7500");
+  api.listDevices.mockResolvedValueOnce({
+    total: 1,
+    items: [
+      {
+        id: 2,
+        name: "frps-12008",
+        device_sn: "frps-12008",
+        project_id: "frps-import",
+        location: "frps",
+        hardware_model: null,
+        ssh_port: 12008,
+        vnc_port: 17008,
+        ssh_user: "ztl",
+        ssh_auth_type: "password",
+        ssh_credential_configured: true,
+        local_ip: null,
+        os_version: null,
+        description: null,
+        tags: [],
+        group_id: null,
+        status: "online",
+        last_seen: null,
+        created_at: "2026-06-24T00:00:00",
+        updated_at: "2026-06-24T00:00:00",
+      },
+    ],
+  });
   await wrapper.find('[data-testid="import-frps"]').trigger("click");
   await flushAsync();
 
@@ -499,6 +526,8 @@ it("imports existing frps proxies into devices", async () => {
     overwrite_project_location: false,
   });
   expect(wrapper.text()).toContain("新增 2");
+  await waitUntil(() => expect(api.listDevices).toHaveBeenCalledTimes(2));
+  expect(wrapper.find('[data-testid="sync-device-2"]').exists()).toBe(true);
   expect(wrapper.text()).toContain("frps-12008");
 });
 

@@ -19,6 +19,7 @@ import {
 import { mapDevice, normalizeDeviceStatus, useDevicesStore, type Device, type DeviceStatus } from "../stores/devices";
 import { groupNameFor, useGroupsStore } from "../stores/groups";
 import { useLogsStore } from "../stores/logs";
+import { usePlatformDataStore } from "../stores/platformData";
 import { formatTime, parseTags } from "../utils/format";
 import DeviceDetailDrawer from "./DeviceDetailDrawer.vue";
 import DeviceFilePanel from "./DeviceFilePanel.vue";
@@ -39,6 +40,7 @@ const { devices, deviceSearch, selectedGroupId, deviceStatusFilter, deviceProjec
 const groupsStore = useGroupsStore();
 const { groups } = storeToRefs(groupsStore);
 const { recalculateGroupCounts } = groupsStore;
+const platformDataStore = usePlatformDataStore();
 const { prependLocalLog } = useLogsStore();
 
 const statusType: Record<DeviceStatus, "success" | "warning" | "danger" | "info"> = {
@@ -111,7 +113,7 @@ async function showSyncConfig(device: Device) {
 async function copySyncConfig() { if (!syncConfigText.value || syncConfigText.value.startsWith("正在")) return; try { await navigator.clipboard?.writeText(syncConfigText.value); prependLocalLog("复制同步配置", "frpc", "success", "已复制到剪贴板"); } catch { prependLocalLog("复制同步配置", "frpc", "blocked", "当前浏览器不支持自动复制，请手动选择配置内容"); } }
 async function importFromFrps() {
   frpsImporting.value = true; frpsImportResult.value = ""; frpsImportItems.value = [];
-  try { const r = await importFrpsDevices({ dashboard_url: frpsForm.dashboard_url, username: frpsForm.username, password: frpsForm.password, ssh_port_start: Number(frpsForm.ssh_port_start), ssh_port_end: Number(frpsForm.ssh_port_end), vnc_port_start: Number(frpsForm.vnc_port_start), vnc_port_end: Number(frpsForm.vnc_port_end), project_id: frpsForm.project_id, location: frpsForm.location || "frps", overwrite_project_location: frpsForm.overwrite_project_location }); frpsImportItems.value = r.items; frpsImportResult.value = `发现 ${r.total} 台，新增 ${r.created} 台，同步 ${r.synced} 台，跳过 ${r.skipped} 台，冲突 ${r.conflicts} 台`; emit("changed"); }
+  try { const r = await importFrpsDevices({ dashboard_url: frpsForm.dashboard_url, username: frpsForm.username, password: frpsForm.password, ssh_port_start: Number(frpsForm.ssh_port_start), ssh_port_end: Number(frpsForm.ssh_port_end), vnc_port_start: Number(frpsForm.vnc_port_start), vnc_port_end: Number(frpsForm.vnc_port_end), project_id: frpsForm.project_id, location: frpsForm.location || "frps", overwrite_project_location: frpsForm.overwrite_project_location }); frpsImportItems.value = r.items; frpsImportResult.value = `发现 ${r.total} 台，新增 ${r.created} 台，同步 ${r.synced} 台，跳过 ${r.skipped} 台，冲突 ${r.conflicts} 台`; await platformDataStore.loadPlatformData(); emit("changed"); }
   catch { frpsImportResult.value = "frps 导入失败，请检查 Dashboard 地址、账号密码和后端网络"; }
   frpsImporting.value = false;
 }
