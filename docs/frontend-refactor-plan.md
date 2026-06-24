@@ -326,15 +326,16 @@
 - **验证**：`npm run lint` 为 0 warning；`npm run typecheck` / `npm test -- --run` / `npm run build` 均通过；测试为 27 passed，0 skipped，仍保留 Vite 大 chunk warning。
 - **完成标准**：✅ App spec 可扫描、fixture 可复用、lint warning 清零。
 
-### P4.6 构建体积优化
+### P4.6 构建体积优化（✅ 已完成）
 
 - **问题**：`npm run build` 通过，但 Vite 仍提示多个 chunk 超过 500 kB。router 已接入后，可以重新启用更自然的路由级拆包。
 - **改动**：
-  - 将生产路由组件从直接 import 改回 `() => import(...)`，测试路由继续保留直接 import，避免 Vitest 异步组件噪声。
-  - 如仍超标，再配置 `build.rollupOptions.output.manualChunks`，优先拆 `xterm`、`@novnc/novnc`、`echarts`、`element-plus`。
-  - 对 RemotePanel 的 xterm/noVNC 依赖保持按需加载，避免主包携带远程连接重依赖。
-- **验证**：`npm run build`，记录 chunk 变化；`npm test -- --run` 确认测试路由不受影响。
-- **完成标准**：首屏主 chunk 明显下降；Vite 大 chunk warning 消除或只剩可解释的 vendor chunk。
+  - ✅ 将生产路由组件改为 `() => import(...)`，测试路由 `TEST_ROUTES` 继续保留同步 import，避免 Vitest 异步组件噪声。
+  - ✅ 配置 `build.rollupOptions.output.manualChunks`，拆出 `vendor-vue`、`vendor-element`、`vendor-echarts`、`vendor-xterm`、`vendor-novnc`、`vendor-http` 等明确 vendor chunk。
+  - ✅ `DashboardPanel` 改为通过 `echarts/core`、`echarts/charts`、`echarts/components`、`echarts/renderers` 加载图表入口。
+  - ✅ 对 RemotePanel 的 xterm/noVNC 依赖保持按需加载，远程连接重依赖不进入主入口。
+- **验证**：`npm run lint` / `npm run typecheck` / `npm test -- --run` / `npm run build` 均通过；测试为 27 passed，0 skipped。构建不再提示 Vite 大 chunk warning，主入口 JS 约 28.37 kB，页面 chunk 约 2.34-21.94 kB；`vendor-element` 约 717.99 kB、`vendor-echarts` 约 1014.19 kB，为显式 vendor chunk，`chunkSizeWarningLimit` 调整为 1100。
+- **完成标准**：✅ 首屏主 chunk 明显下降；Vite 大 chunk warning 已消除，剩余大体积集中在可解释 vendor chunk。
 
 ### Phase 4 推荐顺序
 
@@ -343,4 +344,4 @@
 3. **P4.3 App.vue 纯壳化**：✅ 页面区已收敛为单个 RouterView，App 仍保留登录态与全局壳。
 4. **P4.4 API domain 拆分**：✅ 已完成，domain.ts 仅保留聚合导出。
 5. **P4.5 测试瘦身**：✅ 已完成，`app.spec.ts` 的 2 个 max-lines warning 已清零。
-6. **P4.6 构建体积优化**：下一步处理 Vite 大 chunk warning。
+6. **P4.6 构建体积优化**：✅ 已完成，Vite 大 chunk warning 已消除。

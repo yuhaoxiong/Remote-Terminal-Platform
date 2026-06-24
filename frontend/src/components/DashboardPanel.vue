@@ -219,9 +219,15 @@ async function renderCharts() {
     return;
   }
   if (!chartReady) {
-    const echarts = await import("echarts");
-    statusChart = echarts.init(statusChartRef.value);
-    riskChart = echarts.init(riskChartRef.value);
+    const [{ init, use }, { PieChart }, { LegendComponent, TitleComponent, TooltipComponent }, { CanvasRenderer }] = await Promise.all([
+      import("echarts/core"),
+      import("echarts/charts"),
+      import("echarts/components"),
+      import("echarts/renderers"),
+    ]);
+    use([PieChart, TitleComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
+    statusChart = init(statusChartRef.value);
+    riskChart = init(riskChartRef.value);
     chartReady = true;
   }
   statusChart!.setOption(pieChartOptions("设备状态分布", statusDistribution.value));
