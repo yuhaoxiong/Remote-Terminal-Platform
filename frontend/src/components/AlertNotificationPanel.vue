@@ -26,6 +26,7 @@ import {
   type AlertSourceType,
   type AlertStatus,
 } from "../api/platform";
+import { formatTime as formatTimeBase } from "../utils/format";
 
 interface ChannelFormState {
   id: number | null;
@@ -118,9 +119,7 @@ const channelOptions = computed(() =>
   })),
 );
 
-function formatTime(value: string | null): string {
-  return value ? value.replace("T", " ").slice(0, 16) : "暂无";
-}
+const formatTime = (value: string | null) => formatTimeBase(value, "暂无");
 
 function deliveryTagType(status: string): "success" | "warning" | "danger" | "info" {
   if (status === "success") {

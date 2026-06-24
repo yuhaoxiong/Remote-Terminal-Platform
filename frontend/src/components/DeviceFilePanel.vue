@@ -9,6 +9,7 @@ import {
   uploadDeviceFile,
   type DeviceFileItem,
 } from "../api/platform";
+import { formatSize, formatTime as formatTimeBase } from "../utils/format";
 
 interface FileDevice {
   id: number;
@@ -55,19 +56,7 @@ function filenameFor(path: string): string {
   return path.split("/").filter(Boolean).at(-1) || "download";
 }
 
-function formatSize(size: number): string {
-  if (size < 1024) {
-    return `${size} B`;
-  }
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} KB`;
-  }
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function formatTime(value: string | null): string {
-  return value ? value.replace("T", " ").slice(0, 16) : "-";
-}
+const formatTime = (value: string | null) => formatTimeBase(value, "-");
 
 async function loadFiles(path = currentPath.value) {
   loading.value = true;

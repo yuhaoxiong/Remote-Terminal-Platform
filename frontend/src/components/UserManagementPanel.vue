@@ -12,6 +12,7 @@ import {
   type UserRead,
   type UserRole,
 } from "../api/platform";
+import { formatTime as formatTimeBase } from "../utils/format";
 
 const users = ref<UserRead[]>([]);
 const loading = ref(false);
@@ -38,9 +39,7 @@ const sortedUsers = computed(() =>
   }),
 );
 
-function formatTime(value: string | null): string {
-  return value ? value.replace("T", " ").slice(0, 16) : "暂无";
-}
+const formatTime = (value: string | null) => formatTimeBase(value, "暂无");
 
 function resetCreateForm() {
   createForm.username = "";

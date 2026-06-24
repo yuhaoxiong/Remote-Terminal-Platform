@@ -18,6 +18,7 @@ import {
   type ScheduledTaskRead,
   type ScheduledTaskRunRead,
 } from "../api/platform";
+import { formatTime as formatTimeBase } from "../utils/format";
 
 const props = withDefaults(
   defineProps<{
@@ -64,9 +65,7 @@ function resetForm() {
   form.concurrency_limit = 5;
 }
 
-function formatTime(value: string | null): string {
-  return value ? value.replace("T", " ").slice(0, 16) : "-";
-}
+const formatTime = (value: string | null) => formatTimeBase(value, "-");
 
 function parseTargetFilter(): Record<string, unknown> | null {
   const text = form.target_filter.trim();

@@ -1,16 +1,13 @@
 import { createRouter, createWebHistory } from "vue-router";
 
-import Dashboard from "@/views/Dashboard.vue";
+import { installRouteGuards } from "./guards";
+import { APP_ROUTES } from "./routes";
 
 const router = createRouter({
   history: createWebHistory(),
-  routes: [
-    {
-      path: "/",
-      name: "dashboard",
-      component: Dashboard,
-    },
-  ],
+  routes: APP_ROUTES,
 });
+
+installRouteGuards(router);
 
 export default router;

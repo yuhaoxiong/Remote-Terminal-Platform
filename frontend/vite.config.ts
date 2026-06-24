@@ -7,6 +7,36 @@ export default defineConfig({
   plugins: [vue()],
   build: {
     target: "es2022",
+    chunkSizeWarningLimit: 1100,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalizedId = id.replaceAll("\\", "/");
+          if (!normalizedId.includes("node_modules")) {
+            return undefined;
+          }
+          if (normalizedId.includes("echarts") || normalizedId.includes("zrender")) {
+            return "vendor-echarts";
+          }
+          if (normalizedId.includes("element-plus") || normalizedId.includes("@element-plus")) {
+            return "vendor-element";
+          }
+          if (normalizedId.includes("@vue") || normalizedId.includes("vue-router") || normalizedId.includes("pinia")) {
+            return "vendor-vue";
+          }
+          if (normalizedId.includes("@xterm")) {
+            return "vendor-xterm";
+          }
+          if (normalizedId.includes("@novnc")) {
+            return "vendor-novnc";
+          }
+          if (normalizedId.includes("axios")) {
+            return "vendor-http";
+          }
+          return "vendor";
+        },
+      },
+    },
   },
   esbuild: {
     target: "es2022",

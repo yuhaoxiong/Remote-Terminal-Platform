@@ -16,6 +16,7 @@ import {
   type AlertStatus,
   type AlertSummaryResponse,
 } from "../api/platform";
+import { formatTime as formatTimeBase } from "../utils/format";
 import AlertNotificationPanel from "./AlertNotificationPanel.vue";
 
 const props = withDefaults(
@@ -83,9 +84,7 @@ function statusTagType(status: AlertStatus): "success" | "warning" | "info" {
   return status === "acknowledged" ? "warning" : "info";
 }
 
-function formatTime(value: string | null): string {
-  return value ? value.replace("T", " ").slice(0, 16) : "暂无";
-}
+const formatTime = (value: string | null) => formatTimeBase(value, "暂无");
 
 async function loadAlertsData() {
   loading.value = true;
