@@ -742,6 +742,11 @@ textarea {
   color: #cbd5e1;
 }
 
+.vnc-screen.is-local-cursor-visible,
+.vnc-screen.is-local-cursor-visible canvas {
+  cursor: default !important;
+}
+
 .item-card p {
   margin: 6px 0 12px;
   color: #64748b;

@@ -65,6 +65,8 @@ const remoteMocks = vi.hoisted(() => {
     sentCredentials: Array<{ password: string }> = [];
     showDotCursor = false;
     focusOnClick = false;
+    scaleViewport = false;
+    clipViewport = true;
     focusCount = 0;
 
     constructor(
@@ -349,6 +351,8 @@ describe("RemotePanel", () => {
     expect(wrapper.text()).toContain("VNC 已连接 装配边缘终端 01");
     expect(remoteMocks.rfbInstances[0].showDotCursor).toBe(true);
     expect(remoteMocks.rfbInstances[0].focusOnClick).toBe(true);
+    expect(remoteMocks.rfbInstances[0].scaleViewport).toBe(true);
+    expect(remoteMocks.rfbInstances[0].clipViewport).toBe(false);
     expect(remoteMocks.rfbInstances[0].focusCount).toBe(1);
 
     await wrapper.find('[data-testid="disconnect-vnc-1"]').trigger("click");
@@ -380,7 +384,9 @@ describe("RemotePanel", () => {
     await flushAsync();
 
     expect(screen.requestFullscreen).toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="vnc-screen"]').classes()).toContain("is-local-cursor-visible");
     expect(remoteMocks.rfbInstances[0].showDotCursor).toBe(true);
+    expect(remoteMocks.rfbInstances[0].scaleViewport).toBe(true);
     expect(remoteMocks.rfbInstances[0].focusCount).toBe(2);
   });
 

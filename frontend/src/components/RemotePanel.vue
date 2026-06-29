@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Monitor, Search, VideoPlay } from "@element-plus/icons-vue";
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 
 import { buildApiWebSocketUrl, getAccessToken, openSshSession, openVncSession } from "../api/platform";
@@ -12,7 +12,7 @@ const { clearRemoteSessionRequest } = devicesStore;
 
 interface RemoteSessionUi { status: "idle" | "connecting" | "ready" | "connected" | "failed" | "disconnected"; message: string; websocketUrl: string; output: string; }
 interface SshTerminalHandle { terminal: { cols: number; rows: number; loadAddon(addon: unknown): void; open(element: HTMLElement): void; focus(): void; write(data: string): void; writeln(data: string): void; onData(callback: (data: string) => void): { dispose: () => void }; dispose(): void }; fitAddon: { fit(): void; dispose?: () => void }; dataDisposable: { dispose: () => void }; resizeObserver: ResizeObserver | null; }
-interface VncClient { showDotCursor?: boolean; focusOnClick?: boolean; focus?(options?: FocusOptions): void; disconnect(): void; addEventListener(type: string, callback: (event: Event) => void): void; sendCredentials?(credentials: { password: string }): void; }
+interface VncClient { showDotCursor?: boolean; focusOnClick?: boolean; scaleViewport?: boolean; clipViewport?: boolean; focus?(options?: FocusOptions): void; disconnect(): void; addEventListener(type: string, callback: (event: Event) => void): void; sendCredentials?(credentials: { password: string }): void; }
 
 const statusType: Record<DeviceStatus, "success" | "warning" | "danger" | "info"> = { online: "success", offline: "danger", degraded: "warning", unknown: "info" };
 const deviceStatusText: Record<DeviceStatus, string> = { online: "在线", offline: "离线", degraded: "异常", unknown: "未知" };
@@ -22,6 +22,7 @@ const selectedRemoteDeviceId = ref<number | null>(null);
 const sshTerminalHostRef = ref<HTMLElement | null>(null);
 const vncCanvasHostRef = ref<HTMLElement | null>(null);
 const vncPassword = ref("");
+const vncLocalCursorVisible = ref(false);
 const remoteSessions = reactive<Record<string, RemoteSessionUi>>({});
 const sshSockets = new Map<number, WebSocket>();
 const sshTerminals = new Map<number, SshTerminalHandle>();
@@ -121,6 +122,12 @@ function formatVncCredentialTypes(types: string[]) {
   const labels: Record<string, string> = { password: "密码", username: "用户名", target: "目标" };
   return types.map((type) => labels[type] ?? type).join("、") || "密码";
 }
+function configureVncDisplay(client: VncClient) {
+  client.showDotCursor = true;
+  client.focusOnClick = true;
+  client.scaleViewport = true;
+  client.clipViewport = false;
+}
 function nextVncConnectionAttempt(deviceId: number) {
   const attemptId = (vncConnectionAttempts.get(deviceId) ?? 0) + 1;
   vncConnectionAttempts.set(deviceId, attemptId);
@@ -144,11 +151,11 @@ async function startVncSession(device: Device) {
     if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
     const credentials = currentVncCredentials();
     const client = new RFB(vncCanvasHostRef.value, wsUrl, credentials ? { credentials } : {}) as VncClient;
-    client.showDotCursor = true;
-    client.focusOnClick = true;
+    configureVncDisplay(client);
     client.addEventListener("connect", () => {
       if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
       setRemoteSession(device.id, "vnc", { status: "connected", message: `VNC 已连接 ${device.name}`, websocketUrl: wsUrl });
+      configureVncDisplay(client);
       client.focus?.({ preventScroll: true });
     });
     client.addEventListener("credentialsrequired", (event: Event) => {
@@ -182,13 +189,23 @@ async function startVncSession(device: Device) {
 }
 function disconnectVncSession(deviceId: number, updateStatus = true) {
   const c = vncClients.get(deviceId); if (c) { c.disconnect(); vncClients.delete(deviceId); }
+  vncLocalCursorVisible.value = false;
   if (updateStatus) setRemoteSession(deviceId, "vnc", { status: "disconnected", message: "VNC 已断开" });
+}
+function refreshVncFullscreenState() {
+  vncLocalCursorVisible.value = document.fullscreenElement === vncCanvasHostRef.value;
+  if (!vncLocalCursorVisible.value) return;
+  for (const client of vncClients.values()) {
+    configureVncDisplay(client);
+    client.focus?.({ preventScroll: true });
+  }
 }
 async function requestVncFullscreen(deviceId: number) {
   await vncCanvasHostRef.value?.requestFullscreen?.();
   const client = vncClients.get(deviceId);
   if (!client) return;
-  client.showDotCursor = true;
+  vncLocalCursorVisible.value = true;
+  configureVncDisplay(client);
   client.focus?.({ preventScroll: true });
 }
 
@@ -210,7 +227,8 @@ watch(
   { immediate: true },
 );
 
-onBeforeUnmount(() => { for (const id of sshSockets.keys()) disconnectSshSession(id); for (const id of vncClients.keys()) disconnectVncSession(id, false); });
+onMounted(() => document.addEventListener("fullscreenchange", refreshVncFullscreenState));
+onBeforeUnmount(() => { document.removeEventListener("fullscreenchange", refreshVncFullscreenState); for (const id of sshSockets.keys()) disconnectSshSession(id); for (const id of vncClients.keys()) disconnectVncSession(id, false); });
 </script>
 
 <template>
@@ -268,7 +286,7 @@ onBeforeUnmount(() => { for (const id of sshSockets.keys()) disconnectSshSession
                   </div>
                 </div>
                 <p v-if="remoteUnavailableReason(selectedRemoteDevice, 'vnc')" class="remote-warning">{{ remoteUnavailableReason(selectedRemoteDevice, "vnc") }}</p>
-                <div ref="vncCanvasHostRef" data-testid="vnc-screen" class="vnc-screen"><span v-if="selectedVncSession?.status !== 'connected'">VNC 画面将在连接后显示</span></div>
+                <div ref="vncCanvasHostRef" data-testid="vnc-screen" class="vnc-screen" :class="{ 'is-local-cursor-visible': vncLocalCursorVisible }"><span v-if="selectedVncSession?.status !== 'connected'">VNC 画面将在连接后显示</span></div>
               </section>
             </el-tab-pane>
             <el-tab-pane label="连接日志">
