@@ -16,5 +16,22 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          script_stop: true
           script: |
-            /opt/edge-platform/deploy.sh
+            set -euo pipefail
+
+            APP_ROOT="/opt/edge-platform"
+            APP_USER="edge-platform"
+
+            echo "[deploy-action] ensure repository ownership"
+            if ! sudo -n chown -R "$APP_USER:$APP_USER" "$APP_ROOT"; then
+              echo "[deploy-action] warning: unable to repair $APP_ROOT permissions automatically"
+              echo "[deploy-action] run once on the server:"
+              echo "  sudo chown -R $APP_USER:$APP_USER $APP_ROOT"
+              echo "[deploy-action] or allow the CI SSH user to run:"
+              echo "  sudo chown -R $APP_USER:$APP_USER $APP_ROOT"
+            else
+              echo "[deploy-action] repository ownership repaired"
+            fi
+
+            "$APP_ROOT/deploy.sh"

@@ -300,8 +300,12 @@ APP_ROOT="/opt/edge-platform"
 DEPLOY_BRANCH="main"
 BACKUP_ROOT="/var/backups/edge-platform"
 DB_PATH="/var/lib/edge-platform/platform.db"
+APP_USER="edge-platform"
 
 echo "[deploy] start: $(date -Is)"
+
+echo "[deploy] ensure repository ownership"
+sudo chown -R "$APP_USER:$APP_USER" "$APP_ROOT"
 
 cd "$APP_ROOT"
 
@@ -309,9 +313,9 @@ echo "[deploy] current revision:"
 git rev-parse HEAD || true
 
 echo "[deploy] fetch source"
-sudo -u edge-platform git fetch origin "$DEPLOY_BRANCH"
-sudo -u edge-platform git checkout "$DEPLOY_BRANCH"
-sudo -u edge-platform git pull --ff-only origin "$DEPLOY_BRANCH"
+sudo -u "$APP_USER" git fetch origin "$DEPLOY_BRANCH"
+sudo -u "$APP_USER" git checkout "$DEPLOY_BRANCH"
+sudo -u "$APP_USER" git pull --ff-only origin "$DEPLOY_BRANCH"
 
 echo "[deploy] new revision:"
 git rev-parse HEAD
@@ -325,14 +329,14 @@ else
 fi
 
 echo "[deploy] install backend dependencies"
-sudo -u edge-platform python3.12 -m venv "$APP_ROOT/.venv"
-sudo -u edge-platform "$APP_ROOT/.venv/bin/python" -m pip install --upgrade pip
-sudo -u edge-platform "$APP_ROOT/.venv/bin/python" -m pip install -r "$APP_ROOT/backend/requirements.txt"
+sudo -u "$APP_USER" python3.12 -m venv "$APP_ROOT/.venv"
+sudo -u "$APP_USER" "$APP_ROOT/.venv/bin/python" -m pip install --upgrade pip
+sudo -u "$APP_USER" "$APP_ROOT/.venv/bin/python" -m pip install -r "$APP_ROOT/backend/requirements.txt"
 
 echo "[deploy] build frontend"
 cd "$APP_ROOT/frontend"
-sudo -u edge-platform npm ci
-sudo -u edge-platform npm run build
+sudo -u "$APP_USER" npm ci
+sudo -u "$APP_USER" npm run build
 
 echo "[deploy] restart backend"
 sudo systemctl restart edge-platform
@@ -383,7 +387,7 @@ sudo visudo
 
 ```text
 deploy ALL=(edge-platform) NOPASSWD: /usr/bin/git, /usr/bin/python3.12, /opt/edge-platform/.venv/bin/python, /usr/bin/npm
-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart edge-platform, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t, /usr/bin/mkdir -p /var/backups/edge-platform, /usr/bin/cp /var/lib/edge-platform/platform.db /var/backups/edge-platform/*
+deploy ALL=(root) NOPASSWD: /usr/bin/chown -R edge-platform\:edge-platform /opt/edge-platform, /usr/bin/systemctl restart edge-platform, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t, /usr/bin/mkdir -p /var/backups/edge-platform, /usr/bin/cp /var/lib/edge-platform/platform.db /var/backups/edge-platform/*
 ```
 
 如果服务器上的命令路径不同，用 `which systemctl`、`which nginx`、`which cp` 确认后替换。
@@ -648,6 +652,7 @@ sudo tail -n 100 /var/log/nginx/error.log
 - `/opt/edge-platform/deploy.sh` 是否可执行。
 - `deploy` 用户的 sudoers 免密范围是否覆盖脚本需要的命令。
 - 服务器 `git pull --ff-only` 是否因为本地未提交改动失败。
+- 如果日志出现 `insufficient permission for adding an object to repository database .git/objects`，说明 `/opt/edge-platform` 或 `.git/objects` 被 root/其他用户写过，执行 `sudo chown -R edge-platform:edge-platform /opt/edge-platform` 后重试，并确认 sudoers 允许 CI 用户执行该命令。
 - `npm ci` 是否因为 `package-lock.json` 不一致失败。
 
 ## 11. OpenClaw 执行约束
