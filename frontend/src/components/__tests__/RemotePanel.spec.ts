@@ -59,6 +59,7 @@ const remoteMocks = vi.hoisted(() => {
   class FakeRfb {
     listeners: Record<string, Array<(event: Event) => void>> = {};
     disconnected = false;
+    sentCredentials: Array<{ password: string }> = [];
 
     constructor(
       public target: HTMLElement,
@@ -71,15 +72,19 @@ const remoteMocks = vi.hoisted(() => {
       this.listeners[type].push(callback);
     }
 
-    emit(type: string) {
+    emit(type: string, detail: Record<string, unknown> = {}) {
       for (const callback of this.listeners[type] ?? []) {
-        callback(new Event(type));
+        callback(new CustomEvent(type, { detail }));
       }
+    }
+
+    sendCredentials(credentials: { password: string }) {
+      this.sentCredentials.push(credentials);
     }
 
     disconnect() {
       this.disconnected = true;
-      this.emit("disconnect");
+      this.emit("disconnect", { clean: true });
     }
   }
 
@@ -338,6 +343,47 @@ describe("RemotePanel", () => {
     wrapper.unmount();
 
     expect(secondClient.disconnected).toBe(true);
+  });
+
+  it("passes the optional VNC password to noVNC", async () => {
+    const wrapper = await mountRemotePanel();
+
+    await wrapper.find('[data-testid="select-remote-device-1"]').trigger("click");
+    await wrapper.find('[data-testid="vnc-password"]').setValue("vnc-pass");
+    await wrapper.find('[data-testid="open-vnc-1"]').trigger("click");
+    await flushAsync();
+
+    await waitUntil(() => expect(remoteMocks.rfbInstances).toHaveLength(1));
+    expect(remoteMocks.rfbInstances[0].options).toEqual({ credentials: { password: "vnc-pass" } });
+  });
+
+  it("does not leave VNC loading when the handshake closes before connecting", async () => {
+    const wrapper = await mountRemotePanel();
+
+    await wrapper.find('[data-testid="select-remote-device-1"]').trigger("click");
+    await wrapper.find('[data-testid="open-vnc-1"]').trigger("click");
+    await flushAsync();
+    await waitUntil(() => expect(remoteMocks.rfbInstances).toHaveLength(1));
+
+    remoteMocks.rfbInstances[0].emit("disconnect", { clean: false });
+    await flushAsync();
+
+    expect(wrapper.text()).toContain("VNC 连接中断，请检查 VNC 服务、端口和密码");
+  });
+
+  it("shows a password prompt state when noVNC asks for credentials", async () => {
+    const wrapper = await mountRemotePanel();
+
+    await wrapper.find('[data-testid="select-remote-device-1"]').trigger("click");
+    await wrapper.find('[data-testid="open-vnc-1"]').trigger("click");
+    await flushAsync();
+    await waitUntil(() => expect(remoteMocks.rfbInstances).toHaveLength(1));
+
+    remoteMocks.rfbInstances[0].emit("credentialsrequired", { types: ["password"] });
+    await flushAsync();
+
+    expect(remoteMocks.rfbInstances[0].disconnected).toBe(true);
+    expect(wrapper.text()).toContain("VNC 需要密码，请输入 VNC 密码后重试");
   });
 
   it("closes active SSH sockets when the panel unmounts", async () => {

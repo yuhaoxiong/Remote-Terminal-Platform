@@ -146,6 +146,10 @@ textarea {
   gap: 10px;
 }
 
+.vnc-password-input {
+  width: 220px;
+}
+
 .file-toolbar {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) auto auto;

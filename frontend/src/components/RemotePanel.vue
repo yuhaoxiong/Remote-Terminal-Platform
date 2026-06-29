@@ -12,6 +12,7 @@ const { clearRemoteSessionRequest } = devicesStore;
 
 interface RemoteSessionUi { status: "idle" | "connecting" | "ready" | "connected" | "failed" | "disconnected"; message: string; websocketUrl: string; output: string; }
 interface SshTerminalHandle { terminal: { cols: number; rows: number; loadAddon(addon: unknown): void; open(element: HTMLElement): void; focus(): void; write(data: string): void; writeln(data: string): void; onData(callback: (data: string) => void): { dispose: () => void }; dispose(): void }; fitAddon: { fit(): void; dispose?: () => void }; dataDisposable: { dispose: () => void }; resizeObserver: ResizeObserver | null; }
+interface VncClient { disconnect(): void; addEventListener(type: string, callback: (event: Event) => void): void; sendCredentials?(credentials: { password: string }): void; }
 
 const statusType: Record<DeviceStatus, "success" | "warning" | "danger" | "info"> = { online: "success", offline: "danger", degraded: "warning", unknown: "info" };
 const deviceStatusText: Record<DeviceStatus, string> = { online: "在线", offline: "离线", degraded: "异常", unknown: "未知" };
@@ -20,10 +21,12 @@ const remoteDeviceSearch = ref("");
 const selectedRemoteDeviceId = ref<number | null>(null);
 const sshTerminalHostRef = ref<HTMLElement | null>(null);
 const vncCanvasHostRef = ref<HTMLElement | null>(null);
+const vncPassword = ref("");
 const remoteSessions = reactive<Record<string, RemoteSessionUi>>({});
 const sshSockets = new Map<number, WebSocket>();
 const sshTerminals = new Map<number, SshTerminalHandle>();
-const vncClients = new Map<number, { disconnect(): void; addEventListener(type: string, callback: (event: Event) => void): void }>();
+const vncClients = new Map<number, VncClient>();
+const vncConnectionAttempts = new Map<number, number>();
 
 const remoteVisibleDevices = computed(() => {
   const keyword = remoteDeviceSearch.value.trim().toLowerCase();
@@ -101,20 +104,69 @@ function disconnectSshSession(deviceId: number) {
   const s = sshSockets.get(deviceId); if (s) { s.close(); sshSockets.delete(deviceId); }
   disposeSshTerminal(deviceId); setRemoteSession(deviceId, "ssh", { status: "disconnected", message: "SSH 已断开" });
 }
+function currentVncCredentials() {
+  const password = vncPassword.value.trim();
+  return password ? { password } : undefined;
+}
+function formatVncCredentialTypes(types: string[]) {
+  const labels: Record<string, string> = { password: "密码", username: "用户名", target: "目标" };
+  return types.map((type) => labels[type] ?? type).join("、") || "密码";
+}
+function nextVncConnectionAttempt(deviceId: number) {
+  const attemptId = (vncConnectionAttempts.get(deviceId) ?? 0) + 1;
+  vncConnectionAttempts.set(deviceId, attemptId);
+  return attemptId;
+}
+function isCurrentVncConnectionAttempt(deviceId: number, attemptId: number) {
+  return vncConnectionAttempts.get(deviceId) === attemptId;
+}
 async function startVncSession(device: Device) {
+  const attemptId = nextVncConnectionAttempt(device.id);
+  disconnectVncSession(device.id, false);
+  setRemoteSession(device.id, "vnc", { status: "connecting", message: "正在连接 VNC", output: "" });
   try {
     const session = await openVncSession(device.id);
+    if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
     const token = getAccessToken(); if (!token) { setRemoteSession(device.id, "vnc", { status: "failed", message: "Token 不可用" }); return; }
     if (!session.websocket_url) { setRemoteSession(device.id, "vnc", { status: "failed", message: "VNC 初始化失败" }); return; }
     const wsUrl = buildApiWebSocketUrl(session.websocket_url, token!);
     if (!vncCanvasHostRef.value) { setRemoteSession(device.id, "vnc", { status: "failed", message: "VNC 初始化失败" }); return; }
     const RFB = (await import("@novnc/novnc")).default;
-    const client = new RFB(vncCanvasHostRef.value, wsUrl, {}) as { disconnect(): void; addEventListener(type: string, callback: (event: Event) => void): void };
-    client.addEventListener("connect", () => setRemoteSession(device.id, "vnc", { status: "connected", message: `VNC 已连接 ${device.name}`, websocketUrl: wsUrl }));
-    client.addEventListener("disconnect", () => { if (remoteSessionFor(device.id, "vnc").status !== "failed") setRemoteSession(device.id, "vnc", { status: "disconnected", message: "VNC 已断开" }); vncClients.delete(device.id); });
+    if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
+    const credentials = currentVncCredentials();
+    const client = new RFB(vncCanvasHostRef.value, wsUrl, credentials ? { credentials } : {}) as VncClient;
+    client.addEventListener("connect", () => {
+      if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
+      setRemoteSession(device.id, "vnc", { status: "connected", message: `VNC 已连接 ${device.name}`, websocketUrl: wsUrl });
+    });
+    client.addEventListener("credentialsrequired", (event: Event) => {
+      if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
+      const credentials = currentVncCredentials();
+      if (credentials && client.sendCredentials) { client.sendCredentials(credentials); return; }
+      const required = formatVncCredentialTypes((event as CustomEvent<{ types?: string[] }>).detail?.types ?? []);
+      setRemoteSession(device.id, "vnc", { status: "failed", message: `VNC 需要${required}，请输入 VNC 密码后重试` });
+      client.disconnect();
+    });
+    client.addEventListener("securityfailure", (event: Event) => {
+      if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
+      const reason = (event as CustomEvent<{ reason?: string }>).detail?.reason;
+      setRemoteSession(device.id, "vnc", { status: "failed", message: reason ? `VNC 认证失败：${reason}` : "VNC 认证失败" });
+      client.disconnect();
+    });
+    client.addEventListener("disconnect", (event: Event) => {
+      if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
+      if (remoteSessionFor(device.id, "vnc").status !== "failed") {
+        const wasConnecting = remoteSessionFor(device.id, "vnc").status === "connecting";
+        const clean = (event as CustomEvent<{ clean?: boolean }>).detail?.clean;
+        setRemoteSession(device.id, "vnc", wasConnecting || clean === false ? { status: "failed", message: "VNC 连接中断，请检查 VNC 服务、端口和密码" } : { status: "disconnected", message: "VNC 已断开" });
+      }
+      vncClients.delete(device.id);
+    });
     vncClients.set(device.id, client);
-    setRemoteSession(device.id, "vnc", { status: "connecting", message: "正在连接 VNC", websocketUrl: wsUrl });
-  } catch (e: unknown) { setRemoteSession(device.id, "vnc", { status: "failed", message: e instanceof Error ? e.message : "VNC 连接失败" }); }
+    setRemoteSession(device.id, "vnc", { websocketUrl: wsUrl });
+  } catch (e: unknown) {
+    if (isCurrentVncConnectionAttempt(device.id, attemptId)) setRemoteSession(device.id, "vnc", { status: "failed", message: e instanceof Error ? e.message : "VNC 连接失败" });
+  }
 }
 function disconnectVncSession(deviceId: number, updateStatus = true) {
   const c = vncClients.get(deviceId); if (c) { c.disconnect(); vncClients.delete(deviceId); }
@@ -191,6 +243,7 @@ onBeforeUnmount(() => { for (const id of sshSockets.keys()) disconnectSshSession
                 <div class="panel-header">
                   <div><h3>VNC 桌面</h3><p class="muted">{{ selectedVncSession?.message ?? "未连接" }}</p></div>
                   <div class="remote-actions">
+                    <el-input v-model="vncPassword" data-testid="vnc-password" class="vnc-password-input" type="password" show-password placeholder="VNC 密码（如需要）" @keyup.enter="startVncSession(selectedRemoteDevice)" />
                     <el-button :data-testid="`open-vnc-${selectedRemoteDevice.id}`" :icon="VideoPlay" :disabled="!canOpenRemote(selectedRemoteDevice, 'vnc')" :loading="selectedVncSession?.status === 'connecting'" @click="startVncSession(selectedRemoteDevice)">连接 VNC</el-button>
                     <el-button :data-testid="`disconnect-vnc-${selectedRemoteDevice.id}`" :disabled="selectedVncSession?.status !== 'connected'" @click="disconnectVncSession(selectedRemoteDevice.id)">断开 VNC</el-button>
                     <el-button :data-testid="`fullscreen-vnc-${selectedRemoteDevice.id}`" :disabled="selectedVncSession?.status !== 'connected'" @click="requestVncFullscreen">全屏</el-button>
