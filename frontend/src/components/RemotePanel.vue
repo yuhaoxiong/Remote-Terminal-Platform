@@ -11,7 +11,7 @@ const { devices, remoteSessionRequest } = storeToRefs(devicesStore);
 const { clearRemoteSessionRequest } = devicesStore;
 
 interface RemoteSessionUi { status: "idle" | "connecting" | "ready" | "connected" | "failed" | "disconnected"; message: string; websocketUrl: string; output: string; }
-interface SshTerminalHandle { terminal: { cols: number; rows: number; loadAddon(addon: unknown): void; open(element: HTMLElement): void; write(data: string): void; writeln(data: string): void; onData(callback: (data: string) => void): { dispose: () => void }; dispose(): void }; fitAddon: { fit(): void; dispose?: () => void }; dataDisposable: { dispose: () => void }; resizeObserver: ResizeObserver | null; }
+interface SshTerminalHandle { terminal: { cols: number; rows: number; loadAddon(addon: unknown): void; open(element: HTMLElement): void; focus(): void; write(data: string): void; writeln(data: string): void; onData(callback: (data: string) => void): { dispose: () => void }; dispose(): void }; fitAddon: { fit(): void; dispose?: () => void }; dataDisposable: { dispose: () => void }; resizeObserver: ResizeObserver | null; }
 
 const statusType: Record<DeviceStatus, "success" | "warning" | "danger" | "info"> = { online: "success", offline: "danger", degraded: "warning", unknown: "info" };
 const deviceStatusText: Record<DeviceStatus, string> = { online: "在线", offline: "离线", degraded: "异常", unknown: "未知" };
@@ -60,8 +60,8 @@ async function prepareSshTerminal(deviceId: number) {
   disposeSshTerminal(deviceId); host.replaceChildren();
   const [{ Terminal }, { FitAddon }] = await Promise.all([import("@xterm/xterm"), import("@xterm/addon-fit")]);
   const terminal = new Terminal({ cursorBlink: true, convertEol: true, fontFamily: "Consolas, 'Courier New', monospace", fontSize: 13, theme: { background: "#0f172a", foreground: "#d1fae5" } });
-  const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(host); fit.fit();
-  const dataDisposable = terminal.onData((data: string) => { const s = sshSockets.get(deviceId); if (s && s.readyState === WebSocket.OPEN) s.send(JSON.stringify({ type: "stdin", data })); });
+  const fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(host); fit.fit(); terminal.focus();
+  const dataDisposable = terminal.onData((data: string) => { const s = sshSockets.get(deviceId); if (s && s.readyState === WebSocket.OPEN) s.send(JSON.stringify({ type: "input", data })); });
   const resizeObserver = new ResizeObserver(() => { fit.fit(); const s = sshSockets.get(deviceId); if (s && typeof WebSocket !== "undefined" && s.readyState === WebSocket.OPEN) s.send(JSON.stringify({ type: "resize", columns: terminal.cols || 120, rows: terminal.rows || 32 })); });
   resizeObserver.observe(host);
   sshTerminals.set(deviceId, { terminal, fitAddon: fit, dataDisposable, resizeObserver });

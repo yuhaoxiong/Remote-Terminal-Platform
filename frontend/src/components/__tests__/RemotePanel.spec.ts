@@ -20,6 +20,8 @@ const remoteMocks = vi.hoisted(() => {
 
     open() {}
 
+    focus() {}
+
     write(data: string) {
       this.output += data;
     }
@@ -275,7 +277,7 @@ describe("RemotePanel", () => {
 
     expect(remoteMocks.terminalInstances[0].output).toContain("shell-ready");
     expect(wrapper.find('[data-testid="ssh-transcript"]').text()).toContain("shell-ready");
-    expect(mockWebSockets[0].sent).toContain(JSON.stringify({ type: "stdin", data: "whoami\n" }));
+    expect(mockWebSockets[0].sent).toContain(JSON.stringify({ type: "input", data: "whoami\n" }));
 
     await wrapper.find('[data-testid="disconnect-ssh-1"]').trigger("click");
     await flushAsync();
