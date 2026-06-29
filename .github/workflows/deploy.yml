@@ -33,4 +33,9 @@ jobs:
               echo "[deploy-action] repository ownership repaired"
             fi
 
+            echo "[deploy-action] fast-forward source before deploy script"
+            sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" fetch origin main
+            sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" checkout main
+            sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" pull --ff-only origin main
+
             "$APP_ROOT/deploy.sh"

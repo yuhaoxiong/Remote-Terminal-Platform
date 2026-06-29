@@ -313,9 +313,9 @@ echo "[deploy] current revision:"
 git rev-parse HEAD || true
 
 echo "[deploy] fetch source"
-sudo -u "$APP_USER" git fetch origin "$DEPLOY_BRANCH"
-sudo -u "$APP_USER" git checkout "$DEPLOY_BRANCH"
-sudo -u "$APP_USER" git pull --ff-only origin "$DEPLOY_BRANCH"
+sudo -H -u "$APP_USER" git fetch origin "$DEPLOY_BRANCH"
+sudo -H -u "$APP_USER" git checkout "$DEPLOY_BRANCH"
+sudo -H -u "$APP_USER" git pull --ff-only origin "$DEPLOY_BRANCH"
 
 echo "[deploy] new revision:"
 git rev-parse HEAD
