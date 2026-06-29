@@ -15,12 +15,15 @@ const remoteMocks = vi.hoisted(() => {
     output = "";
     dataCallbacks: Array<(data: string) => void> = [];
     disposed = false;
+    focusCount = 0;
 
     loadAddon() {}
 
     open() {}
 
-    focus() {}
+    focus() {
+      this.focusCount += 1;
+    }
 
     write(data: string) {
       this.output += data;
@@ -60,6 +63,9 @@ const remoteMocks = vi.hoisted(() => {
     listeners: Record<string, Array<(event: Event) => void>> = {};
     disconnected = false;
     sentCredentials: Array<{ password: string }> = [];
+    showDotCursor = false;
+    focusOnClick = false;
+    focusCount = 0;
 
     constructor(
       public target: HTMLElement,
@@ -80,6 +86,10 @@ const remoteMocks = vi.hoisted(() => {
 
     sendCredentials(credentials: { password: string }) {
       this.sentCredentials.push(credentials);
+    }
+
+    focus() {
+      this.focusCount += 1;
     }
 
     disconnect() {
@@ -234,6 +244,7 @@ function remoteDevice(overrides: Partial<Device> = {}): Device {
   };
 }
 
+// eslint-disable-next-line max-lines-per-function
 describe("RemotePanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -275,8 +286,13 @@ describe("RemotePanel", () => {
     await flushAsync();
     expect(wrapper.text()).toContain("SSH 已连接 装配边缘终端 01");
 
-    mockWebSockets[0].receive({ type: "stdout", message: "shell-ready\n" });
+    mockWebSockets[0].receive({ type: "output", data: "shell-ready\n" });
     await flushAsync();
+    expect(remoteMocks.terminalInstances[0].focusCount).toBeGreaterThanOrEqual(2);
+
+    await wrapper.find('[data-testid="ssh-terminal"]').trigger("click");
+    expect(remoteMocks.terminalInstances[0].focusCount).toBeGreaterThanOrEqual(3);
+
     remoteMocks.terminalInstances[0].emitData("whoami\n");
     await flushAsync();
 
@@ -331,6 +347,9 @@ describe("RemotePanel", () => {
     remoteMocks.rfbInstances[0].emit("connect");
     await flushAsync();
     expect(wrapper.text()).toContain("VNC 已连接 装配边缘终端 01");
+    expect(remoteMocks.rfbInstances[0].showDotCursor).toBe(true);
+    expect(remoteMocks.rfbInstances[0].focusOnClick).toBe(true);
+    expect(remoteMocks.rfbInstances[0].focusCount).toBe(1);
 
     await wrapper.find('[data-testid="disconnect-vnc-1"]').trigger("click");
     await flushAsync();
@@ -343,6 +362,26 @@ describe("RemotePanel", () => {
     wrapper.unmount();
 
     expect(secondClient.disconnected).toBe(true);
+  });
+
+  it("focuses the noVNC client again after entering fullscreen", async () => {
+    const wrapper = await mountRemotePanel();
+
+    await wrapper.find('[data-testid="select-remote-device-1"]').trigger("click");
+    const screen = wrapper.find('[data-testid="vnc-screen"]').element as HTMLElement & { requestFullscreen?: () => Promise<void> };
+    screen.requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    await wrapper.find('[data-testid="open-vnc-1"]').trigger("click");
+    await flushAsync();
+    await waitUntil(() => expect(remoteMocks.rfbInstances).toHaveLength(1));
+    remoteMocks.rfbInstances[0].emit("connect");
+    await flushAsync();
+
+    await wrapper.find('[data-testid="fullscreen-vnc-1"]').trigger("click");
+    await flushAsync();
+
+    expect(screen.requestFullscreen).toHaveBeenCalled();
+    expect(remoteMocks.rfbInstances[0].showDotCursor).toBe(true);
+    expect(remoteMocks.rfbInstances[0].focusCount).toBe(2);
   });
 
   it("passes the optional VNC password to noVNC", async () => {

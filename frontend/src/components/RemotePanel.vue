@@ -12,7 +12,7 @@ const { clearRemoteSessionRequest } = devicesStore;
 
 interface RemoteSessionUi { status: "idle" | "connecting" | "ready" | "connected" | "failed" | "disconnected"; message: string; websocketUrl: string; output: string; }
 interface SshTerminalHandle { terminal: { cols: number; rows: number; loadAddon(addon: unknown): void; open(element: HTMLElement): void; focus(): void; write(data: string): void; writeln(data: string): void; onData(callback: (data: string) => void): { dispose: () => void }; dispose(): void }; fitAddon: { fit(): void; dispose?: () => void }; dataDisposable: { dispose: () => void }; resizeObserver: ResizeObserver | null; }
-interface VncClient { disconnect(): void; addEventListener(type: string, callback: (event: Event) => void): void; sendCredentials?(credentials: { password: string }): void; }
+interface VncClient { showDotCursor?: boolean; focusOnClick?: boolean; focus?(options?: FocusOptions): void; disconnect(): void; addEventListener(type: string, callback: (event: Event) => void): void; sendCredentials?(credentials: { password: string }): void; }
 
 const statusType: Record<DeviceStatus, "success" | "warning" | "danger" | "info"> = { online: "success", offline: "danger", degraded: "warning", unknown: "info" };
 const deviceStatusText: Record<DeviceStatus, string> = { online: "在线", offline: "离线", degraded: "异常", unknown: "未知" };
@@ -58,6 +58,15 @@ function disposeSshTerminal(deviceId: number) {
   h.dataDisposable.dispose(); h.resizeObserver?.disconnect(); h.terminal.dispose(); h.fitAddon.dispose?.();
   sshTerminals.delete(deviceId);
 }
+function focusSshTerminal(deviceId: number) { sshTerminals.get(deviceId)?.terminal.focus(); }
+function writeSshOutput(deviceId: number, data: string, newline = false) {
+  if (!data) return;
+  const c = remoteSessionFor(deviceId, "ssh");
+  c.output += newline ? `${data}\n` : data;
+  const terminal = sshTerminals.get(deviceId)?.terminal;
+  if (newline) terminal?.writeln(data);
+  else terminal?.write(data);
+}
 async function prepareSshTerminal(deviceId: number) {
   await nextTick(); const host = sshTerminalHostRef.value; if (!host) return null;
   disposeSshTerminal(deviceId); host.replaceChildren();
@@ -83,13 +92,13 @@ async function startSshSession(device: Device) {
     sshSockets.get(device.id)?.close();
     const socket = new WebSocket(wsUrl);
     sshSockets.set(device.id, socket);
-    socket.onopen = () => { setRemoteSession(device.id, "ssh", { status: "connected", message: `SSH 已连接 ${device.name}`, websocketUrl: wsUrl }); };
+    socket.onopen = () => { setRemoteSession(device.id, "ssh", { status: "connected", message: `SSH 已连接 ${device.name}`, websocketUrl: wsUrl }); focusSshTerminal(device.id); };
     socket.onmessage = (e) => {
       try {
         const d = JSON.parse(String(e.data));
-        if (d.type === "stdout") { const c = remoteSessionFor(device.id, "ssh"); c.output += d.message ?? d.data ?? ""; sshTerminals.get(device.id)?.terminal.write(d.message ?? d.data ?? ""); }
+        if (d.type === "stdout" || d.type === "output") writeSshOutput(device.id, d.message ?? d.data ?? "");
         else if (d.type === "disconnect") { sshTerminals.get(device.id)?.terminal.writeln(d.message ?? "SSH 连接断开"); setRemoteSession(device.id, "ssh", { status: "disconnected", message: d.message ?? "SSH 已断开" }); }
-        else if (d.message) { const c = remoteSessionFor(device.id, "ssh"); c.output += d.message; sshTerminals.get(device.id)?.terminal.writeln(d.message); }
+        else if (d.message) writeSshOutput(device.id, d.message, true);
       } catch { sshTerminals.get(device.id)?.terminal.write(String(e.data)); }
     };
     socket.onerror = () => { sshTerminals.get(device.id)?.terminal.writeln("SSH WebSocket 连接失败"); setRemoteSession(device.id, "ssh", { status: "failed", message: "SSH WebSocket 错误" }); sshSockets.delete(device.id); };
@@ -135,9 +144,12 @@ async function startVncSession(device: Device) {
     if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
     const credentials = currentVncCredentials();
     const client = new RFB(vncCanvasHostRef.value, wsUrl, credentials ? { credentials } : {}) as VncClient;
+    client.showDotCursor = true;
+    client.focusOnClick = true;
     client.addEventListener("connect", () => {
       if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
       setRemoteSession(device.id, "vnc", { status: "connected", message: `VNC 已连接 ${device.name}`, websocketUrl: wsUrl });
+      client.focus?.({ preventScroll: true });
     });
     client.addEventListener("credentialsrequired", (event: Event) => {
       if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
@@ -172,7 +184,13 @@ function disconnectVncSession(deviceId: number, updateStatus = true) {
   const c = vncClients.get(deviceId); if (c) { c.disconnect(); vncClients.delete(deviceId); }
   if (updateStatus) setRemoteSession(deviceId, "vnc", { status: "disconnected", message: "VNC 已断开" });
 }
-function requestVncFullscreen() { vncCanvasHostRef.value?.requestFullscreen?.(); }
+async function requestVncFullscreen(deviceId: number) {
+  await vncCanvasHostRef.value?.requestFullscreen?.();
+  const client = vncClients.get(deviceId);
+  if (!client) return;
+  client.showDotCursor = true;
+  client.focus?.({ preventScroll: true });
+}
 
 watch(
   remoteSessionRequest,
@@ -234,7 +252,7 @@ onBeforeUnmount(() => { for (const id of sshSockets.keys()) disconnectSshSession
                   </div>
                 </div>
                 <p v-if="remoteUnavailableReason(selectedRemoteDevice, 'ssh')" class="remote-warning">{{ remoteUnavailableReason(selectedRemoteDevice, "ssh") }}</p>
-                <div ref="sshTerminalHostRef" data-testid="ssh-terminal" class="ssh-terminal"></div>
+                <div ref="sshTerminalHostRef" data-testid="ssh-terminal" class="ssh-terminal" @pointerdown="focusSshTerminal(selectedRemoteDevice.id)" @click="focusSshTerminal(selectedRemoteDevice.id)"></div>
                 <pre v-if="selectedSshSession?.output" data-testid="ssh-transcript" class="terminal-output">{{ selectedSshSession.output }}</pre>
               </section>
             </el-tab-pane>
@@ -246,7 +264,7 @@ onBeforeUnmount(() => { for (const id of sshSockets.keys()) disconnectSshSession
                     <el-input v-model="vncPassword" data-testid="vnc-password" class="vnc-password-input" type="password" show-password placeholder="VNC 密码（如需要）" @keyup.enter="startVncSession(selectedRemoteDevice)" />
                     <el-button :data-testid="`open-vnc-${selectedRemoteDevice.id}`" :icon="VideoPlay" :disabled="!canOpenRemote(selectedRemoteDevice, 'vnc')" :loading="selectedVncSession?.status === 'connecting'" @click="startVncSession(selectedRemoteDevice)">连接 VNC</el-button>
                     <el-button :data-testid="`disconnect-vnc-${selectedRemoteDevice.id}`" :disabled="selectedVncSession?.status !== 'connected'" @click="disconnectVncSession(selectedRemoteDevice.id)">断开 VNC</el-button>
-                    <el-button :data-testid="`fullscreen-vnc-${selectedRemoteDevice.id}`" :disabled="selectedVncSession?.status !== 'connected'" @click="requestVncFullscreen">全屏</el-button>
+                    <el-button :data-testid="`fullscreen-vnc-${selectedRemoteDevice.id}`" :disabled="selectedVncSession?.status !== 'connected'" @click="requestVncFullscreen(selectedRemoteDevice.id)">全屏</el-button>
                   </div>
                 </div>
                 <p v-if="remoteUnavailableReason(selectedRemoteDevice, 'vnc')" class="remote-warning">{{ remoteUnavailableReason(selectedRemoteDevice, "vnc") }}</p>
