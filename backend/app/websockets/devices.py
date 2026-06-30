@@ -11,7 +11,7 @@ from app.models.device import Device
 from app.models.user import User
 from app.services.device_service import DeviceNotFoundError, DeviceService
 from app.services.operation_log import OperationLogService
-from app.services.security import TokenError, decode_token
+from app.services.security import TokenError, decode_token, token_matches_password_version
 from app.services.ssh_service import RemoteConnectionError, SshService, SshShellSession
 from app.services.vnc_relay import VncRelayService
 
@@ -34,6 +34,9 @@ async def _authenticated_user_and_device(websocket: WebSocket, device_id: int) -
     with session_scope(settings) as session:
         user = session.scalar(select(User).where(User.username == username, User.is_active.is_(True)))
         if user is None:
+            await websocket.close(code=1008)
+            return None
+        if not token_matches_password_version(payload, user.password_changed_at):
             await websocket.close(code=1008)
             return None
         try:

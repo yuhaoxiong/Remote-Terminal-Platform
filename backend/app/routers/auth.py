@@ -18,6 +18,7 @@ from app.services.security import (
     create_token,
     decode_token,
     hash_password,
+    token_matches_password_version,
     verify_password,
 )
 from app.services.operation_log import OperationLogService
@@ -25,18 +26,20 @@ from app.services.operation_log import OperationLogService
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _issue_tokens(settings: Settings, username: str) -> TokenResponse:
+def _issue_tokens(settings: Settings, user: User) -> TokenResponse:
     access_token = create_token(
         settings,
-        subject=username,
+        subject=user.username,
         token_type="access",
         expires_delta=timedelta(minutes=settings.access_token_expire_minutes),
+        password_changed_at=user.password_changed_at,
     )
     refresh_token = create_token(
         settings,
-        subject=username,
+        subject=user.username,
         token_type="refresh",
         expires_delta=timedelta(minutes=settings.refresh_token_expire_minutes),
+        password_changed_at=user.password_changed_at,
     )
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
@@ -72,7 +75,7 @@ def login(payload: LoginRequest, request: Request) -> TokenResponse:
             status="success",
             detail=f"ip={user.last_login_ip or ''}",
         )
-        return _issue_tokens(settings, user.username)
+        return _issue_tokens(settings, user)
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -107,6 +110,18 @@ def refresh(payload: RefreshRequest, request: Request) -> TokenResponse:
             )
             session.commit()
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+        if not token_matches_password_version(token_payload, user.password_changed_at):
+            OperationLogService(settings).record(
+                session,
+                user_id=user.id,
+                action="auth.refresh",
+                target_type="user",
+                target_id=user.id,
+                status="failed",
+                detail=f"stale token, ip={_client_ip(request) or ''}",
+            )
+            session.commit()
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
         OperationLogService(settings).record(
             session,
             user_id=user.id,
@@ -116,7 +131,7 @@ def refresh(payload: RefreshRequest, request: Request) -> TokenResponse:
             status="success",
             detail=f"ip={_client_ip(request) or ''}",
         )
-        return _issue_tokens(settings, user.username)
+        return _issue_tokens(settings, user)
 
 
 @router.get("/me", response_model=CurrentUserResponse)

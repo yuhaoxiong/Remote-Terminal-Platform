@@ -4,7 +4,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.database import session_scope
 from app.models.user import User
-from app.services.security import TokenError, decode_token
+from app.services.security import TokenError, decode_token, token_matches_password_version
 from app.services.update_task_service import UpdateTaskNotFoundError, UpdateTaskService
 
 router = APIRouter(tags=["update-task-websockets"])
@@ -29,6 +29,9 @@ async def update_task_progress(websocket: WebSocket, task_id: int) -> None:
     with session_scope(settings) as session:
         user = session.scalar(select(User).where(User.username == username, User.is_active.is_(True)))
         if user is None:
+            await websocket.close(code=1008)
+            return
+        if not token_matches_password_version(payload, user.password_changed_at):
             await websocket.close(code=1008)
             return
         try:

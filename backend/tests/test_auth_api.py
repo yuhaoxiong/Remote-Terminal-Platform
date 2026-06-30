@@ -41,6 +41,15 @@ def test_login_me_refresh_and_password_change_flow(client) -> None:
     )
     assert changed.status_code == 204
 
+    stale_access = client.get("/api/auth/me", headers=auth_header)
+    assert stale_access.status_code == 401
+
+    stale_refresh = client.post(
+        "/api/auth/refresh",
+        json={"refresh_token": token_payload["refresh_token"]},
+    )
+    assert stale_refresh.status_code == 401
+
     old_password_login = client.post(
         "/api/auth/login",
         json={"username": "admin", "password": "admin-pass"},

@@ -19,6 +19,19 @@ def _auth_headers(client) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
+def _operator_headers(client) -> dict[str, str]:
+    admin_headers = _auth_headers(client)
+    created = client.post(
+        "/api/users",
+        headers=admin_headers,
+        json={"username": "frps-operator", "password": "operator-pass", "role": "operator", "is_active": True},
+    )
+    assert created.status_code == 201
+    response = client.post("/api/auth/login", json={"username": "frps-operator", "password": "operator-pass"})
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
 def _payload() -> dict[str, object]:
     return {
         "dashboard_url": "124.70.177.226:7500",
@@ -141,3 +154,14 @@ def test_frps_import_requires_authentication(client) -> None:
     response = client.post("/api/frps/discover", json=_payload())
 
     assert response.status_code == 403
+
+
+def test_frps_import_requires_admin_role(client) -> None:
+    client.app.state.frps_dashboard_client = FakeFrpsDashboardClient()
+    headers = _operator_headers(client)
+
+    preview = client.post("/api/frps/discover", headers=headers, json=_payload())
+    imported = client.post("/api/frps/import", headers=headers, json=_payload())
+
+    assert preview.status_code == 403
+    assert imported.status_code == 403

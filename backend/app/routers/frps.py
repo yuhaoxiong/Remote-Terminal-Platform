@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.dependencies import get_current_user, request_session
+from app.dependencies import request_session, require_admin_user
 from app.models.user import User
 from app.schemas.frps import FrpsImportRequest, FrpsImportResponse
 from app.services.frps_import import FrpsDashboardError, FrpsImportService
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/frps", tags=["frps"])
 def discover_frps_devices(
     payload: FrpsImportRequest,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> FrpsImportResponse:
     with request_session(request) as (settings, session):
         service = FrpsImportService(settings, dashboard_client=getattr(request.app.state, "frps_dashboard_client", None))
@@ -27,7 +27,7 @@ def discover_frps_devices(
 def import_frps_devices(
     payload: FrpsImportRequest,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ) -> FrpsImportResponse:
     with request_session(request) as (settings, session):
         service = FrpsImportService(settings, dashboard_client=getattr(request.app.state, "frps_dashboard_client", None))

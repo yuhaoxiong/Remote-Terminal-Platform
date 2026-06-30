@@ -11,7 +11,7 @@ from app.database import session_scope
 from app.enums import UserRole
 from app.models.user import User
 from app.services.operation_log import OperationLogService
-from app.services.security import TokenError, decode_token
+from app.services.security import TokenError, decode_token, token_matches_password_version
 
 bearer_scheme = HTTPBearer()
 
@@ -49,6 +49,8 @@ def get_current_user(
     with session_scope(settings) as session:
         user = session.scalar(select(User).where(User.username == username, User.is_active.is_(True)))
         if user is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        if not token_matches_password_version(payload, user.password_changed_at):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         session.expunge(user)
         return user
