@@ -139,6 +139,7 @@ http://127.0.0.1:5177/
 ```powershell
 $env:REMOTE_GATEWAY_HOST='127.0.0.1'
 $env:VNC_GATEWAY_HOST='127.0.0.1'
+$env:DEFAULT_VNC_PASSWORD='<默认 VNC 密码>'
 $env:SSH_PASSWORD='<测试设备 SSH 密码>'
 $env:SSH_KEY_FILENAME='C:\path\to\id_ed25519'
 $env:SSH_KEY_PASSPHRASE='<私钥口令>'
@@ -458,7 +459,7 @@ docs/postman/edge-platform.postman_collection.json
 
 - 新增仅管理员可见的"系统设置"页面,用于管理后端注册表白名单内的非敏感运行参数。
 - 配置读取顺序为 `数据库覆盖值 > 系统配置/环境变量 > 代码默认值`;后端启动时加载数据库覆盖值到内存,保存可即时生效的配置后会刷新当前进程缓存。
-- 系统设置按分组保存,当前覆盖远程连接、设备凭据、文件存储、定时调度、告警通知和认证会话等通用运行参数;`DATABASE_URL`、`JWT_SECRET_KEY`、`CREDENTIAL_ENCRYPTION_KEY` 等敏感或启动级配置仅展示脱敏只读状态。
+- 系统设置按分组保存,当前覆盖远程连接、设备凭据、文件存储、定时调度、告警通知和认证会话等通用运行参数;远程连接分组支持配置默认 VNC 密码,连接页手动输入值优先于默认值;`DATABASE_URL`、`JWT_SECRET_KEY`、`CREDENTIAL_ENCRYPTION_KEY` 等敏感或启动级配置仅展示脱敏只读状态。
 - 需要重启后生效的配置会标记"待重启",保存时前端会弹窗提示;服务重启成功并重新加载配置后会自动清除待重启标记。
 - 后端新增系统设置变更历史表,保存、恢复默认和重启动作同时写入现有操作日志。敏感配置历史只记录脱敏快照,不返回明文密码、Token、私钥或加密密钥。
 - 系统设置页提供"重启服务"按钮。该功能仅在后端检测到 systemd 托管时允许执行,接口返回 `202` 后延迟退出进程,依赖 systemd `Restart=always` 或等价策略自动拉起。

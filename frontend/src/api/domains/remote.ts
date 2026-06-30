@@ -7,6 +7,7 @@ export interface RemoteSessionResponse {
   remote_port: number;
   websocket_url: string | null;
   proxy_url: string | null;
+  vnc_password?: string | null;
 }
 
 export interface SyncConfigResponse {

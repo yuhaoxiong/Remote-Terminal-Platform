@@ -49,6 +49,18 @@ def test_remote_access_sessions_expose_webssh_and_vnc_proxy_descriptors(client) 
     assert vnc["remote_port"] == 10500
     assert f"device_id={device['id']}" in vnc["proxy_url"]
     assert "port=10500" in vnc["proxy_url"]
+    assert vnc["vnc_password"] is None
+
+
+def test_vnc_session_includes_configured_default_password(client) -> None:
+    headers = _auth_headers(client)
+    device = _create_device(client, headers)
+    client.app.state.settings = client.app.state.settings.model_copy(update={"default_vnc_password": "vnc-default"})
+
+    response = client.post(f"/api/devices/{device['id']}/remote/vnc", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["vnc_password"] == "vnc-default"
 
 
 def test_remote_access_requires_authentication_and_existing_device(client) -> None:

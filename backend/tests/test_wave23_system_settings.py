@@ -79,19 +79,19 @@ def test_sensitive_system_setting_requires_encryption_and_is_masked(client, auth
     with TestClient(encrypted_client) as local_client:
         headers = _auth(local_client)
         saved = local_client.put(
-            "/api/system-settings/groups/device_credentials",
+            "/api/system-settings/groups/remote_connection",
             headers=headers,
-            json={"values": {"DEFAULT_DEVICE_SSH_PASSWORD": "new-secret"}},
+            json={"values": {"DEFAULT_VNC_PASSWORD": "new-secret"}},
         )
         assert saved.status_code == 200
         serialized = str(saved.json())
         assert "new-secret" not in serialized
-        assert local_client.app.state.settings.default_device_ssh_password == "new-secret"
+        assert local_client.app.state.settings.default_vnc_password == "new-secret"
 
         with session_scope(encrypted_settings) as session:
-            setting = session.query(SystemSetting).filter(SystemSetting.key == "DEFAULT_DEVICE_SSH_PASSWORD").one()
+            setting = session.query(SystemSetting).filter(SystemSetting.key == "DEFAULT_VNC_PASSWORD").one()
             assert setting.secret_value_encrypted != "new-secret"
-            change = session.query(SystemSettingChange).filter(SystemSettingChange.setting_key == "DEFAULT_DEVICE_SSH_PASSWORD").one()
+            change = session.query(SystemSettingChange).filter(SystemSettingChange.setting_key == "DEFAULT_VNC_PASSWORD").one()
             assert change.new_value_snapshot == "***"
 
 

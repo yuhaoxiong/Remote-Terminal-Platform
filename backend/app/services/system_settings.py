@@ -57,6 +57,7 @@ GROUPS: dict[str, str] = {
 SYSTEM_SETTING_REGISTRY: dict[str, SettingSpec] = {
     "REMOTE_GATEWAY_HOST": SettingSpec("REMOTE_GATEWAY_HOST", "remote_gateway_host", "SSH 网关主机", "远程 SSH 网关主机地址", "remote_connection", "string"),
     "VNC_GATEWAY_HOST": SettingSpec("VNC_GATEWAY_HOST", "vnc_gateway_host", "VNC 网关主机", "远程 VNC 网关主机地址", "remote_connection", "string"),
+    "DEFAULT_VNC_PASSWORD": SettingSpec("DEFAULT_VNC_PASSWORD", "default_vnc_password", "默认 VNC 密码", "远程 VNC 连接默认使用的密码，可在连接页临时覆盖", "remote_connection", "string", secret=True),
     "SSH_TIMEOUT_SECONDS": SettingSpec("SSH_TIMEOUT_SECONDS", "ssh_timeout_seconds", "SSH 超时", "SSH 连接超时时间", "remote_connection", "int", min_value=1, max_value=300),
     "VNC_TIMEOUT_SECONDS": SettingSpec("VNC_TIMEOUT_SECONDS", "vnc_timeout_seconds", "VNC 超时", "VNC 连接超时时间", "remote_connection", "int", min_value=1, max_value=300),
     "SSH_HOST_KEY_POLICY": SettingSpec("SSH_HOST_KEY_POLICY", "ssh_host_key_policy", "SSH 主机密钥策略", "SSH known_hosts 校验策略", "remote_connection", "enum", options=("auto_add", "warning", "reject")),

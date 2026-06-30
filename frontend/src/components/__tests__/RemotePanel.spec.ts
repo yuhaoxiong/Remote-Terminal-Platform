@@ -402,6 +402,47 @@ describe("RemotePanel", () => {
     expect(remoteMocks.rfbInstances[0].options).toEqual({ credentials: { password: "vnc-pass" } });
   });
 
+  it("uses the configured default VNC password when the local input is empty", async () => {
+    api.openVncSession.mockResolvedValueOnce({
+      device_id: 1,
+      session_type: "vnc",
+      status: "ready",
+      remote_port: 10500,
+      websocket_url: "/api/ws/devices/1/vnc",
+      proxy_url: null,
+      vnc_password: "configured-vnc-pass",
+    });
+    const wrapper = await mountRemotePanel();
+
+    await wrapper.find('[data-testid="select-remote-device-1"]').trigger("click");
+    await wrapper.find('[data-testid="open-vnc-1"]').trigger("click");
+    await flushAsync();
+
+    await waitUntil(() => expect(remoteMocks.rfbInstances).toHaveLength(1));
+    expect(remoteMocks.rfbInstances[0].options).toEqual({ credentials: { password: "configured-vnc-pass" } });
+  });
+
+  it("prefers the local VNC password over the configured default", async () => {
+    api.openVncSession.mockResolvedValueOnce({
+      device_id: 1,
+      session_type: "vnc",
+      status: "ready",
+      remote_port: 10500,
+      websocket_url: "/api/ws/devices/1/vnc",
+      proxy_url: null,
+      vnc_password: "configured-vnc-pass",
+    });
+    const wrapper = await mountRemotePanel();
+
+    await wrapper.find('[data-testid="select-remote-device-1"]').trigger("click");
+    await wrapper.find('[data-testid="vnc-password"]').setValue("manual-vnc-pass");
+    await wrapper.find('[data-testid="open-vnc-1"]').trigger("click");
+    await flushAsync();
+
+    await waitUntil(() => expect(remoteMocks.rfbInstances).toHaveLength(1));
+    expect(remoteMocks.rfbInstances[0].options).toEqual({ credentials: { password: "manual-vnc-pass" } });
+  });
+
   it("does not leave VNC loading when the handshake closes before connecting", async () => {
     const wrapper = await mountRemotePanel();
 

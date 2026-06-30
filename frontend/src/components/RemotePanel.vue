@@ -114,8 +114,8 @@ function disconnectSshSession(deviceId: number) {
   const s = sshSockets.get(deviceId); if (s) { s.close(); sshSockets.delete(deviceId); }
   disposeSshTerminal(deviceId); setRemoteSession(deviceId, "ssh", { status: "disconnected", message: "SSH 已断开" });
 }
-function currentVncCredentials() {
-  const password = vncPassword.value.trim();
+function currentVncCredentials(defaultPassword?: string | null) {
+  const password = vncPassword.value.trim() || defaultPassword?.trim();
   return password ? { password } : undefined;
 }
 function formatVncCredentialTypes(types: string[]) {
@@ -149,7 +149,7 @@ async function startVncSession(device: Device) {
     if (!vncCanvasHostRef.value) { setRemoteSession(device.id, "vnc", { status: "failed", message: "VNC 初始化失败" }); return; }
     const RFB = (await import("@novnc/novnc")).default;
     if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
-    const credentials = currentVncCredentials();
+    const credentials = currentVncCredentials(session.vnc_password);
     const client = new RFB(vncCanvasHostRef.value, wsUrl, credentials ? { credentials } : {}) as VncClient;
     configureVncDisplay(client);
     client.addEventListener("connect", () => {
@@ -160,7 +160,7 @@ async function startVncSession(device: Device) {
     });
     client.addEventListener("credentialsrequired", (event: Event) => {
       if (!isCurrentVncConnectionAttempt(device.id, attemptId)) return;
-      const credentials = currentVncCredentials();
+      const credentials = currentVncCredentials(session.vnc_password);
       if (credentials && client.sendCredentials) { client.sendCredentials(credentials); return; }
       const required = formatVncCredentialTypes((event as CustomEvent<{ types?: string[] }>).detail?.types ?? []);
       setRemoteSession(device.id, "vnc", { status: "failed", message: `VNC 需要${required}，请输入 VNC 密码后重试` });

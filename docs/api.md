@@ -275,6 +275,20 @@ GET /api/system-settings/schema
       "options": null,
       "min_value": null,
       "max_value": null
+    },
+    {
+      "key": "DEFAULT_VNC_PASSWORD",
+      "name": "默认 VNC 密码",
+      "description": "远程 VNC 连接默认使用的密码，可在连接页临时覆盖",
+      "category": "remote_connection",
+      "value_type": "string",
+      "editable": true,
+      "secret": true,
+      "requires_restart": false,
+      "runtime_effective": true,
+      "options": null,
+      "min_value": null,
+      "max_value": null
     }
   ]
 }
@@ -795,7 +809,8 @@ POST /api/devices/{device_id}/remote/vnc
   "status": "ready",
   "remote_port": 10500,
   "websocket_url": "/api/ws/devices/1/vnc",
-  "proxy_url": "/novnc/vnc.html?device_id=1&port=10500"
+  "proxy_url": "/novnc/vnc.html?device_id=1&port=10500",
+  "vnc_password": "<DEFAULT_VNC_PASSWORD 或 null>"
 }
 ```
 
@@ -805,7 +820,7 @@ POST /api/devices/{device_id}/remote/vnc
 /api/ws/devices/{device_id}/vnc?token=<access_token>
 ```
 
-该 WebSocket 转发二进制 VNC 数据,目标为 `vnc_gateway_host` 和设备 `vnc_port`。当前前端只支持内嵌连接、断开和浏览器全屏,不支持剪贴板同步、文件拖拽或远程分辨率高级控制。
+该 WebSocket 转发二进制 VNC 数据,目标为 `vnc_gateway_host` 和设备 `vnc_port`。若系统设置或环境变量配置了 `DEFAULT_VNC_PASSWORD`,VNC 会话描述会返回 `vnc_password` 供前端 noVNC 自动认证;连接页手动输入的密码优先于默认值。当前前端只支持内嵌连接、断开和浏览器全屏,不支持剪贴板同步、文件拖拽或远程分辨率高级控制。
 
 错误:
 

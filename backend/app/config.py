@@ -24,6 +24,7 @@ class Settings(BaseModel):
     file_storage_dir: str | None = None
     remote_gateway_host: str = "127.0.0.1"
     vnc_gateway_host: str | None = None
+    default_vnc_password: str | None = None
     ssh_password: str | None = None
     ssh_key_filename: str | None = None
     ssh_key_passphrase: str | None = None
@@ -51,6 +52,7 @@ def get_settings() -> Settings:
         default_admin_password=os.getenv("DEFAULT_ADMIN_PASSWORD", "admin"),
         remote_gateway_host=os.getenv("REMOTE_GATEWAY_HOST", "127.0.0.1"),
         vnc_gateway_host=os.getenv("VNC_GATEWAY_HOST"),
+        default_vnc_password=os.getenv("DEFAULT_VNC_PASSWORD"),
         ssh_timeout_seconds=int(os.getenv("SSH_TIMEOUT_SECONDS", "10")),
         vnc_timeout_seconds=int(os.getenv("VNC_TIMEOUT_SECONDS", "10")),
         ssh_password=os.getenv("SSH_PASSWORD"),

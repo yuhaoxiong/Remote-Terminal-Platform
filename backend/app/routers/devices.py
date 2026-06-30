@@ -406,7 +406,7 @@ def create_vnc_session(
     with request_session(request) as (settings, session):
         try:
             device = DeviceService(settings).get(session, device_id)
-            payload = RemoteAccessService().build_vnc_session(device)
+            payload = RemoteAccessService(settings).build_vnc_session(device)
         except DeviceNotFoundError as exc:
             raise not_found_error(exc) from exc
         except ValueError as exc:

@@ -114,3 +114,4 @@ class RemoteSessionResponse(BaseModel):
     remote_port: int
     websocket_url: str | None = None
     proxy_url: str | None = None
+    vnc_password: str | None = None
