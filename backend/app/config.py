@@ -32,7 +32,7 @@ class Settings(BaseModel):
     ssh_host_key_policy: str = "auto_add"
     scheduler_enabled: bool = True
     scheduler_poll_interval_seconds: int = 30
-    file_backend: str = "local"
+    file_backend: str = "sftp"
     default_device_ssh_user: str = "ztl"
     default_device_ssh_password: str = "123456"
     credential_encryption_key: str | None = None
@@ -62,7 +62,7 @@ def get_settings() -> Settings:
         ssh_host_key_policy=os.getenv("SSH_HOST_KEY_POLICY", "auto_add"),
         scheduler_enabled=os.getenv("SCHEDULER_ENABLED", "true").lower() not in {"0", "false", "no", "off"},
         scheduler_poll_interval_seconds=int(os.getenv("SCHEDULER_POLL_INTERVAL_SECONDS", "30")),
-        file_backend=os.getenv("FILE_BACKEND", "local"),
+        file_backend=os.getenv("FILE_BACKEND", "sftp"),
         file_storage_dir=os.getenv("FILE_STORAGE_DIR"),
         default_device_ssh_user=os.getenv("DEFAULT_DEVICE_SSH_USER", "ztl"),
         default_device_ssh_password=os.getenv("DEFAULT_DEVICE_SSH_PASSWORD", "123456"),

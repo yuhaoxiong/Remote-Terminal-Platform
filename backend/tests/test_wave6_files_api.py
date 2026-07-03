@@ -1,3 +1,22 @@
+from pathlib import Path
+
+import pytest
+
+from app.config import Settings
+
+
+@pytest.fixture()
+def settings(tmp_path: Path) -> Settings:
+    return Settings(
+        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        jwt_secret_key="test-secret-key",
+        default_admin_username="admin",
+        default_admin_password="admin-pass",
+        scheduler_enabled=False,
+        file_backend="local",
+    )
+
+
 def _auth_headers(client) -> dict[str, str]:
     response = client.post(
         "/api/auth/login",

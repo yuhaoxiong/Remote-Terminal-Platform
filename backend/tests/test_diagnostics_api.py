@@ -12,7 +12,7 @@ def test_diagnostics_config_reports_non_sensitive_runtime_settings(client) -> No
     assert body["service_name"] == "edge-platform"
     assert body["api_prefix"] == "/api"
     assert body["database"].startswith("sqlite:///")
-    assert body["file_backend"] == "local"
+    assert body["file_backend"] == "sftp"
     assert body["remote_gateway_host"] == "127.0.0.1"
     assert body["default_device_ssh_user"] == "ztl"
     assert "password" not in body
