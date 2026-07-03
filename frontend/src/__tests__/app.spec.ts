@@ -467,6 +467,8 @@ it("creates a device through the backend API and exposes SSH/VNC entry points", 
     tags: ["视觉", "生产"],
     ssh_user: "ztl",
     ssh_auth_type: "password",
+    ssh_port: null,
+    vnc_port: null,
   });
   expect(wrapper.text()).toContain("边缘相机 09");
   expect(wrapper.text()).toContain("SN-W5-009");
@@ -723,6 +725,8 @@ it("edits, refreshes, and deletes a device from the device table", async () => {
     tags: ["维护"],
     ssh_user: "root",
     ssh_auth_type: "password",
+    ssh_port: 10000,
+    vnc_port: 10500,
   });
   expect(api.updateDevice.mock.calls[0][1]).not.toHaveProperty("ssh_password");
   expect(wrapper.text()).toContain("装配边缘终端 01 已更新");

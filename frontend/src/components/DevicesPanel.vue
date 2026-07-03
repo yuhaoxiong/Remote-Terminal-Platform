@@ -58,6 +58,7 @@ const deviceDetail = ref<Device | null>(null);
 const deviceForm = reactive({
   name: "", device_sn: "", project_id: "", group_id: null as number | null,
   location: "", tags: "", ssh_user: "ztl", ssh_auth_type: "password", ssh_password: "",
+  ssh_port: null as number | null, vnc_port: null as number | null,
 });
 const deviceFormTitle = computed(() => (deviceEditId.value === null ? "创建设备" : "编辑设备"));
 const selectedGroupName = computed(() => groupNameFor(selectedGroupId.value, groups.value));
@@ -78,17 +79,17 @@ const syncConfigText = ref("");
 
 function openDeviceCreate() {
   deviceEditId.value = null;
-  Object.assign(deviceForm, { name: "", device_sn: "", project_id: "", group_id: selectedGroupId.value ?? groups.value[0]?.id ?? null, location: "", tags: "", ssh_user: "ztl", ssh_auth_type: "password", ssh_password: "" });
+  Object.assign(deviceForm, { name: "", device_sn: "", project_id: "", group_id: selectedGroupId.value ?? groups.value[0]?.id ?? null, location: "", tags: "", ssh_user: "ztl", ssh_auth_type: "password", ssh_password: "", ssh_port: null, vnc_port: null });
   deviceCreateOpen.value = true;
 }
 function openDeviceEdit(device: Device) {
   deviceEditId.value = device.id;
-  Object.assign(deviceForm, { name: device.name, device_sn: device.device_sn, project_id: device.project_id, group_id: device.group_id, location: device.location === "未分配" ? "" : device.location, tags: device.tags.join(","), ssh_user: device.ssh_user, ssh_auth_type: device.ssh_auth_type, ssh_password: "" });
+  Object.assign(deviceForm, { name: device.name, device_sn: device.device_sn, project_id: device.project_id, group_id: device.group_id, location: device.location === "未分配" ? "" : device.location, tags: device.tags.join(","), ssh_user: device.ssh_user, ssh_auth_type: device.ssh_auth_type, ssh_password: "", ssh_port: device.ssh_port, vnc_port: device.vnc_port });
   deviceCreateOpen.value = true;
 }
 async function saveDevice() {
   if (!deviceForm.name || !deviceForm.device_sn || !deviceForm.project_id) { prependLocalLog("设备校验", deviceEditId.value === null ? "新设备" : `设备：${deviceEditId.value}`, "blocked", "设备名称、序列号和项目号为必填项"); return; }
-  const basePayload = { name: deviceForm.name, project_id: deviceForm.project_id, group_id: deviceForm.group_id, location: deviceForm.location || undefined, tags: parseTags(deviceForm.tags), ssh_user: deviceForm.ssh_user || "ztl", ssh_auth_type: deviceForm.ssh_auth_type || "password" };
+  const basePayload = { name: deviceForm.name, project_id: deviceForm.project_id, group_id: deviceForm.group_id, location: deviceForm.location || undefined, tags: parseTags(deviceForm.tags), ssh_user: deviceForm.ssh_user || "ztl", ssh_auth_type: deviceForm.ssh_auth_type || "password", ssh_port: deviceForm.ssh_port, vnc_port: deviceForm.vnc_port };
   const pwdPayload = deviceForm.ssh_password ? { ssh_password: deviceForm.ssh_password } : {};
   try {
     if (deviceEditId.value === null) { const payload: DeviceCreateRequest = { ...basePayload, ...pwdPayload, device_sn: deviceForm.device_sn }; devices.value.push(mapDevice(await createDevice(payload), groups.value)); }
@@ -204,11 +205,13 @@ async function importFromFrps() {
         <el-select v-model="deviceForm.group_id" placeholder="选择分组" clearable><el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" /></el-select>
         <el-input v-model="deviceForm.location" placeholder="位置" />
         <div data-testid="device-tags" class="input-wrap"><el-input v-model="deviceForm.tags" placeholder="标签，用逗号分隔" /></div>
+        <div data-testid="device-ssh-port" class="input-wrap"><el-input-number v-model="deviceForm.ssh_port" :min="1" :max="65535" placeholder="SSH 端口" controls-position="right" style="width: 100%" /></div>
+        <div data-testid="device-vnc-port" class="input-wrap"><el-input-number v-model="deviceForm.vnc_port" :min="1" :max="65535" placeholder="VNC 端口" controls-position="right" style="width: 100%" /></div>
         <div data-testid="device-ssh-user" class="input-wrap"><el-input v-model="deviceForm.ssh_user" placeholder="SSH 用户" /></div>
         <div data-testid="device-ssh-auth-type" class="input-wrap"><el-input v-model="deviceForm.ssh_auth_type" placeholder="凭据类型" /></div>
         <div data-testid="device-ssh-password" class="input-wrap"><el-input v-model="deviceForm.ssh_password" type="password" show-password placeholder="SSH 密码" /></div>
       </div>
-      <p class="muted">SSH 密码不会从接口回显；编辑设备时留空表示不修改已有凭据。</p>
+      <p class="muted">SSH 密码不会从接口回显；编辑设备时留空表示不修改已有凭据。端口留空表示不配置远程访问。</p>
       <template #footer>
         <el-button @click="deviceCreateOpen=false">取消</el-button>
         <el-button data-testid="save-device" type="primary" @click="saveDevice">保存设备</el-button>
