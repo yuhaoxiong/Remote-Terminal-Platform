@@ -3,6 +3,13 @@ import { ref, computed } from "vue";
 import { Folder, Document, Download, Delete, Edit, Refresh, Upload } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { Device } from "../stores/devices";
+import {
+  listDeviceFiles,
+  uploadDeviceFile,
+  downloadDeviceFile,
+  deleteDeviceFile,
+  type DeviceFileItem,
+} from "../api/platform";
 
 const props = defineProps<{
   device: Device | null;
@@ -10,9 +17,6 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  upload: [path: string, files: File[]];
-  download: [path: string, filename: string];
-  delete: [path: string];
   refresh: [];
 }>();
 
@@ -32,12 +36,26 @@ const loading = ref(false);
 const fileTreeData = ref<FileTreeNode[]>([]);
 const currentPath = ref("/");
 const selectedNode = ref<FileTreeNode | null>(null);
+const uploadingFiles = ref(new Set<string>());
 
 // Tree 配置
 const treeProps = {
   label: "name",
   children: "children",
   isLeaf: "isLeaf",
+};
+
+// 转换 API 数据为 Tree 节点
+const mapFileItemToNode = (item: DeviceFileItem): FileTreeNode => {
+  return {
+    id: item.path,
+    name: item.name,
+    path: item.path,
+    type: item.type === "directory" ? "directory" : "file",
+    size: item.size,
+    modifiedAt: item.modified_at || undefined,
+    isLeaf: item.type !== "directory",
+  };
 };
 
 // 加载根目录
@@ -49,40 +67,8 @@ const loadRootDirectory = async () => {
 
   loading.value = true;
   try {
-    // TODO: 调用 API 获取根目录文件列表
-    // const files = await listDeviceFiles(props.device.id, "/");
-
-    // 模拟数据
-    fileTreeData.value = [
-      {
-        id: "/root",
-        name: "root",
-        path: "/root",
-        type: "directory",
-        isLeaf: false,
-      },
-      {
-        id: "/home",
-        name: "home",
-        path: "/home",
-        type: "directory",
-        isLeaf: false,
-      },
-      {
-        id: "/etc",
-        name: "etc",
-        path: "/etc",
-        type: "directory",
-        isLeaf: false,
-      },
-      {
-        id: "/var",
-        name: "var",
-        path: "/var",
-        type: "directory",
-        isLeaf: false,
-      },
-    ];
+    const response = await listDeviceFiles(props.device.id, "/");
+    fileTreeData.value = response.items.map(mapFileItemToNode);
   } catch (error) {
     ElMessage.error("加载文件列表失败");
     fileTreeData.value = [];
@@ -102,29 +88,13 @@ const loadNode = async (node: any, resolve: any) => {
   // 加载子目录
   const parentData = node.data as FileTreeNode;
 
+  if (!props.device) {
+    return resolve([]);
+  }
+
   try {
-    // TODO: 调用 API 获取子目录文件列表
-    // const files = await listDeviceFiles(props.device!.id, parentData.path);
-
-    // 模拟数据
-    const children: FileTreeNode[] = [
-      {
-        id: `${parentData.path}/file1.txt`,
-        name: "file1.txt",
-        path: `${parentData.path}/file1.txt`,
-        type: "file",
-        size: 1024,
-        isLeaf: true,
-      },
-      {
-        id: `${parentData.path}/subfolder`,
-        name: "subfolder",
-        path: `${parentData.path}/subfolder`,
-        type: "directory",
-        isLeaf: false,
-      },
-    ];
-
+    const response = await listDeviceFiles(props.device.id, parentData.path);
+    const children = response.items.map(mapFileItemToNode);
     resolve(children);
   } catch (error) {
     ElMessage.error(`加载 ${parentData.path} 失败`);
@@ -140,25 +110,14 @@ const handleNodeClick = (data: FileTreeNode) => {
 
 // 右键菜单命令
 const handleCommand = async (command: string, node: FileTreeNode) => {
+  if (!props.device) return;
+
   switch (command) {
     case "download":
-      emit("download", node.path, node.name);
+      await handleDownload(node);
       break;
     case "delete":
-      try {
-        await ElMessageBox.confirm(
-          `确定删除 ${node.name}？`,
-          "删除确认",
-          {
-            type: "warning",
-            confirmButtonText: "删除",
-            cancelButtonText: "取消",
-          }
-        );
-        emit("delete", node.path);
-      } catch {
-        // 用户取消
-      }
+      await handleDelete(node);
       break;
     case "rename":
       ElMessage.info("重命名功能开发中...");
@@ -170,31 +129,109 @@ const handleCommand = async (command: string, node: FileTreeNode) => {
   }
 };
 
+// 文件下载
+const handleDownload = async (node: FileTreeNode) => {
+  if (!props.device) return;
+
+  try {
+    ElMessage.info(`正在下载 ${node.name}...`);
+    const blob = await downloadDeviceFile(props.device.id, node.path);
+
+    // 创建下载链接
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = node.name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(url);
+
+    ElMessage.success(`${node.name} 下载成功`);
+  } catch (error) {
+    ElMessage.error(`下载 ${node.name} 失败`);
+  }
+};
+
+// 文件删除
+const handleDelete = async (node: FileTreeNode) => {
+  if (!props.device) return;
+
+  try {
+    await ElMessageBox.confirm(
+      `确定删除 ${node.name}？此操作不可恢复!`,
+      "删除确认",
+      {
+        type: "warning",
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+      }
+    );
+
+    await deleteDeviceFile(props.device.id, node.path);
+    ElMessage.success(`${node.name} 删除成功`);
+
+    // 刷新文件树
+    emit("refresh");
+    loadRootDirectory();
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(`删除 ${node.name} 失败`);
+    }
+  }
+};
+
 // 文件上传
 const handleUploadClick = () => {
   const input = document.createElement("input");
   input.type = "file";
   input.multiple = true;
-  input.onchange = (e) => {
+  input.onchange = async (e) => {
     const files = Array.from((e.target as HTMLInputElement).files || []);
     if (files.length > 0) {
-      emit("upload", currentPath.value, files);
+      await uploadFiles(currentPath.value, files);
     }
   };
   input.click();
 };
 
 // 拖拽上传
-const handleDrop = (e: DragEvent) => {
+const handleDrop = async (e: DragEvent) => {
   e.preventDefault();
   const files = Array.from(e.dataTransfer?.files || []);
   if (files.length > 0) {
-    emit("upload", currentPath.value, files);
+    await uploadFiles(currentPath.value, files);
   }
 };
 
 const handleDragOver = (e: DragEvent) => {
   e.preventDefault();
+};
+
+// 批量上传文件
+const uploadFiles = async (targetPath: string, files: File[]) => {
+  if (!props.device) return;
+
+  const deviceId = props.device.id;
+
+  for (const file of files) {
+    const uploadKey = `${targetPath}/${file.name}`;
+    uploadingFiles.value.add(uploadKey);
+
+    try {
+      ElMessage.info(`正在上传 ${file.name}...`);
+      await uploadDeviceFile(deviceId, targetPath, file);
+      ElMessage.success(`${file.name} 上传成功`);
+    } catch (error) {
+      ElMessage.error(`上传 ${file.name} 失败`);
+    } finally {
+      uploadingFiles.value.delete(uploadKey);
+    }
+  }
+
+  // 上传完成后刷新文件树
+  emit("refresh");
+  loadRootDirectory();
 };
 
 // 刷新文件树

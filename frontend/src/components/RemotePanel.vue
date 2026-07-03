@@ -42,22 +42,7 @@ const selectedSshSession = computed(() => selectedRemoteDevice.value ? remoteSes
 const selectedVncSession = computed(() => selectedRemoteDevice.value ? remoteSessionFor(selectedRemoteDevice.value.id, "vnc") : null);
 const isSshConnected = computed(() => selectedSshSession.value?.status === "connected");
 
-// 文件操作处理
-const handleFileUpload = async (path: string, files: File[]) => {
-  console.log("上传文件到", path, files);
-  // TODO: 实现文件上传 API
-};
-
-const handleFileDownload = async (path: string, filename: string) => {
-  console.log("下载文件", path, filename);
-  // TODO: 实现文件下载 API
-};
-
-const handleFileDelete = async (path: string) => {
-  console.log("删除文件", path);
-  // TODO: 实现文件删除 API
-};
-
+// 文件操作处理已移至 FileTreePanel 组件内部
 const handleFileTreeRefresh = () => {
   fileTreePanelRef.value?.refresh();
 };
@@ -299,9 +284,6 @@ onBeforeUnmount(() => { document.removeEventListener("fullscreenchange", refresh
                     ref="fileTreePanelRef"
                     :device="selectedRemoteDevice"
                     :connected="isSshConnected"
-                    @upload="handleFileUpload"
-                    @download="handleFileDownload"
-                    @delete="handleFileDelete"
                     @refresh="handleFileTreeRefresh"
                   />
                 </template>
