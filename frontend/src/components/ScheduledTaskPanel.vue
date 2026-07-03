@@ -19,6 +19,7 @@ import {
   type ScheduledTaskRunRead,
 } from "../api/platform";
 import { formatTime as formatTimeBase } from "../utils/format";
+import CommonDialog from "./CommonDialog.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -312,11 +313,7 @@ onMounted(() => {
       </div>
     </section>
 
-    <section v-if="formOpen" class="form-panel" aria-label="定时任务表单">
-      <div class="panel-header">
-        <h3>{{ editId === null ? "创建定时任务" : "编辑定时任务" }}</h3>
-        <el-button text @click="formOpen = false">关闭</el-button>
-      </div>
+    <CommonDialog v-model:visible="formOpen" :title="editId === null ? '创建定时任务' : '编辑定时任务'" width="800px" @confirm="saveTask" @cancel="formOpen = false">
       <div class="form-grid">
         <div data-testid="scheduled-name" class="input-wrap"><el-input v-model="form.name" placeholder="任务名称" /></div>
         <div data-testid="scheduled-type" class="input-wrap"><el-input v-model="form.task_type" placeholder="任务类型，例如 command" /></div>
@@ -354,10 +351,11 @@ onMounted(() => {
           <el-input v-model="form.target_filter" type="textarea" :rows="4" placeholder="目标筛选 JSON" />
         </div>
       </div>
-      <div class="form-actions">
+      <template #footer>
+        <el-button @click="formOpen = false">取消</el-button>
         <el-button data-testid="save-scheduled-task" type="primary" :loading="loading" @click="saveTask">保存定时任务</el-button>
-      </div>
-    </section>
+      </template>
+    </CommonDialog>
 
     <div class="table-panel">
       <el-table :data="tasks" row-key="id" empty-text="暂无定时任务">

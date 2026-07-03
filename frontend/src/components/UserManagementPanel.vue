@@ -13,6 +13,7 @@ import {
   type UserRole,
 } from "../api/platform";
 import { formatTime as formatTimeBase } from "../utils/format";
+import CommonDialog from "./CommonDialog.vue";
 
 const users = ref<UserRead[]>([]);
 const loading = ref(false);
@@ -38,6 +39,15 @@ const sortedUsers = computed(() =>
     return left.username.localeCompare(right.username);
   }),
 );
+
+const resetPasswordDialogVisible = computed({
+  get: () => resetUserId.value !== null,
+  set: (value: boolean) => {
+    if (!value) {
+      resetUserId.value = null;
+    }
+  },
+});
 
 const formatTime = (value: string | null) => formatTimeBase(value, "暂无");
 
@@ -194,11 +204,7 @@ onMounted(() => {
     <el-alert v-if="errorMessage" class="validation-alert" type="error" :title="errorMessage" show-icon :closable="false" />
     <el-alert v-if="lastMessage" class="validation-alert" type="success" :title="lastMessage" show-icon :closable="false" />
 
-    <section v-if="formOpen" class="form-panel" aria-label="创建用户">
-      <div class="panel-header">
-        <h3>创建用户</h3>
-        <el-button text @click="formOpen = false">关闭</el-button>
-      </div>
+    <CommonDialog v-model:visible="formOpen" title="创建用户" width="600px" @confirm="submitCreateUser" @cancel="formOpen = false">
       <div class="form-grid">
         <div data-testid="user-username" class="input-wrap">
           <el-input v-model="createForm.username" placeholder="用户名" />
@@ -218,29 +224,25 @@ onMounted(() => {
           <el-switch v-model="createForm.is_active" />
         </label>
       </div>
-      <div class="form-actions">
-        <el-button text @click="formOpen = false">取消</el-button>
+      <template #footer>
+        <el-button @click="formOpen = false">取消</el-button>
         <el-button data-testid="user-create" type="primary" :loading="loading" @click="submitCreateUser">创建用户</el-button>
-      </div>
-    </section>
+      </template>
+    </CommonDialog>
 
-    <section v-if="resetUserId !== null" class="form-panel" aria-label="重置用户密码">
-      <div class="panel-header">
-        <h3>重置用户密码</h3>
-        <el-button text @click="resetUserId = null">关闭</el-button>
-      </div>
+    <CommonDialog v-model:visible="resetPasswordDialogVisible" title="重置用户密码" width="500px" @confirm="submitResetPassword" @cancel="resetUserId = null">
       <div class="form-grid">
         <div data-testid="user-reset-password" class="input-wrap">
           <el-input v-model="resetPasswordValue" type="password" show-password placeholder="新密码，至少 8 位" />
         </div>
       </div>
-      <div class="form-actions">
-        <el-button text @click="resetUserId = null">取消</el-button>
+      <template #footer>
+        <el-button @click="resetUserId = null">取消</el-button>
         <el-button data-testid="user-reset-submit" type="primary" :loading="actionUserId === resetUserId" @click="submitResetPassword">
           保存新密码
         </el-button>
-      </div>
-    </section>
+      </template>
+    </CommonDialog>
 
     <section class="panel">
       <el-table :data="sortedUsers" row-key="id" empty-text="暂无用户">

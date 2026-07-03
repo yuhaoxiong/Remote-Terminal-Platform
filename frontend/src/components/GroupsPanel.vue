@@ -14,6 +14,7 @@ import {
 import { useDevicesStore } from "../stores/devices";
 import { mapGroup, useGroupsStore, type Group } from "../stores/groups";
 import { useLogsStore } from "../stores/logs";
+import CommonDialog from "./CommonDialog.vue";
 
 const emit = defineEmits<{
   changed: [];
@@ -129,11 +130,7 @@ async function removeGroup(group: Group) {
       <el-button data-testid="open-group-create" type="primary" :icon="Plus" @click="openGroupCreate">新建分组</el-button>
     </div>
 
-    <section v-if="groupFormOpen" class="form-panel" :aria-label="groupFormTitle">
-      <div class="panel-header">
-        <h3>{{ groupFormTitle }}</h3>
-        <el-button text @click="groupFormOpen = false">关闭</el-button>
-      </div>
+    <CommonDialog v-model:visible="groupFormOpen" :title="groupFormTitle" width="600px" @confirm="saveGroup" @cancel="groupFormOpen = false">
       <div class="form-grid">
         <div data-testid="group-name" class="input-wrap"><el-input v-model="groupForm.name" placeholder="分组名称" /></div>
         <el-select v-model="groupForm.parent_id" placeholder="上级分组" clearable>
@@ -148,10 +145,11 @@ async function removeGroup(group: Group) {
           <el-input v-model="groupForm.description" type="textarea" :rows="3" placeholder="分组描述" />
         </div>
       </div>
-      <div class="form-actions">
+      <template #footer>
+        <el-button @click="groupFormOpen = false">取消</el-button>
         <el-button data-testid="save-group" type="primary" @click="saveGroup">保存分组</el-button>
-      </div>
-    </section>
+      </template>
+    </CommonDialog>
 
     <div class="list-grid">
       <div v-for="group in groups" :key="group.id" class="item-card">

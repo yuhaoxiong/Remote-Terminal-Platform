@@ -18,6 +18,7 @@ import { useDevicesStore } from "../stores/devices";
 import { useGroupsStore } from "../stores/groups";
 import { useLogsStore } from "../stores/logs";
 import { useUpdatesStore, mapUpdateTask, updateStatusText, executionModeText, type UpdateStatus, type ExecutionMode, type UpdateTask } from "../stores/updates";
+import CommonDialog from "./CommonDialog.vue";
 import DeviceTargetSelector from "./DeviceTargetSelector.vue";
 import UpdateTaskResultTable from "./UpdateTaskResultTable.vue";
 import UpdateTaskTemplatePanel from "./UpdateTaskTemplatePanel.vue";
@@ -236,11 +237,7 @@ async function downloadUpdateTaskResults(task: UpdateTask) {
       </el-button>
     </div>
 
-    <section v-if="updateCreateOpen" class="form-panel" aria-label="创建更新任务">
-      <div class="panel-header">
-        <h3>创建更新任务</h3>
-        <el-button text @click="updateCreateOpen = false">关闭</el-button>
-      </div>
+    <CommonDialog v-model:visible="updateCreateOpen" title="创建更新任务" width="900px" @confirm="saveUpdate" @cancel="updateCreateOpen = false">
       <div class="form-grid">
         <div data-testid="update-name" class="input-wrap"><el-input v-model="updateForm.name" placeholder="任务名称" /></div>
         <label class="field-label">
@@ -286,10 +283,11 @@ async function downloadUpdateTaskResults(task: UpdateTask) {
       <p v-if="updateForm.execution_mode === 'ssh_command'" class="risk-note">
         真实 SSH 执行会连接目标设备。建议先使用 hostname、whoami、uptime 等只读命令验收。
       </p>
-      <div class="form-actions">
+      <template #footer>
+        <el-button @click="updateCreateOpen = false">取消</el-button>
         <el-button data-testid="save-update" type="primary" @click="saveUpdate">保存更新任务</el-button>
-      </div>
-    </section>
+      </template>
+    </CommonDialog>
 
     <div class="table-panel">
       <el-table :data="updateTasks" row-key="id" empty-text="暂无更新任务">

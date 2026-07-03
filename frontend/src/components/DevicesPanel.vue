@@ -21,6 +21,7 @@ import { groupNameFor, useGroupsStore } from "../stores/groups";
 import { useLogsStore } from "../stores/logs";
 import { usePlatformDataStore } from "../stores/platformData";
 import { formatTime, parseTags } from "../utils/format";
+import CommonDialog from "./CommonDialog.vue";
 import DeviceDetailDrawer from "./DeviceDetailDrawer.vue";
 import DeviceFilePanel from "./DeviceFilePanel.vue";
 
@@ -145,8 +146,7 @@ async function importFromFrps() {
       </el-alert>
     </div>
 
-    <section v-if="frpsImportOpen" class="form-panel" aria-label="导入 frps 设备">
-      <div class="panel-header"><h3>导入 frps 已有设备</h3><el-button text @click="frpsImportOpen=false">关闭</el-button></div>
+    <CommonDialog v-model:visible="frpsImportOpen" title="导入 frps 已有设备" width="900px">
       <div class="form-grid">
         <div data-testid="frps-url" class="input-wrap"><el-input v-model="frpsForm.dashboard_url" placeholder="Dashboard 地址" /></div>
         <div data-testid="frps-username" class="input-wrap"><el-input v-model="frpsForm.username" placeholder="用户名" /></div>
@@ -161,8 +161,11 @@ async function importFromFrps() {
       </div>
       <p v-if="frpsImportResult" class="muted">{{ frpsImportResult }}</p>
       <el-table v-if="frpsImportItems.length" :data="frpsImportItems" size="small" row-key="device_sn" empty-text="暂无导入结果"><el-table-column prop="device_sn" label="设备 SN" min-width="130" /><el-table-column prop="ssh_port" label="SSH" width="90" /><el-table-column prop="vnc_port" label="VNC" width="90" /><el-table-column prop="import_status" label="结果" width="120" /><el-table-column prop="detail" label="详情" min-width="180" /></el-table>
-      <div class="form-actions"><el-button data-testid="import-frps" type="primary" :loading="frpsImporting" @click="importFromFrps">开始导入</el-button></div>
-    </section>
+      <template #footer>
+        <el-button @click="frpsImportOpen=false">关闭</el-button>
+        <el-button data-testid="import-frps" type="primary" :loading="frpsImporting" @click="importFromFrps">开始导入</el-button>
+      </template>
+    </CommonDialog>
 
     <div class="table-panel">
       <el-table :data="visibleDevices" row-key="id" empty-text="暂无设备">
@@ -193,8 +196,7 @@ async function importFromFrps() {
 
     <DeviceDetailDrawer v-model:visible="deviceDetailOpen" :device="deviceDetail" @ssh="(d) => $emit('ssh',d)" @vnc="(d) => $emit('vnc',d)" @files="(d) => { devicesStore.openFilePanel(d); $emit('open-files',d); }" @sync="(d) => showSyncConfig(d)" @edit="(d) => openDeviceEdit(d)" @remove="(d) => removeDevice(d)" />
 
-    <section v-if="deviceCreateOpen" class="form-panel" :aria-label="deviceFormTitle">
-      <div class="panel-header"><h3>{{ deviceFormTitle }}</h3><el-button text @click="deviceCreateOpen=false">关闭</el-button></div>
+    <CommonDialog v-model:visible="deviceCreateOpen" :title="deviceFormTitle" width="700px" @confirm="saveDevice" @cancel="deviceCreateOpen=false">
       <div class="form-grid">
         <div data-testid="device-name" class="input-wrap"><el-input v-model="deviceForm.name" placeholder="设备名称" /></div>
         <div data-testid="device-sn" class="input-wrap"><el-input v-model="deviceForm.device_sn" :disabled="deviceEditId!==null" placeholder="设备序列号" /></div>
@@ -207,14 +209,19 @@ async function importFromFrps() {
         <div data-testid="device-ssh-password" class="input-wrap"><el-input v-model="deviceForm.ssh_password" type="password" show-password placeholder="SSH 密码" /></div>
       </div>
       <p class="muted">SSH 密码不会从接口回显；编辑设备时留空表示不修改已有凭据。</p>
-      <div class="form-actions"><el-button data-testid="save-device" type="primary" @click="saveDevice">保存设备</el-button></div>
-    </section>
+      <template #footer>
+        <el-button @click="deviceCreateOpen=false">取消</el-button>
+        <el-button data-testid="save-device" type="primary" @click="saveDevice">保存设备</el-button>
+      </template>
+    </CommonDialog>
 
-    <section v-if="syncConfigOpen" class="form-panel" aria-label="frpc 同步配置">
-      <div class="panel-header"><h3>{{ syncConfigTitle }}</h3><el-button text @click="syncConfigOpen=false">关闭</el-button></div>
+    <CommonDialog v-model:visible="syncConfigOpen" :title="syncConfigTitle" width="800px">
       <pre class="terminal-output">{{ syncConfigText }}</pre>
-      <div class="form-actions"><el-button data-testid="copy-sync-config" @click="copySyncConfig">复制配置</el-button></div>
-    </section>
+      <template #footer>
+        <el-button data-testid="copy-sync-config" type="primary" @click="copySyncConfig">复制配置</el-button>
+        <el-button @click="syncConfigOpen=false">关闭</el-button>
+      </template>
+    </CommonDialog>
 
     <DeviceFilePanel v-if="filePanelDevice" :device="filePanelDevice" />
   </section>
