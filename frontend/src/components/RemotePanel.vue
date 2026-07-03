@@ -5,6 +5,8 @@ import { storeToRefs } from "pinia";
 
 import { buildApiWebSocketUrl, getAccessToken, openSshSession, openVncSession } from "../api/platform";
 import { useDevicesStore, type Device, type DeviceStatus } from "../stores/devices";
+import SplitLayout from "./SplitLayout.vue";
+import FileTreePanel from "./FileTreePanel.vue";
 
 const devicesStore = useDevicesStore();
 const { devices, remoteSessionRequest } = storeToRefs(devicesStore);
@@ -23,6 +25,8 @@ const sshTerminalHostRef = ref<HTMLElement | null>(null);
 const vncCanvasHostRef = ref<HTMLElement | null>(null);
 const vncPassword = ref("");
 const vncLocalCursorVisible = ref(false);
+const showFileTree = ref(true);
+const fileTreePanelRef = ref<InstanceType<typeof FileTreePanel> | null>(null);
 const remoteSessions = reactive<Record<string, RemoteSessionUi>>({});
 const sshSockets = new Map<number, WebSocket>();
 const sshTerminals = new Map<number, SshTerminalHandle>();
@@ -36,6 +40,34 @@ const remoteVisibleDevices = computed(() => {
 const selectedRemoteDevice = computed(() => devices.value.find((d) => d.id === selectedRemoteDeviceId.value) ?? null);
 const selectedSshSession = computed(() => selectedRemoteDevice.value ? remoteSessionFor(selectedRemoteDevice.value.id, "ssh") : null);
 const selectedVncSession = computed(() => selectedRemoteDevice.value ? remoteSessionFor(selectedRemoteDevice.value.id, "vnc") : null);
+const isSshConnected = computed(() => selectedSshSession.value?.status === "connected");
+
+// 文件操作处理
+const handleFileUpload = async (path: string, files: File[]) => {
+  console.log("上传文件到", path, files);
+  // TODO: 实现文件上传 API
+};
+
+const handleFileDownload = async (path: string, filename: string) => {
+  console.log("下载文件", path, filename);
+  // TODO: 实现文件下载 API
+};
+
+const handleFileDelete = async (path: string) => {
+  console.log("删除文件", path);
+  // TODO: 实现文件删除 API
+};
+
+const handleFileTreeRefresh = () => {
+  fileTreePanelRef.value?.refresh();
+};
+
+// 监听 SSH 连接状态,自动加载文件树
+watch(isSshConnected, (connected) => {
+  if (connected && showFileTree.value) {
+    fileTreePanelRef.value?.loadRootDirectory();
+  }
+});
 
 function remoteSessionKey(deviceId: number, sType: "ssh" | "vnc") { return `${sType}:${deviceId}`; }
 function remoteSessionFor(deviceId: number, sType: "ssh" | "vnc"): RemoteSessionUi {
@@ -261,18 +293,33 @@ onBeforeUnmount(() => { document.removeEventListener("fullscreenchange", refresh
           </div>
           <el-tabs class="remote-tabs">
             <el-tab-pane label="SSH 终端">
-              <section class="remote-panel">
-                <div class="panel-header">
-                  <div><h3>SSH 终端</h3><p class="muted">{{ selectedSshSession?.message ?? "未连接" }}</p></div>
-                  <div class="remote-actions">
-                    <el-button :data-testid="`open-ssh-${selectedRemoteDevice.id}`" type="primary" :icon="Monitor" :disabled="!canOpenRemote(selectedRemoteDevice, 'ssh')" :loading="selectedSshSession?.status === 'connecting'" @click="startSshSession(selectedRemoteDevice)">连接 SSH</el-button>
-                    <el-button :data-testid="`disconnect-ssh-${selectedRemoteDevice.id}`" :disabled="selectedSshSession?.status !== 'connected'" @click="disconnectSshSession(selectedRemoteDevice.id)">断开 SSH</el-button>
-                  </div>
-                </div>
-                <p v-if="remoteUnavailableReason(selectedRemoteDevice, 'ssh')" class="remote-warning">{{ remoteUnavailableReason(selectedRemoteDevice, "ssh") }}</p>
-                <div ref="sshTerminalHostRef" data-testid="ssh-terminal" class="ssh-terminal" @pointerdown="focusSshTerminal(selectedRemoteDevice.id)" @click="focusSshTerminal(selectedRemoteDevice.id)"></div>
-                <pre v-if="selectedSshSession?.output" data-testid="ssh-transcript" class="terminal-output">{{ selectedSshSession.output }}</pre>
-              </section>
+              <SplitLayout :default-width="280" :min-width="200" :max-width="500">
+                <template #left>
+                  <FileTreePanel
+                    ref="fileTreePanelRef"
+                    :device="selectedRemoteDevice"
+                    :connected="isSshConnected"
+                    @upload="handleFileUpload"
+                    @download="handleFileDownload"
+                    @delete="handleFileDelete"
+                    @refresh="handleFileTreeRefresh"
+                  />
+                </template>
+                <template #right>
+                  <section class="remote-panel">
+                    <div class="panel-header">
+                      <div><h3>SSH 终端</h3><p class="muted">{{ selectedSshSession?.message ?? "未连接" }}</p></div>
+                      <div class="remote-actions">
+                        <el-button :data-testid="`open-ssh-${selectedRemoteDevice.id}`" type="primary" :icon="Monitor" :disabled="!canOpenRemote(selectedRemoteDevice, 'ssh')" :loading="selectedSshSession?.status === 'connecting'" @click="startSshSession(selectedRemoteDevice)">连接 SSH</el-button>
+                        <el-button :data-testid="`disconnect-ssh-${selectedRemoteDevice.id}`" :disabled="selectedSshSession?.status !== 'connected'" @click="disconnectSshSession(selectedRemoteDevice.id)">断开 SSH</el-button>
+                      </div>
+                    </div>
+                    <p v-if="remoteUnavailableReason(selectedRemoteDevice, 'ssh')" class="remote-warning">{{ remoteUnavailableReason(selectedRemoteDevice, "ssh") }}</p>
+                    <div ref="sshTerminalHostRef" data-testid="ssh-terminal" class="ssh-terminal" @pointerdown="focusSshTerminal(selectedRemoteDevice.id)" @click="focusSshTerminal(selectedRemoteDevice.id)"></div>
+                    <pre v-if="selectedSshSession?.output" data-testid="ssh-transcript" class="terminal-output">{{ selectedSshSession.output }}</pre>
+                  </section>
+                </template>
+              </SplitLayout>
             </el-tab-pane>
             <el-tab-pane label="VNC 桌面">
               <section class="remote-panel">
