@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
-import { Folder, Document, Download, Delete, Edit, Refresh, Upload } from "@element-plus/icons-vue";
+import { ref } from "vue";
+import { Folder, FolderAdd, Document, Download, Delete, Edit, Refresh, Upload } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { Device } from "../stores/devices";
 import {
@@ -8,6 +8,8 @@ import {
   uploadDeviceFile,
   downloadDeviceFile,
   deleteDeviceFile,
+  createDeviceDirectory,
+  renameDeviceFile,
   type DeviceFileItem,
 } from "../api/platform";
 
@@ -33,16 +35,22 @@ interface FileTreeNode {
 }
 
 const loading = ref(false);
-const fileTreeData = ref<FileTreeNode[]>([]);
-const currentPath = ref("/");
+const currentPath = ref(".");
 const selectedNode = ref<FileTreeNode | null>(null);
-const uploadingFiles = ref(new Set<string>());
+const treeRefreshKey = ref(0);
 
 // Tree 配置
 const treeProps = {
   label: "name",
   children: "children",
   isLeaf: "isLeaf",
+};
+
+// 拼接远程路径
+const joinPath = (base: string, name: string): string => {
+  if (base === "/" || base === "") return `/${name}`;
+  if (base === ".") return name;
+  return `${base.replace(/\/$/, "")}/${name}`;
 };
 
 // 转换 API 数据为 Tree 节点
@@ -58,54 +66,44 @@ const mapFileItemToNode = (item: DeviceFileItem): FileTreeNode => {
   };
 };
 
-// 加载根目录
-const loadRootDirectory = async () => {
+// 懒加载节点（根节点和子目录统一处理）
+const loadNode = async (node: any, resolve: any) => {
   if (!props.device || !props.connected) {
-    fileTreeData.value = [];
-    return;
+    return resolve([]);
   }
 
-  loading.value = true;
+  const path = node.level === 0 ? "." : (node.data as FileTreeNode).path;
+  if (node.level === 0) {
+    loading.value = true;
+  }
+
   try {
-    const response = await listDeviceFiles(props.device.id, "/");
-    fileTreeData.value = response.items.map(mapFileItemToNode);
+    const response = await listDeviceFiles(props.device.id, path);
+    resolve(response.items.map(mapFileItemToNode));
   } catch (error) {
-    ElMessage.error("加载文件列表失败");
-    fileTreeData.value = [];
+    ElMessage.error(`加载 ${path} 失败`);
+    resolve([]);
   } finally {
     loading.value = false;
   }
 };
 
-// 懒加载子节点
-const loadNode = async (node: any, resolve: any) => {
-  if (node.level === 0) {
-    // 根节点
-    await loadRootDirectory();
-    return resolve(fileTreeData.value);
-  }
+// 刷新整个文件树（通过更新 key 强制重新加载）
+const refresh = () => {
+  treeRefreshKey.value += 1;
+};
 
-  // 加载子目录
-  const parentData = node.data as FileTreeNode;
-
-  if (!props.device) {
-    return resolve([]);
-  }
-
-  try {
-    const response = await listDeviceFiles(props.device.id, parentData.path);
-    const children = response.items.map(mapFileItemToNode);
-    resolve(children);
-  } catch (error) {
-    ElMessage.error(`加载 ${parentData.path} 失败`);
-    resolve([]);
-  }
+// 兼容父组件调用
+const loadRootDirectory = () => {
+  currentPath.value = ".";
+  refresh();
 };
 
 // 点击节点
 const handleNodeClick = (data: FileTreeNode) => {
   selectedNode.value = data;
-  currentPath.value = data.path;
+  // 目录用自身路径，文件用其所在目录作为上传/新建目标
+  currentPath.value = data.type === "directory" ? data.path : data.path.replace(/\/[^/]+$/, "") || ".";
 };
 
 // 右键菜单命令
@@ -120,11 +118,11 @@ const handleCommand = async (command: string, node: FileTreeNode) => {
       await handleDelete(node);
       break;
     case "rename":
-      ElMessage.info("重命名功能开发中...");
+      await handleRename(node);
       break;
     case "refresh":
       emit("refresh");
-      loadRootDirectory();
+      refresh();
       break;
   }
 };
@@ -153,30 +151,80 @@ const handleDownload = async (node: FileTreeNode) => {
   }
 };
 
-// 文件删除
+// 文件/目录删除
 const handleDelete = async (node: FileTreeNode) => {
   if (!props.device) return;
 
+  const message =
+    node.type === "directory"
+      ? `确定删除文件夹 ${node.name} 及其所有内容？此操作不可恢复!`
+      : `确定删除 ${node.name}？此操作不可恢复!`;
+
   try {
-    await ElMessageBox.confirm(
-      `确定删除 ${node.name}？此操作不可恢复!`,
-      "删除确认",
-      {
-        type: "warning",
-        confirmButtonText: "删除",
-        cancelButtonText: "取消",
-      }
-    );
+    await ElMessageBox.confirm(message, "删除确认", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+    });
 
     await deleteDeviceFile(props.device.id, node.path);
     ElMessage.success(`${node.name} 删除成功`);
 
-    // 刷新文件树
     emit("refresh");
-    loadRootDirectory();
+    refresh();
   } catch (error) {
     if (error !== "cancel") {
       ElMessage.error(`删除 ${node.name} 失败`);
+    }
+  }
+};
+
+// 重命名
+const handleRename = async (node: FileTreeNode) => {
+  if (!props.device) return;
+
+  try {
+    const { value } = await ElMessageBox.prompt(`将 ${node.name} 重命名为：`, "重命名", {
+      confirmButtonText: "确定",
+      cancelButtonText: "取消",
+      inputValue: node.name,
+      inputPattern: /^[^/\\]+$/,
+      inputErrorMessage: "名称不能包含斜杠",
+    });
+
+    await renameDeviceFile(props.device.id, node.path, value.trim());
+    ElMessage.success(`已重命名为 ${value}`);
+
+    emit("refresh");
+    refresh();
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error("重命名失败");
+    }
+  }
+};
+
+// 新建文件夹
+const handleNewFolder = async () => {
+  if (!props.device) return;
+
+  try {
+    const { value } = await ElMessageBox.prompt(`在 ${currentPath.value} 下新建文件夹：`, "新建文件夹", {
+      confirmButtonText: "创建",
+      cancelButtonText: "取消",
+      inputPattern: /^[^/\\]+$/,
+      inputErrorMessage: "名称不能包含斜杠",
+    });
+
+    const target = joinPath(currentPath.value, value.trim());
+    await createDeviceDirectory(props.device.id, target);
+    ElMessage.success(`文件夹 ${value} 创建成功`);
+
+    emit("refresh");
+    refresh();
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error("创建文件夹失败");
     }
   }
 };
@@ -215,28 +263,18 @@ const uploadFiles = async (targetPath: string, files: File[]) => {
   const deviceId = props.device.id;
 
   for (const file of files) {
-    const uploadKey = `${targetPath}/${file.name}`;
-    uploadingFiles.value.add(uploadKey);
-
     try {
       ElMessage.info(`正在上传 ${file.name}...`);
-      await uploadDeviceFile(deviceId, targetPath, file);
+      await uploadDeviceFile(deviceId, joinPath(targetPath, file.name), file);
       ElMessage.success(`${file.name} 上传成功`);
     } catch (error) {
       ElMessage.error(`上传 ${file.name} 失败`);
-    } finally {
-      uploadingFiles.value.delete(uploadKey);
     }
   }
 
   // 上传完成后刷新文件树
   emit("refresh");
-  loadRootDirectory();
-};
-
-// 刷新文件树
-const refresh = () => {
-  loadRootDirectory();
+  refresh();
 };
 
 // 获取文件图标
@@ -278,6 +316,14 @@ defineExpose({
         </el-button>
         <el-button
           size="small"
+          :icon="FolderAdd"
+          :disabled="!connected"
+          @click="handleNewFolder"
+        >
+          新建
+        </el-button>
+        <el-button
+          size="small"
           :icon="Refresh"
           :disabled="!connected"
           @click="refresh"
@@ -301,13 +347,14 @@ defineExpose({
 
     <div v-else class="tree-container" v-loading="loading">
       <el-tree
-        :data="fileTreeData"
+        :key="treeRefreshKey"
         :props="treeProps"
         :load="loadNode"
         lazy
         node-key="id"
         highlight-current
         @node-click="handleNodeClick"
+        @node-dblclick="(data: FileTreeNode) => data.type === 'file' && handleDownload(data)"
       >
         <template #default="{ node, data }">
           <el-dropdown

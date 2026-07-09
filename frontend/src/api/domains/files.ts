@@ -46,3 +46,13 @@ export async function deleteDeviceFile(deviceId: number, remotePath: string): Pr
   const response = await api.delete<DeviceFileOperationResponse>(`/devices/${deviceId}/files`, { data: { remote_path: remotePath } });
   return response.data;
 }
+
+export async function createDeviceDirectory(deviceId: number, remotePath: string): Promise<DeviceFileOperationResponse> {
+  const response = await api.post<DeviceFileOperationResponse>(`/devices/${deviceId}/files/mkdir`, { remote_path: remotePath });
+  return response.data;
+}
+
+export async function renameDeviceFile(deviceId: number, remotePath: string, newName: string): Promise<DeviceFileOperationResponse> {
+  const response = await api.post<DeviceFileOperationResponse>(`/devices/${deviceId}/files/rename`, { remote_path: remotePath, new_name: newName });
+  return response.data;
+}

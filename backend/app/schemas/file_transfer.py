@@ -26,6 +26,15 @@ class FileDeleteRequest(BaseModel):
     remote_path: str = Field(min_length=1)
 
 
+class FileMkdirRequest(BaseModel):
+    remote_path: str = Field(min_length=1)
+
+
+class FileRenameRequest(BaseModel):
+    remote_path: str = Field(min_length=1)
+    new_name: str = Field(min_length=1)
+
+
 class FileOperationResponse(BaseModel):
     device_id: int
     remote_path: str

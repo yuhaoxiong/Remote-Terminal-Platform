@@ -21,7 +21,14 @@ from app.schemas.device import (
     RemoteSessionResponse,
     SyncConfigResponse,
 )
-from app.schemas.file_transfer import FileDeleteRequest, FileListResponse, FileOperationResponse, FileUploadRequest
+from app.schemas.file_transfer import (
+    FileDeleteRequest,
+    FileListResponse,
+    FileMkdirRequest,
+    FileOperationResponse,
+    FileRenameRequest,
+    FileUploadRequest,
+)
 from app.services.device_service import DeviceDuplicateError, DeviceNotFoundError, DeviceService
 from app.services.file_service import FilePathError, FileService, RemoteFileNotFoundError
 from app.services.frpc_config import FrpcConfigService
@@ -317,6 +324,62 @@ def delete_device_file(
             detail=payload.remote_path,
         )
         return FileOperationResponse(device_id=device.id, remote_path=payload.remote_path, status="deleted")
+
+
+@router.post("/{device_id}/files/mkdir", response_model=FileOperationResponse, status_code=status.HTTP_201_CREATED)
+def create_device_directory(
+    device_id: int,
+    payload: FileMkdirRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> FileOperationResponse:
+    with request_session(request) as (settings, session):
+        try:
+            device = DeviceService(settings).get(session, device_id)
+            FileService(settings).make_directory(device, payload.remote_path)
+        except DeviceNotFoundError as exc:
+            raise not_found_error(exc) from exc
+        except FilePathError as exc:
+            raise _file_error(exc) from exc
+        OperationLogService(settings).record(
+            session,
+            user_id=current_user.id,
+            action="device.file_mkdir",
+            target_type="device",
+            target_id=device.id,
+            status="success",
+            detail=payload.remote_path,
+        )
+        return FileOperationResponse(device_id=device.id, remote_path=payload.remote_path, status="created")
+
+
+@router.post("/{device_id}/files/rename", response_model=FileOperationResponse)
+def rename_device_file(
+    device_id: int,
+    payload: FileRenameRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> FileOperationResponse:
+    with request_session(request) as (settings, session):
+        try:
+            device = DeviceService(settings).get(session, device_id)
+            new_path = FileService(settings).rename(device, payload.remote_path, payload.new_name)
+        except DeviceNotFoundError as exc:
+            raise not_found_error(exc) from exc
+        except FilePathError as exc:
+            raise _file_error(exc) from exc
+        except RemoteFileNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        OperationLogService(settings).record(
+            session,
+            user_id=current_user.id,
+            action="device.file_rename",
+            target_type="device",
+            target_id=device.id,
+            status="success",
+            detail=f"{payload.remote_path} -> {payload.new_name}",
+        )
+        return FileOperationResponse(device_id=device.id, remote_path=new_path, status="renamed")
 
 
 @router.post("/{device_id}/metrics", response_model=DeviceMetricRead, status_code=status.HTTP_201_CREATED)
