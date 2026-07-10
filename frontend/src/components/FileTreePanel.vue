@@ -10,6 +10,7 @@ import {
   deleteDeviceFile,
   createDeviceDirectory,
   renameDeviceFile,
+  getApiErrorMessage,
   type DeviceFileItem,
 } from "../api/platform";
 
@@ -81,7 +82,7 @@ const loadNode = async (node: any, resolve: any) => {
     const response = await listDeviceFiles(props.device.id, path);
     resolve(response.items.map(mapFileItemToNode));
   } catch (error) {
-    ElMessage.error(`加载 ${path} 失败`);
+    ElMessage.error(getApiErrorMessage(error, `加载 ${path} 失败`));
     resolve([]);
   } finally {
     loading.value = false;
@@ -147,7 +148,7 @@ const handleDownload = async (node: FileTreeNode) => {
 
     ElMessage.success(`${node.name} 下载成功`);
   } catch (error) {
-    ElMessage.error(`下载 ${node.name} 失败`);
+    ElMessage.error(getApiErrorMessage(error, `下载 ${node.name} 失败`));
   }
 };
 
@@ -174,7 +175,7 @@ const handleDelete = async (node: FileTreeNode) => {
     refresh();
   } catch (error) {
     if (error !== "cancel") {
-      ElMessage.error(`删除 ${node.name} 失败`);
+      ElMessage.error(getApiErrorMessage(error, `删除 ${node.name} 失败`));
     }
   }
 };
@@ -199,7 +200,7 @@ const handleRename = async (node: FileTreeNode) => {
     refresh();
   } catch (error) {
     if (error !== "cancel") {
-      ElMessage.error("重命名失败");
+      ElMessage.error(getApiErrorMessage(error, "重命名失败"));
     }
   }
 };
@@ -224,7 +225,7 @@ const handleNewFolder = async () => {
     refresh();
   } catch (error) {
     if (error !== "cancel") {
-      ElMessage.error("创建文件夹失败");
+      ElMessage.error(getApiErrorMessage(error, "创建文件夹失败"));
     }
   }
 };
@@ -268,7 +269,7 @@ const uploadFiles = async (targetPath: string, files: File[]) => {
       await uploadDeviceFile(deviceId, joinPath(targetPath, file.name), file);
       ElMessage.success(`${file.name} 上传成功`);
     } catch (error) {
-      ElMessage.error(`上传 ${file.name} 失败`);
+      ElMessage.error(getApiErrorMessage(error, `上传 ${file.name} 失败`));
     }
   }
 

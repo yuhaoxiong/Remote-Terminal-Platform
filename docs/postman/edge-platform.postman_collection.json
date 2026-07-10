@@ -1013,8 +1013,8 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{base_url}}/api/devices/{{device_id}}/files?path=/",
-            "description": "使用设备文件管理入口前,先确认目标设备 ID 可用。local 文件后端会读取本地模拟目录,sftp 文件后端会访问真实设备。"
+            "url": "{{base_url}}/api/devices/{{device_id}}/files?path=.",
+            "description": "使用设备文件管理入口前,先确认目标设备 ID 可用。path=. 表示 SFTP 登录目录。local 文件后端会读取本地模拟目录,sftp 文件后端会访问真实设备。"
           },
           "response": []
         },

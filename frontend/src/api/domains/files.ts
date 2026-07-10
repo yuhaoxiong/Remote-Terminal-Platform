@@ -21,7 +21,7 @@ export interface DeviceFileOperationResponse {
   size: number | null;
 }
 
-export async function listDeviceFiles(deviceId: number, path = "/"): Promise<DeviceFileListResponse> {
+export async function listDeviceFiles(deviceId: number, path = "."): Promise<DeviceFileListResponse> {
   const response = await api.get<DeviceFileListResponse>(`/devices/${deviceId}/files`, { params: { path } });
   return response.data;
 }

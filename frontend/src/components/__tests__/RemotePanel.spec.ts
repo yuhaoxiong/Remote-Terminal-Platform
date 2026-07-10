@@ -134,6 +134,7 @@ vi.mock("@novnc/novnc", () => ({
 vi.mock("../../api/platform", () => ({
   buildApiWebSocketUrl: vi.fn((path: string, token: string) => `ws://test${path}?token=${token}`),
   getAccessToken: vi.fn(() => "access-token"),
+  getApiErrorMessage: vi.fn((_error: unknown, fallback: string) => fallback),
   openSshSession: vi.fn(),
   openVncSession: vi.fn(),
 }));

@@ -3,6 +3,8 @@ from pathlib import Path
 import pytest
 
 from app.config import Settings
+from app.services.file_service import FileService, RemoteFileNotFoundError
+from app.services.ssh_service import RemoteConnectionError
 
 
 @pytest.fixture()
@@ -126,3 +128,49 @@ def test_file_paths_cannot_escape_device_storage(client) -> None:
     )
 
     assert response.status_code == 400
+
+
+def test_file_list_defaults_to_login_directory(client, monkeypatch) -> None:
+    headers = _auth_headers(client)
+    created = client.post("/api/devices", headers=headers, json=_device_payload("edge-files-default-path"))
+    requested_paths: list[str] = []
+
+    def fake_list_files(self, device, remote_path):
+        requested_paths.append(remote_path)
+        return []
+
+    monkeypatch.setattr(FileService, "list_files", fake_list_files)
+
+    response = client.get(f"/api/devices/{created.json()['id']}/files", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["path"] == "."
+    assert requested_paths == ["."]
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_status", "expected_detail"),
+    [
+        (RemoteFileNotFoundError("."), 404, "远程目录不存在或无权访问: ."),
+        (RemoteConnectionError("SSH 认证失败"), 502, "SSH 认证失败"),
+    ],
+)
+def test_file_list_returns_actionable_remote_errors(
+    client,
+    monkeypatch,
+    error: Exception,
+    expected_status: int,
+    expected_detail: str,
+) -> None:
+    headers = _auth_headers(client)
+    created = client.post("/api/devices", headers=headers, json=_device_payload(f"edge-files-error-{expected_status}"))
+
+    def fake_list_files(self, device, remote_path):
+        raise error
+
+    monkeypatch.setattr(FileService, "list_files", fake_list_files)
+
+    response = client.get(f"/api/devices/{created.json()['id']}/files?path=.", headers=headers)
+
+    assert response.status_code == expected_status
+    assert response.json()["detail"] == expected_detail

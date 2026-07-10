@@ -168,8 +168,8 @@ VNC_GATEWAY_HOST=<frps-host>
 SCHEDULER_ENABLED=true
 SCHEDULER_POLL_INTERVAL_SECONDS=30
 
-# 没有真实设备 SFTP 验证前可先用 local；准备接入真实设备文件管理时改为 sftp。
-FILE_BACKEND=local
+# 生产环境访问实际设备文件必须使用 sftp；local 仅用于本地模拟测试。
+FILE_BACKEND=sftp
 
 # 兼容优先。更严格部署可改为 warning 或 reject，并配置 SSH_KNOWN_HOSTS_FILE。
 SSH_HOST_KEY_POLICY=auto_add
@@ -179,6 +179,8 @@ SSH_HOST_KEY_POLICY=auto_add
 # DEFAULT_DEVICE_SSH_USER=<device-user>
 # DEFAULT_DEVICE_SSH_PASSWORD=<device-password>
 ```
+
+> 注意：系统设置的读取优先级是“数据库覆盖值 > 环境变量 > 代码默认值”。如果旧部署曾在“系统设置”中保存过 `FILE_BACKEND=local`，仅修改上述环境文件不会生效。更新部署后，请在“系统设置 → 文件与存储”中将文件后端改为 `sftp`，保存并重启服务；也可先恢复该项默认值，再由环境变量接管。
 
 设置权限：
 

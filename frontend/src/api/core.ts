@@ -13,6 +13,18 @@ export const api = axios.create({
   baseURL: "/api",
 });
 
+interface ApiErrorBody {
+  detail?: unknown;
+}
+
+export function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (!axios.isAxiosError<ApiErrorBody>(error)) {
+    return fallback;
+  }
+  const detail = error.response?.data?.detail;
+  return typeof detail === "string" && detail.trim() ? detail : fallback;
+}
+
 api.interceptors.request.use((config) => {
   const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
   if (token) {

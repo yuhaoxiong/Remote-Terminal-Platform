@@ -64,7 +64,7 @@ SYSTEM_SETTING_REGISTRY: dict[str, SettingSpec] = {
     "SSH_KNOWN_HOSTS_FILE": SettingSpec("SSH_KNOWN_HOSTS_FILE", "ssh_known_hosts_file", "known_hosts 文件", "SSH known_hosts 文件路径", "remote_connection", "string"),
     "DEFAULT_DEVICE_SSH_USER": SettingSpec("DEFAULT_DEVICE_SSH_USER", "default_device_ssh_user", "默认 SSH 用户", "自动导入设备时使用的默认 SSH 用户名", "device_credentials", "string"),
     "DEFAULT_DEVICE_SSH_PASSWORD": SettingSpec("DEFAULT_DEVICE_SSH_PASSWORD", "default_device_ssh_password", "默认 SSH 密码", "自动导入设备时使用的默认 SSH 密码", "device_credentials", "string", secret=True),
-    "FILE_BACKEND": SettingSpec("FILE_BACKEND", "file_backend", "文件后端", "设备文件管理使用的文件后端", "file_storage", "enum", requires_restart=True, runtime_effective=False, options=("local",)),
+    "FILE_BACKEND": SettingSpec("FILE_BACKEND", "file_backend", "文件后端", "设备文件管理使用的文件后端", "file_storage", "enum", requires_restart=True, runtime_effective=False, options=("local", "sftp")),
     "FILE_STORAGE_DIR": SettingSpec("FILE_STORAGE_DIR", "file_storage_dir", "文件存储目录", "本地文件后端存储目录", "file_storage", "string", requires_restart=True, runtime_effective=False),
     "SCHEDULER_ENABLED": SettingSpec("SCHEDULER_ENABLED", "scheduler_enabled", "启用调度器", "是否启用后台调度器", "scheduler", "bool", requires_restart=True, runtime_effective=False),
     "SCHEDULER_POLL_INTERVAL_SECONDS": SettingSpec("SCHEDULER_POLL_INTERVAL_SECONDS", "scheduler_poll_interval_seconds", "调度器扫描间隔", "后台调度器轮询间隔", "scheduler", "int", min_value=5, max_value=3600),

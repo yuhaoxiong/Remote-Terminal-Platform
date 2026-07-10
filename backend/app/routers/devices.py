@@ -36,6 +36,7 @@ from app.services.monitoring_service import MonitoringService
 from app.services.operation_log import OperationLogService
 from app.services.port_pool import PortPoolExhaustedError
 from app.services.remote_access import RemoteAccessService
+from app.services.ssh_service import RemoteConnectionError
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
@@ -46,6 +47,13 @@ def _read(device) -> DeviceRead:
 
 def _file_error(exc: FilePathError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+def _remote_directory_not_found(remote_path: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"远程目录不存在或无权访问: {remote_path}",
+    )
 
 
 @router.post("", response_model=DeviceRead, status_code=status.HTTP_201_CREATED)
@@ -205,7 +213,7 @@ def list_device_files(
     device_id: int,
     request: Request,
     current_user: User = Depends(get_current_user),
-    path: str = Query(default="/"),
+    path: str = Query(default="."),
 ) -> FileListResponse:
     with request_session(request) as (settings, session):
         try:
@@ -215,6 +223,10 @@ def list_device_files(
             raise not_found_error(exc) from exc
         except FilePathError as exc:
             raise _file_error(exc) from exc
+        except RemoteFileNotFoundError as exc:
+            raise _remote_directory_not_found(path) from exc
+        except RemoteConnectionError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         return FileListResponse(device_id=device.id, path=path, items=items)
 
 

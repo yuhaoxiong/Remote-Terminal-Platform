@@ -105,6 +105,7 @@ vi.mock("../api/platform", () => ({
   AUTH_EXPIRED_EVENT: "edge-platform-auth-expired",
   clearAuthTokens: vi.fn(),
   buildApiWebSocketUrl: vi.fn((path: string, token: string) => `ws://test${path}?token=${token}`),
+  getApiErrorMessage: vi.fn((_error: unknown, fallback: string) => fallback),
   cancelUpdateTask: vi.fn(),
   changePassword: vi.fn(),
   createDevice: vi.fn(),

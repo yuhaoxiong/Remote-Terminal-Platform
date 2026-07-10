@@ -111,6 +111,22 @@ def test_restart_required_settings_persist_pending_state_and_write_logs(client, 
         assert session.query(OperationLog).filter(OperationLog.action == "system_settings.save").count() >= 1
 
 
+def test_file_backend_setting_supports_sftp(client, auth_headers) -> None:
+    schema = client.get("/api/system-settings/schema", headers=auth_headers)
+
+    assert schema.status_code == 200
+    file_backend = next(item for item in schema.json()["items"] if item["key"] == "FILE_BACKEND")
+    assert file_backend["options"] == ["local", "sftp"]
+
+    saved = client.put(
+        "/api/system-settings/groups/file_storage",
+        headers=auth_headers,
+        json={"values": {"FILE_BACKEND": "sftp"}},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["requires_restart"] is True
+
+
 def test_restart_endpoint_requires_systemd(client, auth_headers) -> None:
     response = client.post("/api/system-settings/restart", headers=auth_headers, json={"confirm_text": "确认重启"})
 
