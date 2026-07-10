@@ -67,7 +67,9 @@ Authorization: Bearer <access_token>
 | `project_id` | string | 是 | 1-120 字符 | 项目号 |
 | `location` | string/null | 否 | 最大 255 字符 | 部署位置 |
 | `hardware_model` | string/null | 否 | 最大 120 字符 | 硬件型号 |
-| `ssh_user` | string | 否 | 默认 `root`,1-64 字符 | SSH 用户 |
+| `ssh_user` | string | 否 | 默认 `ztl`,1-64 字符 | SSH 用户 |
+| `ssh_port` | integer/null | 否 | 1-65535 | 指定 SSH 远程端口;省略或 `null` 时自动分配 |
+| `vnc_port` | integer/null | 否 | 1-65535 | 指定 VNC 远程端口;省略或 `null` 时自动分配 |
 | `local_ip` | string/null | 否 | 最大 64 字符 | 内网 IP |
 | `os_version` | string/null | 否 | 最大 120 字符 | 系统版本 |
 | `description` | string/null | 否 | 无 | 备注 |
@@ -545,11 +547,11 @@ POST /api/devices
 
 请求体:`DeviceCreate`。
 
-响应 `201`:`DeviceRead`。创建时会自动分配 `ssh_port` 和 `vnc_port`。
+响应 `201`:`DeviceRead`。未指定端口或端口为 `null` 时会自动分配 `ssh_port` 和 `vnc_port`;提供整数时会预留指定端口。
 
 错误:
 
-- `409`:`device_sn` 重复或端口池耗尽。
+- `409`:`device_sn` 重复、端口池耗尽或指定端口已被其他设备占用。
 - `422`:请求体校验失败。
 
 ### 查询设备列表
@@ -624,13 +626,14 @@ PUT /api/devices/{device_id}
 
 认证:需要。
 
-请求体:`DeviceCreate` 的可选字段子集,额外支持 `status`。
+请求体:`DeviceCreate` 的可选字段子集,额外支持 `status`。端口字段省略表示保持不变,显式传 `null` 表示释放并清空,传整数表示切换并预留指定端口。SSH/VNC 同时更新时在同一事务内完成,任一冲突都会整体回滚。
 
 响应 `200`:`DeviceRead`。
 
 错误:
 
 - `404`:设备不存在。
+- `409`:指定 SSH/VNC 端口已被其他设备占用。
 - `422`:请求体校验失败。
 
 ### 删除设备

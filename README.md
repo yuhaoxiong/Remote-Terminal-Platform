@@ -149,7 +149,7 @@ $env:SCHEDULER_ENABLED='true'
 $env:SCHEDULER_POLL_INTERVAL_SECONDS='30'
 ```
 
-`FILE_BACKEND` 默认是 `local`,用于没有真实设备的本地开发;设置为 `sftp` 后,文件列表、上传、下载和删除会通过设备 frp SSH 端口访问真实设备。远程 SSH/VNC 连接依赖设备记录中的代理端口、设备级 SSH 凭据、frpc/frps 可达性和 Nginx WebSocket 代理。
+`FILE_BACKEND` 默认是 `sftp`,文件列表、上传、下载和删除会通过设备 frp SSH 端口访问真实设备。没有真实设备的本地开发可显式设置为 `local`。远程 SSH/VNC 连接依赖设备记录中的代理端口、设备级 SSH 凭据、frpc/frps 可达性和 Nginx WebSocket 代理。
 
 告警 Webhook 通道的 URL 和请求头会作为敏感配置保存。创建或更新 Webhook 地址、请求头前必须配置 `CREDENTIAL_ENCRYPTION_KEY`;未配置时后端会拒绝保存敏感通知配置。
 
@@ -286,6 +286,7 @@ docs/deployment.md
 scripts/deploy/install_backend.ps1
 scripts/deploy/edge_bootstrap.sh
 scripts/deploy/backup_sqlite.ps1
+scripts/deploy/deploy.sh
 ```
 
 这些脚本提供后端安装、边缘设备最小 `frpc` 引导和 SQLite 备份的起点。生产环境执行前需要复核安装路径、服务用户、文件权限、JWT 密钥、凭据加密密钥和公网端口策略。
@@ -294,7 +295,7 @@ scripts/deploy/backup_sqlite.ps1
 
 - 默认数据库是 SQLite。
 - frps 导入会读取 Dashboard `/api/proxy/tcp`,按端口范围识别已有设备。当前默认规则是 SSH `12001-17000`,VNC `17001-22000`,VNC 端口与 SSH 端口一一对应且偏移 5000。
-- 设备文件管理默认使用本地存储后端,配置 `FILE_BACKEND=sftp` 后会通过 `paramiko` SFTP 访问真实设备。
+- 设备文件管理默认使用 `sftp` 后端,通过 `paramiko` SFTP 访问真实设备;本地开发可显式配置 `FILE_BACKEND=local`。
 - 远程 SSH/VNC 已提供产品化入口:SSH 使用 xterm 和 JSON WebSocket 转发终端输入输出、resize 和断开;VNC 使用 noVNC 连接二进制 WebSocket-to-TCP 代理,支持内嵌连接、断开和全屏。
 - 批量更新任务默认使用演练模式;选择"真实 SSH 执行"后会通过设备级 SSH 凭据连接 frp SSH 端口并执行命令,记录退出码、标准输出摘要、错误输出摘要和失败原因。任务创建区支持目标预览、手动选择设备和命令模板,执行结果支持失败设备新建重试任务和 CSV 导出。
 - 定时任务支持 `interval:N` 和 5 位 `cron:` 表达式。后台调度器默认启用,会计算 `next_run_at`,到期后复用批量任务执行链路生成独立执行记录;真实 SSH 调度必须显式选择 `execution_mode=ssh_command`。
@@ -302,7 +303,7 @@ scripts/deploy/backup_sqlite.ps1
 - 告警外部通知目前优先支持 Webhook。默认策略建议只订阅 `critical` 且事件为 `triggered`;确认、手动恢复和自动恢复事件也可按策略开启。删除通道前需要先删除引用该通道的通知策略。
 - 用户管理采用 `admin` / `operator` 两类角色。用户删除为停用账号,不会硬删除历史记录;后端会阻止停用或降级最后一个启用管理员。登录、刷新、修改密码、权限拒绝和用户管理操作会写入操作日志。
 - 前端开发服务器默认把 `/api` 代理到 `http://127.0.0.1:8000`,可以用 `VITE_API_PROXY_TARGET` 覆盖代理目标。
-- 前端构建会出现 Vite 大 chunk 警告,原因是 Element Plus 被打进主 chunk;当前不影响构建产物。
+- 前端已按路由和依赖拆分 chunk;较大的 Element Plus/ECharts vendor chunk 保持延迟加载,当前构建无 Vite 大 chunk 警告。
 - 当前工作区是 Git 仓库;提交或推送前请确认没有暂存无关本地文档。
 
 ## 最近验证记录
@@ -315,16 +316,18 @@ pytest backend/tests -q --basetemp .tmp/pytest-all -p no:cacheprovider
 
 cd C:\01_work\02_program\远程终端平台\frontend
 npm.cmd run test -- --run
+npm.cmd run lint
 npm.cmd run typecheck
 npm.cmd run build
 ```
 
 最近结果:
 
-- 后端:90 个测试通过。
-- 前端:21 个测试通过。
+- 后端:116 个测试通过。
+- 前端:39 个测试通过。
+- 前端 lint:通过。
 - 前端类型检查:通过。
-- 前端构建:成功,仍有已知 Vite chunk size 警告。
+- 前端构建:成功,无 Vite chunk size 警告。
 - Wave 7 联调:后端 `127.0.0.1:8010`、前端 `127.0.0.1:5179`,通过前端代理完成登录、更新任务列表、监控总览、设备创建、设备列表和设备删除验收。
 - Wave 8 自动化:通过 SSH/VNC WebSocket 鉴权与转发、SFTP 后端、远程页面会话入口测试;真实设备 SSH/VNC/SFTP 手工联调仍需要提供可访问的测试设备和凭据。
 - frps 导入:通过 Dashboard TCP 代理预览、导入、重复导入跳过、端口池预留和前端导入入口测试。

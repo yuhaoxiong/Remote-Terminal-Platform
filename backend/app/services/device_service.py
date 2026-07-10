@@ -30,13 +30,22 @@ class DeviceService:
 
         values = payload.model_dump()
         ssh_password = values.pop("ssh_password", None)
+        requested_ports = {
+            "ssh": values.pop("ssh_port", None),
+            "vnc": values.pop("vnc_port", None),
+        }
         device = Device(**values)
         if ssh_password:
             device.ssh_password_encrypted = self.encryption.encrypt_optional(ssh_password)
         session.add(device)
         session.flush()
-        device.ssh_port = self.port_pool.allocate(session, "ssh", device.id)
-        device.vnc_port = self.port_pool.allocate(session, "vnc", device.id)
+        for service_type, requested_port in requested_ports.items():
+            if requested_port is None:
+                assigned_port = self.port_pool.allocate(session, service_type, device.id)
+            else:
+                self.port_pool.reserve(session, service_type, requested_port, device.id)
+                assigned_port = requested_port
+            setattr(device, f"{service_type}_port", assigned_port)
         session.flush()
         AlertService(self.settings).evaluate_device_status(session, device)
         session.refresh(device)
@@ -85,7 +94,13 @@ class DeviceService:
 
     def update(self, session: Session, device_id: int, payload: DeviceUpdate) -> Device:
         device = self.get(session, device_id)
-        for field, value in payload.model_dump(exclude_unset=True).items():
+        changes = payload.model_dump(exclude_unset=True)
+        for service_type in ("ssh", "vnc"):
+            field = f"{service_type}_port"
+            if field in changes:
+                self._change_remote_port(session, device, service_type, changes.pop(field))
+
+        for field, value in changes.items():
             if field == "ssh_password":
                 if value:
                     device.ssh_password_encrypted = self.encryption.encrypt_optional(value)
@@ -96,11 +111,28 @@ class DeviceService:
         session.refresh(device)
         return device
 
+    def _change_remote_port(
+        self,
+        session: Session,
+        device: Device,
+        service_type: str,
+        new_port: int | None,
+    ) -> None:
+        field = f"{service_type}_port"
+        current_port = getattr(device, field)
+        if new_port == current_port:
+            return
+        if new_port is not None:
+            self.port_pool.reserve(session, service_type, new_port, device.id)
+        if current_port is not None:
+            self.port_pool.release(session, service_type, current_port)
+        setattr(device, field, new_port)
+
     def delete(self, session: Session, device_id: int) -> None:
         device = self.get(session, device_id)
         if device.ssh_port is not None:
-            self.port_pool.release(session, device.ssh_port)
+            self.port_pool.release(session, "ssh", device.ssh_port)
         if device.vnc_port is not None:
-            self.port_pool.release(session, device.vnc_port)
+            self.port_pool.release(session, "vnc", device.vnc_port)
         session.delete(device)
         session.flush()

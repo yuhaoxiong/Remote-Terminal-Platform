@@ -93,6 +93,35 @@ scripts/deploy/backup_sqlite.ps1 -DatabasePath backend/data/platform.db -BackupR
 
 Schedule this command with cron, Windows Task Scheduler, or a systemd timer. Keep backup files outside the application deploy directory.
 
+## Verified Revision Deployment
+
+The repository-owned deployment entry is `scripts/deploy/deploy.sh`. Production deployment is triggered only after the `CI` workflow succeeds for a push to `main`; `.github/workflows/deploy.yml` passes `workflow_run.head_sha` to the server and deploys that exact commit instead of running `git pull main` at deployment time.
+
+Server-side usage:
+
+```bash
+cd /opt/edge-platform
+scripts/deploy/deploy.sh <verified-git-sha>
+```
+
+The script:
+
+- refuses a dirty tracked worktree;
+- verifies the target commit belongs to `origin/main`;
+- records the previous Git and Alembic revisions;
+- backs up SQLite before checkout and restart;
+- installs pinned backend/frontend dependencies and builds the frontend;
+- checks Nginx and waits for `/api/health` to report both `status=ok` and `database=ok`;
+- records the last successful revision under the backup directory.
+
+Code-only rollback is available when the current database revision matches the target commit's Alembic head:
+
+```bash
+scripts/deploy/deploy.sh --rollback <previous-good-git-sha>
+```
+
+If database revisions differ, the script refuses automatic rollback. Restore the matching SQLite backup explicitly, review migration compatibility, and then retry. Never force a code downgrade against a newer database schema.
+
 ## Edge Device Bootstrap
 
 On Debian 11 edge devices, run `scripts/deploy/edge_bootstrap.sh` to check `ssh`, check `vnc`, and create a minimal `frpc` registration tunnel. After the device is registered in the platform, use the generated frpc config from the device sync endpoint.
@@ -164,7 +193,7 @@ curl "$BASE_URL/api/devices/$DEVICE_ID/metrics?limit=1" \
 
 ## Wave 15 文件与定时任务部署检查
 
-- 若需要访问真实设备文件,后端必须配置 `FILE_BACKEND=sftp`,并保证设备记录已有 `ssh_port` 和可用 SSH 凭据;否则文件接口会使用本地存储后端,只适合开发测试。
+- 真实设备文件访问使用默认的 `FILE_BACKEND=sftp`,并要求设备记录已有 `ssh_port` 和可用 SSH 凭据;只有显式设置 `FILE_BACKEND=local` 时才使用本地存储后端,该模式只适合开发测试。
 - 文件上传使用 `multipart/form-data`,Nginx 默认允许 1 MB 请求体。若需要上传更大的文件,在 `server` 或 `location /api/` 中增加 `client_max_body_size`,例如 `client_max_body_size 100m;`。
 - 文件下载走 `/api/devices/{id}/files/download`,请确认 Nginx 没有拦截 `Content-Disposition` 响应头,浏览器应直接下载文件。
 - 定时任务前端页面仍可用于创建、编辑、启停和手动执行任务;Wave 18 之后后台调度器也会自动扫描到期任务并生成执行记录。

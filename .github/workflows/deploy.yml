@@ -1,41 +1,50 @@
 name: Deploy
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
+    environment: production
+    env:
+      TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
 
     steps:
-      - name: Deploy over SSH
+      - name: Deploy verified revision over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: TARGET_SHA
           script: |
             set -euo pipefail
 
             APP_ROOT="/opt/edge-platform"
             APP_USER="edge-platform"
+            DEPLOY_SCRIPT="$(mktemp)"
+            trap 'rm -f "$DEPLOY_SCRIPT"' EXIT
 
             echo "[deploy-action] ensure repository ownership"
-            if ! sudo -n /usr/bin/chown -R "$APP_USER:$APP_USER" "$APP_ROOT"; then
-              echo "[deploy-action] warning: unable to repair $APP_ROOT permissions automatically"
-              echo "[deploy-action] run once on the server:"
-              echo "  sudo chown -R $APP_USER:$APP_USER $APP_ROOT"
-              echo "[deploy-action] or allow the CI SSH user to run:"
-              echo "  sudo chown -R $APP_USER:$APP_USER $APP_ROOT"
-            else
-              echo "[deploy-action] repository ownership repaired"
-            fi
+            sudo -n /usr/bin/chown -R "$APP_USER:$APP_USER" "$APP_ROOT"
 
-            echo "[deploy-action] fast-forward source before deploy script"
+            echo "[deploy-action] fetch verified revision $TARGET_SHA"
             sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" fetch origin main
-            sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" checkout main
-            sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" pull --ff-only origin main
+            sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" cat-file -e "$TARGET_SHA^{commit}"
+            sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" merge-base --is-ancestor "$TARGET_SHA" origin/main
 
-            "$APP_ROOT/deploy.sh"
+            echo "[deploy-action] load deploy script from verified revision"
+            sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" show "$TARGET_SHA:scripts/deploy/deploy.sh" > "$DEPLOY_SCRIPT"
+            chmod 700 "$DEPLOY_SCRIPT"
+            "$DEPLOY_SCRIPT" "$TARGET_SHA"

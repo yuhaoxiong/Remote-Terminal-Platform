@@ -19,6 +19,8 @@ class DeviceCreate(BaseModel):
     description: str | None = None
     tags: list[str] | None = None
     group_id: int | None = None
+    ssh_port: int | None = Field(default=None, ge=1, le=65535)
+    vnc_port: int | None = Field(default=None, ge=1, le=65535)
 
 
 class DeviceUpdate(BaseModel):
@@ -35,6 +37,8 @@ class DeviceUpdate(BaseModel):
     tags: list[str] | None = None
     group_id: int | None = None
     status: DeviceStatus | None = None
+    ssh_port: int | None = Field(default=None, ge=1, le=65535)
+    vnc_port: int | None = Field(default=None, ge=1, le=65535)
 
 
 class DeviceRead(BaseModel):

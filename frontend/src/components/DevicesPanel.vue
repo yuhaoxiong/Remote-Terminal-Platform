@@ -7,6 +7,7 @@ import { storeToRefs } from "pinia";
 import {
   createDevice,
   deleteDevice,
+  getApiErrorMessage,
   getDeviceStatus,
   importFrpsDevices,
   syncDeviceConfig,
@@ -89,13 +90,18 @@ function openDeviceEdit(device: Device) {
 }
 async function saveDevice() {
   if (!deviceForm.name || !deviceForm.device_sn || !deviceForm.project_id) { prependLocalLog("设备校验", deviceEditId.value === null ? "新设备" : `设备：${deviceEditId.value}`, "blocked", "设备名称、序列号和项目号为必填项"); return; }
+  platformDataStore.clearOperationError();
   const basePayload = { name: deviceForm.name, project_id: deviceForm.project_id, group_id: deviceForm.group_id, location: deviceForm.location || undefined, tags: parseTags(deviceForm.tags), ssh_user: deviceForm.ssh_user || "ztl", ssh_auth_type: deviceForm.ssh_auth_type || "password", ssh_port: deviceForm.ssh_port, vnc_port: deviceForm.vnc_port };
   const pwdPayload = deviceForm.ssh_password ? { ssh_password: deviceForm.ssh_password } : {};
   try {
     if (deviceEditId.value === null) { const payload: DeviceCreateRequest = { ...basePayload, ...pwdPayload, device_sn: deviceForm.device_sn }; devices.value.push(mapDevice(await createDevice(payload), groups.value)); }
     else { const payload: DeviceUpdateRequest = { ...basePayload, ...pwdPayload }; const updated = await updateDevice(deviceEditId.value, payload); const idx = devices.value.findIndex((d) => d.id === updated.id); if (idx >= 0) devices.value[idx] = mapDevice(updated, groups.value); }
     recalculateGroupCounts(devices.value); emit("changed"); deviceCreateOpen.value = false;
-  } catch { prependLocalLog(deviceEditId.value === null ? "创建设备" : "编辑设备", "设备", "blocked", "保存设备失败，请检查后端返回。"); }
+  } catch (error) {
+    const message = getApiErrorMessage(error, "保存设备失败，请检查后端返回。");
+    platformDataStore.setOperationError(message);
+    prependLocalLog(deviceEditId.value === null ? "创建设备" : "编辑设备", "设备", "blocked", message);
+  }
 }
 async function removeDevice(device: Device) {
   try { await ElMessageBox.confirm(`确定删除设备 ${device.name}（${device.device_sn}）？`, "删除设备", { type: "warning", confirmButtonText: "删除", cancelButtonText: "取消" }); } catch { return; }

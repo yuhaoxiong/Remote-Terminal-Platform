@@ -284,80 +284,28 @@ TLS 证书可以在 HTTP 部署验证通过后再配置。配置 HTTPS 后，必
 
 ```text
 Git push
-  -> GitHub Actions / GitLab CI / Gitee 流水线
+  -> CI 测试、类型检查和构建全部通过
+  -> 取得该次 main push 的确定 Git SHA
   -> SSH 登录服务器
-  -> 执行 /opt/edge-platform/deploy.sh
-  -> git pull + 备份 SQLite + 安装依赖 + 构建前端 + 重启服务 + 健康检查
+  -> 执行 scripts/deploy/deploy.sh <verified-git-sha>
+  -> 备份 SQLite + 检出确定 SHA + 安装依赖 + 构建前端 + 重启服务 + 健康检查
 ```
 
-### 6.1 创建服务器部署脚本
+### 6.1 使用仓库内部署脚本
 
-创建 `/opt/edge-platform/deploy.sh`：
+权威部署脚本随代码版本管理：
+
+```text
+scripts/deploy/deploy.sh
+```
+
+不要在 `/opt/edge-platform` 外维护另一份部署脚本。首次启用时确认脚本可执行：
 
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-APP_ROOT="/opt/edge-platform"
-DEPLOY_BRANCH="main"
-BACKUP_ROOT="/var/backups/edge-platform"
-DB_PATH="/var/lib/edge-platform/platform.db"
-APP_USER="edge-platform"
-
-echo "[deploy] start: $(date -Is)"
-
-echo "[deploy] ensure repository ownership"
-sudo chown -R "$APP_USER:$APP_USER" "$APP_ROOT"
-
-cd "$APP_ROOT"
-
-echo "[deploy] current revision:"
-git rev-parse HEAD || true
-
-echo "[deploy] fetch source"
-sudo -H -u "$APP_USER" git fetch origin "$DEPLOY_BRANCH"
-sudo -H -u "$APP_USER" git checkout "$DEPLOY_BRANCH"
-sudo -H -u "$APP_USER" git pull --ff-only origin "$DEPLOY_BRANCH"
-
-echo "[deploy] new revision:"
-git rev-parse HEAD
-
-echo "[deploy] backup sqlite"
-sudo mkdir -p "$BACKUP_ROOT"
-if [ -f "$DB_PATH" ]; then
-    sudo cp "$DB_PATH" "$BACKUP_ROOT/platform-$(date +%Y%m%d-%H%M%S).db"
-else
-    echo "[deploy] sqlite db not found yet, skip backup: $DB_PATH"
-fi
-
-echo "[deploy] install backend dependencies"
-sudo -u "$APP_USER" python3.12 -m venv "$APP_ROOT/.venv"
-sudo -u "$APP_USER" "$APP_ROOT/.venv/bin/python" -m pip install --upgrade pip
-sudo -u "$APP_USER" "$APP_ROOT/.venv/bin/python" -m pip install -r "$APP_ROOT/backend/requirements.txt"
-
-echo "[deploy] build frontend"
-cd "$APP_ROOT/frontend"
-sudo -u "$APP_USER" npm ci
-sudo -u "$APP_USER" npm run build
-
-echo "[deploy] restart backend"
-sudo systemctl restart edge-platform
-
-echo "[deploy] reload nginx"
-sudo nginx -t
-sudo systemctl reload nginx
-
-echo "[deploy] health check"
-curl -fsS http://127.0.0.1:8000/api/health
-
-echo "[deploy] done: $(date -Is)"
+sudo chmod +x /opt/edge-platform/scripts/deploy/deploy.sh
 ```
 
-授权：
-
-```bash
-sudo chmod +x /opt/edge-platform/deploy.sh
-```
+脚本必须接收 CI 已验证的 Git SHA。它会拒绝脏工作区和不属于 `origin/main` 的 revision，部署前备份 SQLite，部署后同时校验 `status=ok` 与 `database=ok`。
 
 ### 6.2 配置 sudo 免密范围
 
@@ -389,10 +337,10 @@ sudo visudo
 
 ```text
 deploy ALL=(edge-platform) NOPASSWD: /usr/bin/git, /usr/bin/python3.12, /opt/edge-platform/.venv/bin/python, /usr/bin/npm
-deploy ALL=(root) NOPASSWD: /usr/bin/chown -R edge-platform\:edge-platform /opt/edge-platform, /usr/bin/systemctl restart edge-platform, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t, /usr/bin/mkdir -p /var/backups/edge-platform, /usr/bin/cp /var/lib/edge-platform/platform.db /var/backups/edge-platform/*
+deploy ALL=(root) NOPASSWD: /usr/bin/chown -R edge-platform\:edge-platform /opt/edge-platform, /usr/bin/systemctl restart edge-platform, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t, /usr/bin/mkdir -p /var/backups/edge-platform, /usr/bin/cp /var/lib/edge-platform/platform.db /var/backups/edge-platform/*, /usr/bin/tee /var/backups/edge-platform/*
 ```
 
-如果服务器上的命令路径不同，用 `which systemctl`、`which nginx`、`which cp` 确认后替换。
+如果服务器上的命令路径不同，用 `which systemctl`、`which nginx`、`which cp`、`which tee` 确认后替换。
 
 ### 6.3 GitHub Actions 示例
 
@@ -402,24 +350,32 @@ deploy ALL=(root) NOPASSWD: /usr/bin/chown -R edge-platform\:edge-platform /opt/
 name: Deploy
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
 
 jobs:
   deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
+    env:
+      TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
 
     steps:
-      - name: Deploy over SSH
+      - name: Deploy verified revision over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            /opt/edge-platform/deploy.sh
+          envs: TARGET_SHA
+          script: <与仓库 .github/workflows/deploy.yml 保持一致>
 ```
+
+实际 workflow 会从 `$TARGET_SHA` 读取同一 revision 中的 `scripts/deploy/deploy.sh`，避免服务器当前 checkout 尚未包含新版脚本时退回到 `pull main`。不要把触发器改回独立的 `push main` 部署，否则 CI 失败的提交仍可能进入生产。
 
 GitHub Secrets：
 
@@ -440,6 +396,7 @@ stages:
 deploy:
   stage: deploy
   image: alpine:3.20
+  needs: [backend, frontend]
   only:
     - main
   before_script:
@@ -449,8 +406,10 @@ deploy:
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
   script:
-    - ssh "$SERVER_USER@$SERVER_HOST" "/opt/edge-platform/deploy.sh"
+    - ssh "$SERVER_USER@$SERVER_HOST" "cd /opt/edge-platform && scripts/deploy/deploy.sh '$CI_COMMIT_SHA'"
 ```
+
+`backend`、`frontend` 必须是已完成测试/检查的前置 job；不能只保留 deploy job。首次迁移到仓库内脚本时，按 GitHub workflow 的 `git show <sha>:scripts/deploy/deploy.sh` 模式从目标 revision 引导执行。
 
 GitLab CI/CD Variables：
 
@@ -465,7 +424,7 @@ SERVER_SSH_KEY=<private-key-for-deploy-user>
 Gitee 流水线同样使用 SSH 方式：
 
 ```bash
-ssh deploy@<server-host> "/opt/edge-platform/deploy.sh"
+ssh deploy@<server-host> "cd /opt/edge-platform && scripts/deploy/deploy.sh '<verified-commit-sha>'"
 ```
 
 需要在 Gitee 流水线变量中保存：
@@ -476,7 +435,7 @@ SERVER_USER
 SERVER_SSH_KEY
 ```
 
-OpenClaw 如果无法判断 Git 平台，应默认只在服务器上创建 `deploy.sh`，并在交付报告中提示操作者选择 GitHub、GitLab 或 Gitee 的触发配置。
+OpenClaw 如果无法判断 Git 平台，应保留仓库内 `scripts/deploy/deploy.sh`，并在交付报告中提示操作者选择 GitHub、GitLab 或 Gitee 的 CI 成功门控方式；不得在服务器外维护另一份脚本。
 
 ## 7. 部署验证
 
@@ -577,7 +536,7 @@ sudo cp /var/lib/edge-platform/platform.db /var/backups/edge-platform/platform-$
 
 ### 9.2 自动部署前备份
 
-`/opt/edge-platform/deploy.sh` 已包含部署前 SQLite 备份逻辑。
+`/opt/edge-platform/scripts/deploy/deploy.sh` 已包含部署前 SQLite 备份逻辑，并会在备份目录记录前后 Git revision、数据库 revision 和备份文件路径。
 
 ### 9.3 回滚条件
 
@@ -592,19 +551,19 @@ sudo cp /var/lib/edge-platform/platform.db /var/backups/edge-platform/platform-$
 
 ### 9.4 回滚步骤
 
+代码与数据库 revision 兼容时，可执行代码回滚：
+
 ```bash
 cd /opt/edge-platform
-sudo -u edge-platform git checkout <previous-good-commit-or-tag>
-sudo cp /var/backups/edge-platform/<backup-db-file> /var/lib/edge-platform/platform.db
+scripts/deploy/deploy.sh --rollback <previous-good-commit-or-tag>
+```
 
-sudo -u edge-platform /opt/edge-platform/.venv/bin/python -m pip install -r backend/requirements.txt
-cd /opt/edge-platform/frontend
-sudo -u edge-platform npm ci
-sudo -u edge-platform npm run build
+脚本会比较当前数据库 revision 与目标代码的 Alembic head；不一致时拒绝自动回滚，避免旧代码连接新 schema。此时先根据 `deploy-*.state` 选择匹配备份，停服务后显式恢复数据库，再重新执行回滚并检查健康状态：
 
-sudo systemctl restart edge-platform
-sudo nginx -t
-sudo systemctl reload nginx
+```bash
+sudo systemctl stop edge-platform
+sudo cp /var/backups/edge-platform/<matching-backup.db> /var/lib/edge-platform/platform.db
+sudo systemctl start edge-platform
 curl -i http://127.0.0.1:8000/api/health
 ```
 
@@ -651,9 +610,10 @@ sudo tail -n 100 /var/log/nginx/error.log
 
 - CI Secrets 是否正确。
 - `deploy` 用户是否能 SSH 登录服务器。
-- `/opt/edge-platform/deploy.sh` 是否可执行。
+- `/opt/edge-platform/scripts/deploy/deploy.sh` 是否可执行。
 - `deploy` 用户的 sudoers 免密范围是否覆盖脚本需要的命令。
-- 服务器 `git pull --ff-only` 是否因为本地未提交改动失败。
+- `TARGET_SHA` 是否来自成功 CI 的 main push，且目标 revision 属于 `origin/main`。
+- 服务器 tracked worktree 是否存在未提交改动；部署脚本会主动拒绝脏工作区。
 - 如果日志出现 `insufficient permission for adding an object to repository database .git/objects`，说明 `/opt/edge-platform` 或 `.git/objects` 被 root/其他用户写过，执行 `sudo chown -R edge-platform:edge-platform /opt/edge-platform` 后重试，并确认 sudoers 允许 CI 用户执行该命令。
 - `npm ci` 是否因为 `package-lock.json` 不一致失败。
 
@@ -691,7 +651,7 @@ OpenClaw 必须遵守：
 1. 使用 systemd 托管 FastAPI 后端。
 2. 使用 Nginx 托管前端静态文件，并反代 /api/ 和 /api/ws/。
 3. SQLite 和上传文件必须放在 DATA_ROOT，不要放在代码目录。
-4. 创建 /opt/edge-platform/deploy.sh，实现 git pull、备份、安装依赖、构建前端、重启服务、健康检查。
-5. 配置 Git 推送后通过 CI SSH 执行 deploy.sh；如果无法判断 Git 平台，先完成服务器侧 deploy.sh，并输出 GitHub/GitLab/Gitee 的配置建议。
+4. 使用仓库内 scripts/deploy/deploy.sh，实现确定 SHA 检出、备份、安装依赖、构建前端、重启服务和健康检查；不要创建服务器外副本。
+5. 只有 main push 的 CI 全部成功后才能通过 SSH 执行 deploy.sh，并把该次已验证 Git SHA 作为必填参数；如果无法判断 Git 平台，输出 GitHub/GitLab/Gitee 的门控配置建议。
 6. 部署结束后执行 /api/health、Nginx 检查和 systemd 日志检查，并报告结果。
 ```

@@ -144,6 +144,8 @@ def update_device(
             device = DeviceService(settings).update(session, device_id, payload)
         except DeviceNotFoundError as exc:
             raise not_found_error(exc) from exc
+        except PortPoolExhaustedError as exc:
+            raise conflict_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,

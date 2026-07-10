@@ -689,8 +689,8 @@ it("edits, refreshes, and deletes a device from the device table", async () => {
     project_id: "工厂-b",
     location: "上海",
     hardware_model: null,
-    ssh_port: 10000,
-    vnc_port: 10500,
+    ssh_port: 10010,
+    vnc_port: 10510,
     ssh_user: "ztl",
     ssh_auth_type: "password",
     ssh_credential_configured: true,
@@ -715,6 +715,8 @@ it("edits, refreshes, and deletes a device from the device table", async () => {
   await wrapper.find('[data-testid="device-name"] input').setValue("装配边缘终端 01 已更新");
   await wrapper.find('[data-testid="device-project"] input').setValue("工厂-b");
   await wrapper.find('[data-testid="device-tags"] input').setValue("维护");
+  await wrapper.find('[data-testid="device-ssh-port"] input').setValue("10010");
+  await wrapper.find('[data-testid="device-vnc-port"] input').setValue("10510");
   await wrapper.find('[data-testid="save-device"]').trigger("click");
   await flushAsync();
 
@@ -726,8 +728,8 @@ it("edits, refreshes, and deletes a device from the device table", async () => {
     tags: ["维护"],
     ssh_user: "root",
     ssh_auth_type: "password",
-    ssh_port: 10000,
-    vnc_port: 10500,
+    ssh_port: 10010,
+    vnc_port: 10510,
   });
   expect(api.updateDevice.mock.calls[0][1]).not.toHaveProperty("ssh_password");
   expect(wrapper.text()).toContain("装配边缘终端 01 已更新");
@@ -741,6 +743,21 @@ it("edits, refreshes, and deletes a device from the device table", async () => {
   await flushAsync();
   expect(api.deleteDevice).toHaveBeenCalledWith(1);
   expect(wrapper.find('[data-testid="delete-device-1"]').exists()).toBe(false);
+});
+
+it("shows a local error when saving device ports fails", async () => {
+  api.updateDevice.mockRejectedValueOnce(new Error("port conflict"));
+  const { wrapper, router } = await mountApp();
+
+  await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+  await wrapper.find('[data-testid="login-submit"]').trigger("click");
+  await flushAsync();
+  await navigateTo(router, "devices");
+  await wrapper.find('[data-testid="edit-device-1"]').trigger("click");
+  await wrapper.find('[data-testid="save-device"]').trigger("click");
+  await flushAsync();
+
+  expect(wrapper.text()).toContain("保存设备失败，请检查后端返回。");
 });
 
 it("shows sync config, filters logs, exports csv, and loads diagnostics", async () => {

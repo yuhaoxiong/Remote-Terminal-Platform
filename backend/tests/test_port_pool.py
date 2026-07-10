@@ -10,7 +10,7 @@ def test_port_pool_allocates_lowest_available_port_and_reuses_released_port(init
     with session_scope(initialized_settings) as session:
         ssh_port = service.allocate(session, "ssh", device_id=1)
         next_ssh_port = service.allocate(session, "ssh", device_id=2)
-        service.release(session, ssh_port)
+        service.release(session, "ssh", ssh_port)
         reused_port = service.allocate(session, "ssh", device_id=3)
 
     assert ssh_port == 10000

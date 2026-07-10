@@ -27,7 +27,7 @@ class PortPoolService:
             .limit(1)
         )
         if port_record is None:
-            raise PortPoolExhaustedError(f"No available {service_type} ports")
+            raise PortPoolExhaustedError(f"没有可用的 {service_type.upper()} 端口")
 
         port_record.status = "allocated"
         port_record.device_id = device_id
@@ -35,8 +35,10 @@ class PortPoolService:
         session.flush()
         return port_record.port
 
-    def release(self, session: Session, port: int) -> None:
-        port_record = session.scalar(select(PortPool).where(PortPool.port == port))
+    def release(self, session: Session, service_type: str, port: int) -> None:
+        port_record = session.scalar(
+            select(PortPool).where(PortPool.service_type == service_type, PortPool.port == port)
+        )
         if port_record is None:
             return
         port_record.status = "available"
@@ -51,7 +53,7 @@ class PortPoolService:
             session.add(port_record)
             session.flush()
         if port_record.status == "allocated" and port_record.device_id != device_id:
-            raise PortPoolExhaustedError(f"{service_type} port already allocated: {port}")
+            raise PortPoolExhaustedError(f"{service_type.upper()} 端口已被其他设备占用：{port}")
         port_record.status = "allocated"
         port_record.device_id = device_id
         port_record.allocated_at = datetime.now(timezone.utc)

@@ -38,6 +38,8 @@ export interface DeviceCreateRequest {
   ssh_user?: string;
   ssh_auth_type?: string;
   ssh_password?: string;
+  ssh_port?: number | null;
+  vnc_port?: number | null;
 }
 
 export type DeviceUpdateRequest = Partial<Omit<DeviceCreateRequest, "device_sn">> & {
