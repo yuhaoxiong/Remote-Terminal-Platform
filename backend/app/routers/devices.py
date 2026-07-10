@@ -56,6 +56,17 @@ def _remote_directory_not_found(remote_path: str) -> HTTPException:
     )
 
 
+def _remote_file_not_found(remote_path: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"远程文件不存在或无权操作: {remote_path}",
+    )
+
+
+def _remote_connection_error(exc: RemoteConnectionError) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
 @router.post("", response_model=DeviceRead, status_code=status.HTTP_201_CREATED)
 def create_device(
     payload: DeviceCreate,
@@ -226,7 +237,7 @@ def list_device_files(
         except RemoteFileNotFoundError as exc:
             raise _remote_directory_not_found(path) from exc
         except RemoteConnectionError as exc:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+            raise _remote_connection_error(exc) from exc
         return FileListResponse(device_id=device.id, path=path, items=items)
 
 
@@ -245,6 +256,8 @@ async def upload_device_file(
             raise not_found_error(exc) from exc
         except FilePathError as exc:
             raise _file_error(exc) from exc
+        except RemoteConnectionError as exc:
+            raise _remote_connection_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -290,7 +303,9 @@ def download_device_file(
         except FilePathError as exc:
             raise _file_error(exc) from exc
         except RemoteFileNotFoundError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+            raise _remote_file_not_found(remote_path) from exc
+        except RemoteConnectionError as exc:
+            raise _remote_connection_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -325,7 +340,9 @@ def delete_device_file(
         except FilePathError as exc:
             raise _file_error(exc) from exc
         except RemoteFileNotFoundError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+            raise _remote_file_not_found(payload.remote_path) from exc
+        except RemoteConnectionError as exc:
+            raise _remote_connection_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -353,6 +370,8 @@ def create_device_directory(
             raise not_found_error(exc) from exc
         except FilePathError as exc:
             raise _file_error(exc) from exc
+        except RemoteConnectionError as exc:
+            raise _remote_connection_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -381,7 +400,9 @@ def rename_device_file(
         except FilePathError as exc:
             raise _file_error(exc) from exc
         except RemoteFileNotFoundError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+            raise _remote_file_not_found(payload.remote_path) from exc
+        except RemoteConnectionError as exc:
+            raise _remote_connection_error(exc) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,

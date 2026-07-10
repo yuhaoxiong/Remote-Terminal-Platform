@@ -1,11 +1,13 @@
 import stat
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.config import Settings
 from app.models.device import Device
 from app.services.file_service import FilePathError, FileService
+from app.services.ssh_service import ParamikoSftpSession
 
 
 class FakeSftp:
@@ -84,6 +86,22 @@ class FakeSshService:
 
     def open_sftp(self, device):
         return self.sftp
+
+
+def test_paramiko_sftp_session_delegates_file_mutations() -> None:
+    client = MagicMock()
+    raw_sftp = MagicMock()
+    session = ParamikoSftpSession(client, raw_sftp)
+
+    session.stat("uploads/report.txt")
+    session.mkdir("uploads/archive")
+    session.rename("uploads/report.txt", "uploads/report.csv")
+    session.rmdir("uploads/archive")
+
+    raw_sftp.stat.assert_called_once_with("uploads/report.txt")
+    raw_sftp.mkdir.assert_called_once_with("uploads/archive")
+    raw_sftp.rename.assert_called_once_with("uploads/report.txt", "uploads/report.csv")
+    raw_sftp.rmdir.assert_called_once_with("uploads/archive")
 
 
 def _device() -> Device:

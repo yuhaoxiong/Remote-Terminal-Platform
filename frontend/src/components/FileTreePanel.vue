@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { Folder, FolderAdd, Document, Download, Delete, Edit, Refresh, Upload } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { Device } from "../stores/devices";
@@ -40,6 +40,14 @@ const currentPath = ref(".");
 const selectedNode = ref<FileTreeNode | null>(null);
 const treeRefreshKey = ref(0);
 
+const expandedPaths = computed(() => {
+  const path = currentPath.value.trim();
+  if (!path || path === "." || path === "/") return [];
+  const absolute = path.startsWith("/");
+  const parts = path.split("/").filter(Boolean);
+  return parts.map((_, index) => `${absolute ? "/" : ""}${parts.slice(0, index + 1).join("/")}`);
+});
+
 // Tree 配置
 const treeProps = {
   label: "name",
@@ -52,6 +60,50 @@ const joinPath = (base: string, name: string): string => {
   if (base === "/" || base === "") return `/${name}`;
   if (base === ".") return name;
   return `${base.replace(/\/$/, "")}/${name}`;
+};
+
+const parentPath = (path: string): string => {
+  const normalized = path.replace(/\/$/, "");
+  const separator = normalized.lastIndexOf("/");
+  if (separator < 0) return ".";
+  if (separator === 0) return "/";
+  return normalized.slice(0, separator);
+};
+
+type DownloadSaveMode = "selected-location" | "browser-download";
+
+interface WritableDownloadFile {
+  write(content: Blob): Promise<void>;
+  close(): Promise<void>;
+}
+
+interface DownloadFileHandle {
+  createWritable(): Promise<WritableDownloadFile>;
+}
+
+type SaveFilePickerWindow = Window & {
+  showSaveFilePicker?: (options: { suggestedName: string }) => Promise<DownloadFileHandle>;
+};
+
+const saveDownloadedFile = async (blob: Blob, filename: string): Promise<DownloadSaveMode> => {
+  const picker = (window as SaveFilePickerWindow).showSaveFilePicker;
+  if (picker) {
+    const handle = await picker.call(window, { suggestedName: filename });
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return "selected-location";
+  }
+
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  window.URL.revokeObjectURL(url);
+  return "browser-download";
 };
 
 // 转换 API 数据为 Tree 节点
@@ -122,6 +174,7 @@ const handleCommand = async (command: string, node: FileTreeNode) => {
       await handleRename(node);
       break;
     case "refresh":
+      currentPath.value = node.path;
       emit("refresh");
       refresh();
       break;
@@ -135,19 +188,14 @@ const handleDownload = async (node: FileTreeNode) => {
   try {
     ElMessage.info(`正在下载 ${node.name}...`);
     const blob = await downloadDeviceFile(props.device.id, node.path);
-
-    // 创建下载链接
-    const url = window.URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = node.name;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    window.URL.revokeObjectURL(url);
-
-    ElMessage.success(`${node.name} 下载成功`);
+    const saveMode = await saveDownloadedFile(blob, node.name);
+    ElMessage.success(
+      saveMode === "selected-location"
+        ? `${node.name} 已保存到所选位置`
+        : `${node.name} 已交给浏览器下载，请在浏览器下载记录中查看保存位置`,
+    );
   } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
     ElMessage.error(getApiErrorMessage(error, `下载 ${node.name} 失败`));
   }
 };
@@ -171,6 +219,8 @@ const handleDelete = async (node: FileTreeNode) => {
     await deleteDeviceFile(props.device.id, node.path);
     ElMessage.success(`${node.name} 删除成功`);
 
+    currentPath.value = parentPath(node.path);
+    selectedNode.value = null;
     emit("refresh");
     refresh();
   } catch (error) {
@@ -193,9 +243,11 @@ const handleRename = async (node: FileTreeNode) => {
       inputErrorMessage: "名称不能包含斜杠",
     });
 
-    await renameDeviceFile(props.device.id, node.path, value.trim());
+    const result = await renameDeviceFile(props.device.id, node.path, value.trim());
     ElMessage.success(`已重命名为 ${value}`);
 
+    currentPath.value = node.type === "directory" ? result.remote_path : parentPath(result.remote_path);
+    selectedNode.value = null;
     emit("refresh");
     refresh();
   } catch (error) {
@@ -274,6 +326,7 @@ const uploadFiles = async (targetPath: string, files: File[]) => {
   }
 
   // 上传完成后刷新文件树
+  currentPath.value = targetPath;
   emit("refresh");
   refresh();
 };
@@ -353,16 +406,20 @@ defineExpose({
         :load="loadNode"
         lazy
         node-key="id"
+        :default-expanded-keys="expandedPaths"
+        :current-node-key="selectedNode?.id"
         highlight-current
         @node-click="handleNodeClick"
-        @node-dblclick="(data: FileTreeNode) => data.type === 'file' && handleDownload(data)"
       >
         <template #default="{ node, data }">
           <el-dropdown
             trigger="contextmenu"
             @command="(cmd: string) => handleCommand(cmd, data)"
           >
-            <span class="tree-node">
+            <span
+              class="tree-node"
+              @dblclick.stop="data.type === 'file' && handleDownload(data)"
+            >
               <el-icon><component :is="getFileIcon(data)" /></el-icon>
               <span class="node-label">{{ node.label }}</span>
               <span v-if="data.size" class="node-size">{{ formatFileSize(data.size) }}</span>

@@ -67,6 +67,18 @@ class ParamikoSftpSession:
     def remove(self, path: str) -> None:
         self.sftp.remove(path)
 
+    def stat(self, path: str):
+        return self.sftp.stat(path)
+
+    def mkdir(self, path: str) -> None:
+        self.sftp.mkdir(path)
+
+    def rmdir(self, path: str) -> None:
+        self.sftp.rmdir(path)
+
+    def rename(self, source: str, target: str) -> None:
+        self.sftp.rename(source, target)
+
     def close(self) -> None:
         try:
             self.sftp.close()
