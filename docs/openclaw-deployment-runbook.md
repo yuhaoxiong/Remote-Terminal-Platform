@@ -611,7 +611,7 @@ sudo tail -n 100 /var/log/nginx/error.log
 - CI Secrets 是否正确。
 - `deploy` 用户是否能 SSH 登录服务器。
 - `/opt/edge-platform/scripts/deploy/deploy.sh` 是否可执行。
-- `deploy` 用户的 sudoers 免密范围是否覆盖脚本需要的命令。
+- `deploy` 用户的 sudoers 免密范围是否覆盖脚本需要的命令；脚本会使用 `/usr/bin/git`、`/usr/bin/python3.12`、`/usr/bin/npm` 等绝对路径，以便和 sudoers 精确匹配。
 - `TARGET_SHA` 是否来自成功 CI 的 main push，且目标 revision 属于 `origin/main`。
 - 服务器 tracked worktree 是否存在未提交改动；部署脚本会主动拒绝脏工作区。
 - 如果日志显示 `mktemp ... /tmp ... Permission denied`，说明服务器全局临时目录不可写。仓库 workflow 已改用 `deploy` 用户 home 下权限为 `0700` 的 `.cache/edge-platform-deploy`；确认 `/home/deploy` 存在、归属 `deploy:deploy` 且可写后重试。

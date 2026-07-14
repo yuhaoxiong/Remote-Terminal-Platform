@@ -8,6 +8,9 @@ BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/edge-platform}"
 DB_PATH="${DB_PATH:-/var/lib/edge-platform/platform.db}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8000/api/health}"
 SERVICE_NAME="${SERVICE_NAME:-edge-platform}"
+GIT_BIN="${GIT_BIN:-/usr/bin/git}"
+PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3.12}"
+NPM_BIN="${NPM_BIN:-/usr/bin/npm}"
 
 MODE="deploy"
 if [[ "${1:-}" == "--rollback" ]]; then
@@ -27,7 +30,7 @@ run_as_app() {
 }
 
 git_as_app() {
-    run_as_app git -C "$APP_ROOT" "$@"
+    run_as_app "$GIT_BIN" -C "$APP_ROOT" "$@"
 }
 
 read_database_revision() {
@@ -35,7 +38,7 @@ read_database_revision() {
         printf '%s' "none"
         return
     fi
-    run_as_app python3.12 - "$DB_PATH" <<'PY'
+    run_as_app "$PYTHON_BIN" - "$DB_PATH" <<'PY'
 import sqlite3
 import sys
 
@@ -64,11 +67,13 @@ if payload.get("status") != "ok" or payload.get("database") != "ok":
 
 echo "[deploy] mode=$MODE start=$(date -Is)"
 
+echo "[deploy] verify tracked worktree"
 if [[ -n "$(git_as_app status --porcelain --untracked-files=no)" ]]; then
     echo "[deploy] refusing to deploy from a dirty tracked worktree: $APP_ROOT" >&2
     exit 1
 fi
 
+echo "[deploy] read current Git and database revisions"
 PREVIOUS_REVISION="$(git_as_app rev-parse HEAD)"
 DATABASE_REVISION_BEFORE="$(read_database_revision)"
 
@@ -100,7 +105,7 @@ git_as_app checkout --detach "$TARGET_SHA"
 
 echo "[deploy] install backend dependencies"
 if [[ ! -x "$APP_ROOT/.venv/bin/python" ]]; then
-    run_as_app python3.12 -m venv "$APP_ROOT/.venv"
+    run_as_app "$PYTHON_BIN" -m venv "$APP_ROOT/.venv"
 fi
 run_as_app "$APP_ROOT/.venv/bin/python" -m pip install --upgrade pip
 run_as_app "$APP_ROOT/.venv/bin/python" -m pip install -r "$APP_ROOT/backend/requirements.txt"
@@ -121,8 +126,8 @@ if [[ "$MODE" == "rollback" ]]; then
 fi
 
 echo "[deploy] build frontend"
-run_as_app npm --prefix "$APP_ROOT/frontend" ci
-run_as_app npm --prefix "$APP_ROOT/frontend" run build
+run_as_app "$NPM_BIN" --prefix "$APP_ROOT/frontend" ci
+run_as_app "$NPM_BIN" --prefix "$APP_ROOT/frontend" run build
 
 echo "[deploy] restart backend"
 sudo -n /usr/bin/systemctl restart "$SERVICE_NAME"

@@ -28,3 +28,14 @@ def test_deploy_workflow_bootstrap_does_not_depend_on_global_tmp() -> None:
     assert 'chmod 700 "$DEPLOY_TMP_DIR"' in workflow
     assert 'mktemp "$DEPLOY_TMP_DIR/deploy.XXXXXXXXXX"' in workflow
     assert 'DEPLOY_SCRIPT="$(mktemp)"' not in workflow
+
+
+def test_deploy_script_uses_sudoers_command_paths() -> None:
+    script = (ROOT / "scripts/deploy/deploy.sh").read_text(encoding="utf-8")
+
+    assert 'GIT_BIN="${GIT_BIN:-/usr/bin/git}"' in script
+    assert 'PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3.12}"' in script
+    assert 'NPM_BIN="${NPM_BIN:-/usr/bin/npm}"' in script
+    assert 'run_as_app "$GIT_BIN" -C "$APP_ROOT"' in script
+    assert 'run_as_app "$PYTHON_BIN" - "$DB_PATH"' in script
+    assert 'run_as_app "$NPM_BIN" --prefix "$APP_ROOT/frontend"' in script
