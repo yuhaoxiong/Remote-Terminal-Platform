@@ -1,7 +1,7 @@
 # 后续开发路线执行计划：契约修复、任务可靠性与架构深化
 
 > 阶段：`roadmap_execution_plan`
-> 状态：已批准，阶段 A 已完成，阶段 B 未启动
+> 状态：已批准，阶段 A 业务契约已完成；部署脚本因生产兼容性回退，阶段 B 未启动
 > 审查基线：2026-07-10 项目架构审查
 > 当前基线：后端 109 个测试通过；前端 38 个测试、lint、typecheck、build 通过
 
@@ -148,7 +148,7 @@ npm.cmd run typecheck
 
 - `.github/workflows/ci.yml`
 - `.github/workflows/deploy.yml`
-- `scripts/deploy/deploy.sh`
+- `scripts/deploy/deploy.sh`（生产兼容性回退后暂未保留，待预发布验证时重新引入）
 - `docs/deployment.md`
 - `docs/openclaw-deployment-runbook.md`
 
@@ -185,8 +185,8 @@ npm.cmd run typecheck
 - [x] 前后端类型均声明端口字段。
 - [x] 新增真实后端集成测试，不只依赖前端 mock。
 - [x] CI 失败时部署不会启动。
-- [x] 部署绑定确定 Git SHA。
-- [x] 权威 `deploy.sh` 已进入版本控制。
+- [x] 部署调用前核对 CI 验证的确定 Git SHA。
+- [ ] 权威 `deploy.sh` 进入版本控制（生产暂时回退使用 `/opt/edge-platform/deploy.sh`，待预发布环境验证后重新推进）。
 - [x] README 和部署文档默认值与实现一致。
 
 ## 6. 阶段 B：远程任务执行 module 深化
@@ -570,7 +570,7 @@ production 启动校验至少拒绝：
 | 范围 | 主要文件 | 变化类型 |
 | --- | --- | --- |
 | 设备契约 | `schemas/device.py`、`device_service.py`、`port_pool.py`、`devices.ts`、`DevicesPanel.vue` | 修复与测试 |
-| 发布 | `.github/workflows/*`、`scripts/deploy/deploy.sh`、部署文档 | CI/CD 治理 |
+| 发布 | `.github/workflows/*`、服务器兼容 `/opt/edge-platform/deploy.sh`、部署文档 | CI/CD 治理 |
 | 任务执行 | update task model/schema/service、coordinator/worker、scheduler、WebSocket | 核心架构变化 |
 | 告警投递 | alert service、notification service、delivery worker/adapter | 外部 I/O 解耦 |
 | 文件管理 | file service、Local/SFTP adapter、两个前端文件 panel | module 深化 |

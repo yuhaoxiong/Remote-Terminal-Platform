@@ -21,7 +21,7 @@ jobs:
       TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
 
     steps:
-      - name: Deploy verified revision over SSH
+      - name: Deploy with server compatibility script over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -33,21 +33,25 @@ jobs:
 
             APP_ROOT="/opt/edge-platform"
             APP_USER="edge-platform"
-            DEPLOY_TMP_DIR="${HOME:?remote HOME is not set}/.cache/edge-platform-deploy"
-            mkdir -p "$DEPLOY_TMP_DIR"
-            chmod 700 "$DEPLOY_TMP_DIR"
-            DEPLOY_SCRIPT="$(mktemp "$DEPLOY_TMP_DIR/deploy.XXXXXXXXXX")"
-            trap 'rm -f "$DEPLOY_SCRIPT"' EXIT
 
             echo "[deploy-action] ensure repository ownership"
-            sudo -n /usr/bin/chown -R "$APP_USER:$APP_USER" "$APP_ROOT"
+            if ! sudo -n /usr/bin/chown -R "$APP_USER:$APP_USER" "$APP_ROOT"; then
+              echo "[deploy-action] warning: unable to repair $APP_ROOT permissions automatically"
+            fi
 
-            echo "[deploy-action] fetch verified revision $TARGET_SHA"
+            echo "[deploy-action] fast-forward source to verified revision $TARGET_SHA"
             sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" fetch origin main
             sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" cat-file -e "$TARGET_SHA^{commit}"
             sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" merge-base --is-ancestor "$TARGET_SHA" origin/main
+            sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" checkout main
+            sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" pull --ff-only origin main
 
-            echo "[deploy-action] load deploy script from verified revision"
-            sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" show "$TARGET_SHA:scripts/deploy/deploy.sh" > "$DEPLOY_SCRIPT"
-            chmod 700 "$DEPLOY_SCRIPT"
-            "$DEPLOY_SCRIPT" "$TARGET_SHA"
+            DEPLOYED_SHA="$(sudo -H -n -u "$APP_USER" git -C "$APP_ROOT" rev-parse HEAD)"
+            if [ "$DEPLOYED_SHA" != "$TARGET_SHA" ]; then
+              echo "[deploy-action] refusing revision mismatch: expected=$TARGET_SHA actual=$DEPLOYED_SHA" >&2
+              exit 1
+            fi
+
+            echo "[deploy-action] run server compatibility deploy script"
+            test -x "$APP_ROOT/deploy.sh"
+            "$APP_ROOT/deploy.sh"

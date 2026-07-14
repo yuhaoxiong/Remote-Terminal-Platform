@@ -93,34 +93,15 @@ scripts/deploy/backup_sqlite.ps1 -DatabasePath backend/data/platform.db -BackupR
 
 Schedule this command with cron, Windows Task Scheduler, or a systemd timer. Keep backup files outside the application deploy directory.
 
-## Verified Revision Deployment
+## Production Deployment Compatibility Mode
 
-The repository-owned deployment entry is `scripts/deploy/deploy.sh`. Production deployment is triggered only after the `CI` workflow succeeds for a push to `main`; `.github/workflows/deploy.yml` passes `workflow_run.head_sha` to the server and deploys that exact commit instead of running `git pull main` at deployment time.
-
-Server-side usage:
+Production deployment still waits for the `CI` workflow to succeed for a push to `main`. The workflow then fast-forwards `/opt/edge-platform` to the CI-verified `workflow_run.head_sha`, verifies that the checked-out revision matches that SHA, and invokes the existing server-managed entry point:
 
 ```bash
-cd /opt/edge-platform
-scripts/deploy/deploy.sh <verified-git-sha>
+/opt/edge-platform/deploy.sh
 ```
 
-The script:
-
-- refuses a dirty tracked worktree;
-- verifies the target commit belongs to `origin/main`;
-- records the previous Git and Alembic revisions;
-- backs up SQLite before checkout and restart;
-- installs pinned backend/frontend dependencies and builds the frontend;
-- checks Nginx and waits for `/api/health` to report both `status=ok` and `database=ok`;
-- records the last successful revision under the backup directory.
-
-Code-only rollback is available when the current database revision matches the target commit's Alembic head:
-
-```bash
-scripts/deploy/deploy.sh --rollback <previous-good-git-sha>
-```
-
-If database revisions differ, the script refuses automatic rollback. Restore the matching SQLite backup explicitly, review migration compatibility, and then retry. Never force a code downgrade against a newer database schema.
+This compatibility mode was restored after the repository-owned deployment script required sudo permissions that were not present on the current server. Keep the server script executable and preserve its existing backup, build, restart, and health-check behavior. The repository-owned verified-revision deploy script must not be re-enabled until it has been validated against the production sudoers policy in a staging environment.
 
 ## Edge Device Bootstrap
 

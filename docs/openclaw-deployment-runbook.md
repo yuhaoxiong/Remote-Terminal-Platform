@@ -287,25 +287,25 @@ Git push
   -> CI 测试、类型检查和构建全部通过
   -> 取得该次 main push 的确定 Git SHA
   -> SSH 登录服务器
-  -> 执行 scripts/deploy/deploy.sh <verified-git-sha>
-  -> 备份 SQLite + 检出确定 SHA + 安装依赖 + 构建前端 + 重启服务 + 健康检查
+  -> fast-forward 到该 Git SHA 并核对 revision
+  -> 执行服务器现有 /opt/edge-platform/deploy.sh
 ```
 
-### 6.1 使用仓库内部署脚本
+### 6.1 使用服务器兼容部署脚本
 
-权威部署脚本随代码版本管理：
+当前生产环境回退使用已验证过的服务器脚本：
 
 ```text
-scripts/deploy/deploy.sh
+/opt/edge-platform/deploy.sh
 ```
 
-不要在 `/opt/edge-platform` 外维护另一份部署脚本。首次启用时确认脚本可执行：
+确认脚本存在且可执行：
 
 ```bash
-sudo chmod +x /opt/edge-platform/scripts/deploy/deploy.sh
+sudo chmod +x /opt/edge-platform/deploy.sh
 ```
 
-脚本必须接收 CI 已验证的 Git SHA。它会拒绝脏工作区和不属于 `origin/main` 的 revision，部署前备份 SQLite，部署后同时校验 `status=ok` 与 `database=ok`。
+GitHub workflow 仍只在 CI 成功后运行，并在调用脚本前确认服务器 checkout 与 `workflow_run.head_sha` 一致。仓库内部署脚本因当前服务器 sudoers 不兼容而停用；重新启用前必须先在预发布环境验证备份、回滚和权限边界。
 
 ### 6.2 配置 sudo 免密范围
 
@@ -383,7 +383,7 @@ jobs:
           script: <与仓库 .github/workflows/deploy.yml 保持一致>
 ```
 
-实际 workflow 会从 `$TARGET_SHA` 读取同一 revision 中的 `scripts/deploy/deploy.sh`，避免服务器当前 checkout 尚未包含新版脚本时退回到 `pull main`。不要把触发器改回独立的 `push main` 部署，否则 CI 失败的提交仍可能进入生产。
+实际 workflow 会 fast-forward `main`，核对 checkout 与 `$TARGET_SHA` 完全一致，再执行 `/opt/edge-platform/deploy.sh`。不要把触发器改回独立的 `push main` 部署，否则 CI 失败的提交仍可能进入生产。
 
 GitHub Secrets：
 
@@ -414,10 +414,10 @@ deploy:
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
   script:
-    - ssh "$SERVER_USER@$SERVER_HOST" "cd /opt/edge-platform && scripts/deploy/deploy.sh '$CI_COMMIT_SHA'"
+    - ssh "$SERVER_USER@$SERVER_HOST" "cd /opt/edge-platform && ./deploy.sh"
 ```
 
-`backend`、`frontend` 必须是已完成测试/检查的前置 job；不能只保留 deploy job。首次迁移到仓库内脚本时，按 GitHub workflow 的 `git show <sha>:scripts/deploy/deploy.sh` 模式从目标 revision 引导执行。
+`backend`、`frontend` 必须是已完成测试/检查的前置 job；不能只保留 deploy job。实际使用时还必须在调用 `./deploy.sh` 前加入与 GitHub workflow 相同的 fetch、fast-forward 和 `$CI_COMMIT_SHA` 一致性校验。
 
 GitLab CI/CD Variables：
 
@@ -432,8 +432,10 @@ SERVER_SSH_KEY=<private-key-for-deploy-user>
 Gitee 流水线同样使用 SSH 方式：
 
 ```bash
-ssh deploy@<server-host> "cd /opt/edge-platform && scripts/deploy/deploy.sh '<verified-commit-sha>'"
+ssh deploy@<server-host> "cd /opt/edge-platform && ./deploy.sh"
 ```
+
+调用前同样必须完成目标 revision 的 fast-forward 与 SHA 一致性校验，不能仅依赖服务器脚本内部的 `git pull`。
 
 需要在 Gitee 流水线变量中保存：
 
@@ -443,7 +445,7 @@ SERVER_USER
 SERVER_SSH_KEY
 ```
 
-OpenClaw 如果无法判断 Git 平台，应保留仓库内 `scripts/deploy/deploy.sh`，并在交付报告中提示操作者选择 GitHub、GitLab 或 Gitee 的 CI 成功门控方式；不得在服务器外维护另一份脚本。
+OpenClaw 如果无法判断 Git 平台，应保留服务器现有 `/opt/edge-platform/deploy.sh`，并在交付报告中提示操作者选择 GitHub、GitLab 或 Gitee 的 CI 成功门控方式。
 
 ## 7. 部署验证
 
@@ -544,7 +546,7 @@ sudo cp /var/lib/edge-platform/platform.db /var/backups/edge-platform/platform-$
 
 ### 9.2 自动部署前备份
 
-`/opt/edge-platform/scripts/deploy/deploy.sh` 已包含部署前 SQLite 备份逻辑，并会在备份目录记录前后 Git revision、数据库 revision 和备份文件路径。
+服务器 `/opt/edge-platform/deploy.sh` 应继续执行现有的部署前 SQLite 备份；回退期间由服务器运维配置负责保证该行为。
 
 ### 9.3 回滚条件
 
@@ -559,14 +561,15 @@ sudo cp /var/lib/edge-platform/platform.db /var/backups/edge-platform/platform-$
 
 ### 9.4 回滚步骤
 
-代码与数据库 revision 兼容时，可执行代码回滚：
+代码与数据库 revision 兼容时，按服务器现有脚本的回滚流程处理；如果脚本没有回滚参数，先手动检出上一稳定 revision，再运行脚本：
 
 ```bash
 cd /opt/edge-platform
-scripts/deploy/deploy.sh --rollback <previous-good-commit-or-tag>
+sudo -u edge-platform git checkout <previous-good-commit-or-tag>
+./deploy.sh
 ```
 
-脚本会比较当前数据库 revision 与目标代码的 Alembic head；不一致时拒绝自动回滚，避免旧代码连接新 schema。此时先根据 `deploy-*.state` 选择匹配备份，停服务后显式恢复数据库，再重新执行回滚并检查健康状态：
+不得让旧代码直接连接不兼容的新 schema。需要数据库回滚时，先选择匹配备份，停服务后显式恢复数据库，再运行服务器部署脚本并检查健康状态：
 
 ```bash
 sudo systemctl stop edge-platform
@@ -618,7 +621,7 @@ sudo tail -n 100 /var/log/nginx/error.log
 
 - CI Secrets 是否正确。
 - `deploy` 用户是否能 SSH 登录服务器。
-- `/opt/edge-platform/scripts/deploy/deploy.sh` 是否可执行。
+- `/opt/edge-platform/deploy.sh` 是否存在且可执行。
 - `deploy` 用户的 sudoers 免密范围是否覆盖脚本需要的命令；脚本优先使用 `/opt/edge-platform/.venv/bin/python`，仅在创建虚拟环境时使用 `command -v python3.12` 解析到的系统 Python 绝对路径。
 - `TARGET_SHA` 是否来自成功 CI 的 main push，且目标 revision 属于 `origin/main`。
 - 服务器 tracked worktree 是否存在未提交改动；部署脚本会主动拒绝脏工作区。
@@ -660,7 +663,7 @@ OpenClaw 必须遵守：
 1. 使用 systemd 托管 FastAPI 后端。
 2. 使用 Nginx 托管前端静态文件，并反代 /api/ 和 /api/ws/。
 3. SQLite 和上传文件必须放在 DATA_ROOT，不要放在代码目录。
-4. 使用仓库内 scripts/deploy/deploy.sh，实现确定 SHA 检出、备份、安装依赖、构建前端、重启服务和健康检查；不要创建服务器外副本。
-5. 只有 main push 的 CI 全部成功后才能通过 SSH 执行 deploy.sh，并把该次已验证 Git SHA 作为必填参数；如果无法判断 Git 平台，输出 GitHub/GitLab/Gitee 的门控配置建议。
+4. 当前使用服务器现有 `/opt/edge-platform/deploy.sh`；调用前必须 fast-forward 并确认 checkout 与 CI 验证的 Git SHA 一致。
+5. 只有 main push 的 CI 全部成功后才能通过 SSH 执行 deploy.sh；如果无法判断 Git 平台，输出 GitHub/GitLab/Gitee 的门控配置建议。
 6. 部署结束后执行 /api/health、Nginx 检查和 systemd 日志检查，并报告结果。
 ```

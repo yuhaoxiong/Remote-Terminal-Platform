@@ -286,7 +286,6 @@ docs/deployment.md
 scripts/deploy/install_backend.ps1
 scripts/deploy/edge_bootstrap.sh
 scripts/deploy/backup_sqlite.ps1
-scripts/deploy/deploy.sh
 ```
 
 这些脚本提供后端安装、边缘设备最小 `frpc` 引导和 SQLite 备份的起点。生产环境执行前需要复核安装路径、服务用户、文件权限、JWT 密钥、凭据加密密钥和公网端口策略。

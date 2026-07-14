@@ -20,25 +20,13 @@ def test_wave6_deployment_assets_are_present() -> None:
             assert term in content
 
 
-def test_deploy_workflow_bootstrap_does_not_depend_on_global_tmp() -> None:
+def test_deploy_workflow_uses_server_compatibility_script_after_ci() -> None:
     workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
-    assert 'DEPLOY_TMP_DIR="${HOME:?remote HOME is not set}/.cache/edge-platform-deploy"' in workflow
-    assert 'mkdir -p "$DEPLOY_TMP_DIR"' in workflow
-    assert 'chmod 700 "$DEPLOY_TMP_DIR"' in workflow
-    assert 'mktemp "$DEPLOY_TMP_DIR/deploy.XXXXXXXXXX"' in workflow
-    assert 'DEPLOY_SCRIPT="$(mktemp)"' not in workflow
-
-
-def test_deploy_script_uses_sudoers_command_paths() -> None:
-    script = (ROOT / "scripts/deploy/deploy.sh").read_text(encoding="utf-8")
-
-    assert 'GIT_BIN="${GIT_BIN:-/usr/bin/git}"' in script
-    assert 'APP_PYTHON_BIN="${APP_PYTHON_BIN:-$APP_ROOT/.venv/bin/python}"' in script
-    assert 'SYSTEM_PYTHON_BIN="${SYSTEM_PYTHON_BIN:-$(command -v python3.12 || true)}"' in script
-    assert 'NPM_BIN="${NPM_BIN:-/usr/bin/npm}"' in script
-    assert 'run_as_app "$GIT_BIN" -C "$APP_ROOT"' in script
-    assert 'run_as_app "$python_bin" - "$DB_PATH"' in script
-    assert 'run_as_app "$SYSTEM_PYTHON_BIN" -m venv "$APP_ROOT/.venv"' in script
-    assert 'run_as_app "$NPM_BIN" --prefix "$APP_ROOT/frontend"' in script
-    assert 'PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3.12}"' not in script
+    assert "workflow_run:" in workflow
+    assert "github.event.workflow_run.conclusion == 'success'" in workflow
+    assert "github.event.workflow_run.head_sha" in workflow
+    assert 'git -C "$APP_ROOT" pull --ff-only origin main' in workflow
+    assert 'if [ "$DEPLOYED_SHA" != "$TARGET_SHA" ]; then' in workflow
+    assert '"$APP_ROOT/deploy.sh"' in workflow
+    assert "scripts/deploy/deploy.sh" not in workflow
