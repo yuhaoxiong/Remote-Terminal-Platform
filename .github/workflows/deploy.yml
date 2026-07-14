@@ -33,7 +33,10 @@ jobs:
 
             APP_ROOT="/opt/edge-platform"
             APP_USER="edge-platform"
-            DEPLOY_SCRIPT="$(mktemp)"
+            DEPLOY_TMP_DIR="${HOME:?remote HOME is not set}/.cache/edge-platform-deploy"
+            mkdir -p "$DEPLOY_TMP_DIR"
+            chmod 700 "$DEPLOY_TMP_DIR"
+            DEPLOY_SCRIPT="$(mktemp "$DEPLOY_TMP_DIR/deploy.XXXXXXXXXX")"
             trap 'rm -f "$DEPLOY_SCRIPT"' EXIT
 
             echo "[deploy-action] ensure repository ownership"

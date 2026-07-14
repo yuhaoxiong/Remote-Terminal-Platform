@@ -18,3 +18,13 @@ def test_wave6_deployment_assets_are_present() -> None:
         content = path.read_text(encoding="utf-8")
         for term in required_terms:
             assert term in content
+
+
+def test_deploy_workflow_bootstrap_does_not_depend_on_global_tmp() -> None:
+    workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+
+    assert 'DEPLOY_TMP_DIR="${HOME:?remote HOME is not set}/.cache/edge-platform-deploy"' in workflow
+    assert 'mkdir -p "$DEPLOY_TMP_DIR"' in workflow
+    assert 'chmod 700 "$DEPLOY_TMP_DIR"' in workflow
+    assert 'mktemp "$DEPLOY_TMP_DIR/deploy.XXXXXXXXXX"' in workflow
+    assert 'DEPLOY_SCRIPT="$(mktemp)"' not in workflow

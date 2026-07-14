@@ -614,6 +614,7 @@ sudo tail -n 100 /var/log/nginx/error.log
 - `deploy` 用户的 sudoers 免密范围是否覆盖脚本需要的命令。
 - `TARGET_SHA` 是否来自成功 CI 的 main push，且目标 revision 属于 `origin/main`。
 - 服务器 tracked worktree 是否存在未提交改动；部署脚本会主动拒绝脏工作区。
+- 如果日志显示 `mktemp ... /tmp ... Permission denied`，说明服务器全局临时目录不可写。仓库 workflow 已改用 `deploy` 用户 home 下权限为 `0700` 的 `.cache/edge-platform-deploy`；确认 `/home/deploy` 存在、归属 `deploy:deploy` 且可写后重试。
 - 如果日志出现 `insufficient permission for adding an object to repository database .git/objects`，说明 `/opt/edge-platform` 或 `.git/objects` 被 root/其他用户写过，执行 `sudo chown -R edge-platform:edge-platform /opt/edge-platform` 后重试，并确认 sudoers 允许 CI 用户执行该命令。
 - `npm ci` 是否因为 `package-lock.json` 不一致失败。
 
