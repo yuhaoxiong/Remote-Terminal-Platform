@@ -9,7 +9,8 @@ DB_PATH="${DB_PATH:-/var/lib/edge-platform/platform.db}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8000/api/health}"
 SERVICE_NAME="${SERVICE_NAME:-edge-platform}"
 GIT_BIN="${GIT_BIN:-/usr/bin/git}"
-PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3.12}"
+APP_PYTHON_BIN="${APP_PYTHON_BIN:-$APP_ROOT/.venv/bin/python}"
+SYSTEM_PYTHON_BIN="${SYSTEM_PYTHON_BIN:-$(command -v python3.12 || true)}"
 NPM_BIN="${NPM_BIN:-/usr/bin/npm}"
 
 MODE="deploy"
@@ -33,12 +34,27 @@ git_as_app() {
     run_as_app "$GIT_BIN" -C "$APP_ROOT" "$@"
 }
 
+resolve_python_bin() {
+    if [[ -x "$APP_PYTHON_BIN" ]]; then
+        printf '%s' "$APP_PYTHON_BIN"
+        return
+    fi
+    if [[ -n "$SYSTEM_PYTHON_BIN" && -x "$SYSTEM_PYTHON_BIN" ]]; then
+        printf '%s' "$SYSTEM_PYTHON_BIN"
+        return
+    fi
+    echo "[deploy] no usable Python 3.12 interpreter found" >&2
+    return 1
+}
+
 read_database_revision() {
     if [[ ! -f "$DB_PATH" ]]; then
         printf '%s' "none"
         return
     fi
-    run_as_app "$PYTHON_BIN" - "$DB_PATH" <<'PY'
+    local python_bin
+    python_bin="$(resolve_python_bin)"
+    run_as_app "$python_bin" - "$DB_PATH" <<'PY'
 import sqlite3
 import sys
 
@@ -55,7 +71,7 @@ PY
 
 validate_health() {
     local payload="$1"
-    printf '%s' "$payload" | run_as_app "$APP_ROOT/.venv/bin/python" -c '
+    printf '%s' "$payload" | run_as_app "$APP_PYTHON_BIN" -c '
 import json
 import sys
 
@@ -66,6 +82,7 @@ if payload.get("status") != "ok" or payload.get("database") != "ok":
 }
 
 echo "[deploy] mode=$MODE start=$(date -Is)"
+echo "[deploy] command paths git=$GIT_BIN app_python=$APP_PYTHON_BIN system_python=${SYSTEM_PYTHON_BIN:-none} npm=$NPM_BIN"
 
 echo "[deploy] verify tracked worktree"
 if [[ -n "$(git_as_app status --porcelain --untracked-files=no)" ]]; then
@@ -105,15 +122,19 @@ git_as_app checkout --detach "$TARGET_SHA"
 
 echo "[deploy] install backend dependencies"
 if [[ ! -x "$APP_ROOT/.venv/bin/python" ]]; then
-    run_as_app "$PYTHON_BIN" -m venv "$APP_ROOT/.venv"
+    if [[ -z "$SYSTEM_PYTHON_BIN" || ! -x "$SYSTEM_PYTHON_BIN" ]]; then
+        echo "[deploy] cannot create virtualenv: python3.12 is not available on PATH" >&2
+        exit 1
+    fi
+    run_as_app "$SYSTEM_PYTHON_BIN" -m venv "$APP_ROOT/.venv"
 fi
-run_as_app "$APP_ROOT/.venv/bin/python" -m pip install --upgrade pip
-run_as_app "$APP_ROOT/.venv/bin/python" -m pip install -r "$APP_ROOT/backend/requirements.txt"
+run_as_app "$APP_PYTHON_BIN" -m pip install --upgrade pip
+run_as_app "$APP_PYTHON_BIN" -m pip install -r "$APP_ROOT/backend/requirements.txt"
 
 if [[ "$MODE" == "rollback" ]]; then
     TARGET_DATABASE_HEAD="$(
         cd "$APP_ROOT/backend"
-        run_as_app "$APP_ROOT/.venv/bin/python" -m alembic -c alembic.ini heads \
+        run_as_app "$APP_PYTHON_BIN" -m alembic -c alembic.ini heads \
             | awk 'NR == 1 { print $1 }'
     )"
     CURRENT_DATABASE_REVISION="$(read_database_revision)"

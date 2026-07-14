@@ -34,8 +34,11 @@ def test_deploy_script_uses_sudoers_command_paths() -> None:
     script = (ROOT / "scripts/deploy/deploy.sh").read_text(encoding="utf-8")
 
     assert 'GIT_BIN="${GIT_BIN:-/usr/bin/git}"' in script
-    assert 'PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3.12}"' in script
+    assert 'APP_PYTHON_BIN="${APP_PYTHON_BIN:-$APP_ROOT/.venv/bin/python}"' in script
+    assert 'SYSTEM_PYTHON_BIN="${SYSTEM_PYTHON_BIN:-$(command -v python3.12 || true)}"' in script
     assert 'NPM_BIN="${NPM_BIN:-/usr/bin/npm}"' in script
     assert 'run_as_app "$GIT_BIN" -C "$APP_ROOT"' in script
-    assert 'run_as_app "$PYTHON_BIN" - "$DB_PATH"' in script
+    assert 'run_as_app "$python_bin" - "$DB_PATH"' in script
+    assert 'run_as_app "$SYSTEM_PYTHON_BIN" -m venv "$APP_ROOT/.venv"' in script
     assert 'run_as_app "$NPM_BIN" --prefix "$APP_ROOT/frontend"' in script
+    assert 'PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3.12}"' not in script

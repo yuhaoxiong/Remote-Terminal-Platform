@@ -333,14 +333,22 @@ sudo chmod 600 /home/deploy/.ssh/authorized_keys
 sudo visudo
 ```
 
-加入：
+先确认服务器上的实际命令路径：
+
+```bash
+command -v git
+command -v python3.12
+command -v npm
+```
+
+再加入 sudoers。下面假设系统 Python 位于 `/usr/local/bin/python3.12`；必须替换为上一条命令的实际输出：
 
 ```text
-deploy ALL=(edge-platform) NOPASSWD: /usr/bin/git, /usr/bin/python3.12, /opt/edge-platform/.venv/bin/python, /usr/bin/npm
+deploy ALL=(edge-platform) NOPASSWD: /usr/bin/git, /usr/local/bin/python3.12, /opt/edge-platform/.venv/bin/python, /usr/bin/npm
 deploy ALL=(root) NOPASSWD: /usr/bin/chown -R edge-platform\:edge-platform /opt/edge-platform, /usr/bin/systemctl restart edge-platform, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t, /usr/bin/mkdir -p /var/backups/edge-platform, /usr/bin/cp /var/lib/edge-platform/platform.db /var/backups/edge-platform/*, /usr/bin/tee /var/backups/edge-platform/*
 ```
 
-如果服务器上的命令路径不同，用 `which systemctl`、`which nginx`、`which cp`、`which tee` 确认后替换。
+如果其他命令路径不同，用 `command -v systemctl nginx cp tee` 确认后替换。
 
 ### 6.3 GitHub Actions 示例
 
@@ -611,7 +619,7 @@ sudo tail -n 100 /var/log/nginx/error.log
 - CI Secrets 是否正确。
 - `deploy` 用户是否能 SSH 登录服务器。
 - `/opt/edge-platform/scripts/deploy/deploy.sh` 是否可执行。
-- `deploy` 用户的 sudoers 免密范围是否覆盖脚本需要的命令；脚本会使用 `/usr/bin/git`、`/usr/bin/python3.12`、`/usr/bin/npm` 等绝对路径，以便和 sudoers 精确匹配。
+- `deploy` 用户的 sudoers 免密范围是否覆盖脚本需要的命令；脚本优先使用 `/opt/edge-platform/.venv/bin/python`，仅在创建虚拟环境时使用 `command -v python3.12` 解析到的系统 Python 绝对路径。
 - `TARGET_SHA` 是否来自成功 CI 的 main push，且目标 revision 属于 `origin/main`。
 - 服务器 tracked worktree 是否存在未提交改动；部署脚本会主动拒绝脏工作区。
 - 如果日志显示 `mktemp ... /tmp ... Permission denied`，说明服务器全局临时目录不可写。仓库 workflow 已改用 `deploy` 用户 home 下权限为 `0700` 的 `.cache/edge-platform-deploy`；确认 `/home/deploy` 存在、归属 `deploy:deploy` 且可写后重试。
