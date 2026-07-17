@@ -28,6 +28,26 @@ def test_hardware_profiles_are_seeded(client, auth_headers) -> None:
     }
 
 
+def test_project_and_function_generate_technical_codes_for_chinese_names(client, auth_headers) -> None:
+    project = client.post(
+        "/api/projects",
+        headers=auth_headers,
+        json={"name": "桶外识别项目"},
+    )
+    assert project.status_code == 201
+    assert project.json()["name"] == "桶外识别项目"
+    assert project.json()["code"].startswith("project-")
+
+    edge_function = client.post(
+        "/api/functions",
+        headers=auth_headers,
+        json={"name": "桶外垃圾袋识别"},
+    )
+    assert edge_function.status_code == 201
+    assert edge_function.json()["name"] == "桶外垃圾袋识别"
+    assert edge_function.json()["code"].startswith("function-")
+
+
 def test_project_function_release_workflow_is_immutable_after_publish(client, auth_headers) -> None:
     project = _create_project(client, auth_headers)
     edge_function = _create_function(client, auth_headers)

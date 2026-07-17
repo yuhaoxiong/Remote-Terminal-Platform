@@ -9,7 +9,7 @@ SHA256_PATTERN = r"^[0-9a-f]{64}$"
 
 
 class ProjectCreate(BaseModel):
-    code: str = Field(min_length=2, max_length=64, pattern=CODE_PATTERN)
+    code: str | None = Field(default=None, min_length=2, max_length=64, pattern=CODE_PATTERN)
     name: str = Field(min_length=1, max_length=120)
     description: str | None = None
 
@@ -62,7 +62,7 @@ class HardwareProfileListResponse(BaseModel):
 
 
 class FunctionCreate(BaseModel):
-    code: str = Field(min_length=2, max_length=64, pattern=CODE_PATTERN)
+    code: str | None = Field(default=None, min_length=2, max_length=64, pattern=CODE_PATTERN)
     name: str = Field(min_length=1, max_length=120)
     description: str | None = None
 

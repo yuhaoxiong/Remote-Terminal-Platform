@@ -104,7 +104,7 @@ export async function listProjects(): Promise<ProjectListResponse> {
   return response.data;
 }
 
-export async function createProject(payload: { code: string; name: string; description?: string }): Promise<ProjectRead> {
+export async function createProject(payload: { code?: string; name: string; description?: string }): Promise<ProjectRead> {
   const response = await api.post<ProjectRead>("/projects", payload);
   return response.data;
 }
@@ -127,7 +127,7 @@ export async function listFunctions(): Promise<FunctionListResponse> {
   return response.data;
 }
 
-export async function createFunction(payload: { code: string; name: string; description?: string }): Promise<FunctionRead> {
+export async function createFunction(payload: { code?: string; name: string; description?: string }): Promise<FunctionRead> {
   const response = await api.post<FunctionRead>("/functions", payload);
   return response.data;
 }

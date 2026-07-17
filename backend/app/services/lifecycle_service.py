@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -51,13 +52,20 @@ class ProjectService:
         return project
 
     def create(self, session: Session, payload: ProjectCreate) -> Project:
-        if session.scalar(select(Project.id).where(Project.code == payload.code)) is not None:
-            raise LifecycleConflictError(f"项目代码已存在：{payload.code}")
-        project = Project(**payload.model_dump())
+        code = payload.code or self._generated_code(session)
+        if session.scalar(select(Project.id).where(Project.code == code)) is not None:
+            raise LifecycleConflictError(f"项目代码已存在：{code}")
+        project = Project(code=code, **payload.model_dump(exclude={"code"}))
         session.add(project)
         session.flush()
         session.refresh(project)
         return project
+
+    def _generated_code(self, session: Session) -> str:
+        while True:
+            code = f"project-{uuid4().hex[:12]}"
+            if session.scalar(select(Project.id).where(Project.code == code)) is None:
+                return code
 
     def update(self, session: Session, project_id: int, payload: ProjectUpdate) -> Project:
         project = self.get(session, project_id)
@@ -152,13 +160,20 @@ class FunctionService:
         return edge_function
 
     def create(self, session: Session, payload: FunctionCreate) -> EdgeFunction:
-        if session.scalar(select(EdgeFunction.id).where(EdgeFunction.code == payload.code)) is not None:
-            raise LifecycleConflictError(f"功能代码已存在：{payload.code}")
-        edge_function = EdgeFunction(**payload.model_dump())
+        code = payload.code or self._generated_code(session)
+        if session.scalar(select(EdgeFunction.id).where(EdgeFunction.code == code)) is not None:
+            raise LifecycleConflictError(f"功能代码已存在：{code}")
+        edge_function = EdgeFunction(code=code, **payload.model_dump(exclude={"code"}))
         session.add(edge_function)
         session.flush()
         session.refresh(edge_function)
         return edge_function
+
+    def _generated_code(self, session: Session) -> str:
+        while True:
+            code = f"function-{uuid4().hex[:12]}"
+            if session.scalar(select(EdgeFunction.id).where(EdgeFunction.code == code)) is None:
+                return code
 
     def update(self, session: Session, function_id: int, payload: FunctionUpdate) -> EdgeFunction:
         edge_function = self.get(session, function_id)

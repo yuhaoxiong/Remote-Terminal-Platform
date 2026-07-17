@@ -113,12 +113,20 @@ async function loadAssignments(projectId: number) {
 }
 
 async function submitProject() {
-  if (!projectForm.code || !projectForm.name) {
-    errorMessage.value = "项目代码和名称为必填项";
+  if (!projectForm.name.trim()) {
+    errorMessage.value = "项目名称为必填项";
+    return;
+  }
+  if (projectForm.code && !/^[a-z0-9][a-z0-9-]{1,63}$/.test(projectForm.code)) {
+    errorMessage.value = "技术代码只能使用小写字母、数字和连字符；中文请填写在项目名称中";
     return;
   }
   try {
-    const created = await createProject({ ...projectForm });
+    const created = await createProject({
+      name: projectForm.name.trim(),
+      ...(projectForm.code ? { code: projectForm.code } : {}),
+      ...(projectForm.description ? { description: projectForm.description } : {}),
+    });
     projects.value.push(created);
     assignments.value[created.id] = [];
     Object.assign(projectForm, { code: "", name: "", description: "" });
@@ -145,12 +153,20 @@ async function toggleProject(project: ProjectRead) {
 }
 
 async function submitFunction() {
-  if (!functionForm.code || !functionForm.name) {
-    errorMessage.value = "功能代码和名称为必填项";
+  if (!functionForm.name.trim()) {
+    errorMessage.value = "功能名称为必填项";
+    return;
+  }
+  if (functionForm.code && !/^[a-z0-9][a-z0-9-]{1,63}$/.test(functionForm.code)) {
+    errorMessage.value = "技术代码只能使用小写字母、数字和连字符；中文请填写在功能名称中";
     return;
   }
   try {
-    const created = await createFunction({ ...functionForm });
+    const created = await createFunction({
+      name: functionForm.name.trim(),
+      ...(functionForm.code ? { code: functionForm.code } : {}),
+      ...(functionForm.description ? { description: functionForm.description } : {}),
+    });
     functions.value.push(created);
     releases.value[created.id] = [];
     Object.assign(functionForm, { code: "", name: "", description: "" });
@@ -322,7 +338,7 @@ onMounted(() => void loadAll());
       </el-tab-pane>
 
       <el-tab-pane label="功能与版本">
-        <div class="toolbar"><h4>可复用功能</h4><div><el-button :icon="Plus" @click="functionDialogOpen = true">新建功能</el-button><el-button type="primary" :icon="Plus" @click="releaseDialogOpen = true">新建版本</el-button><el-button :icon="Plus" @click="variantDialogOpen = true">登记变体</el-button></div></div>
+        <div class="toolbar"><h4>可复用功能</h4><div><el-button data-testid="open-function-create" :icon="Plus" @click="functionDialogOpen = true">新建功能</el-button><el-button type="primary" :icon="Plus" @click="releaseDialogOpen = true">新建版本</el-button><el-button :icon="Plus" @click="variantDialogOpen = true">登记变体</el-button></div></div>
         <section v-for="item in functions" :key="item.id" class="panel compact-panel">
           <div class="panel-header"><div><h4>{{ item.name }}</h4><p class="muted">{{ item.code }} · {{ item.description || "暂无说明" }}</p></div><el-tag :type="item.status === 'active' ? 'success' : 'info'">{{ item.status }}</el-tag></div>
           <el-table :data="releases[item.id] ?? []" size="small" row-key="id" empty-text="暂无版本">
@@ -336,8 +352,8 @@ onMounted(() => void loadAll());
       </el-tab-pane>
     </el-tabs>
 
-    <CommonDialog v-model:visible="projectDialogOpen" title="新建正式项目" width="620px" @confirm="submitProject"><div class="form-grid"><el-input data-testid="project-code" v-model="projectForm.code" placeholder="项目代码，例如 site-a" /><el-input data-testid="project-name" v-model="projectForm.name" placeholder="项目名称" /><el-input v-model="projectForm.description" type="textarea" placeholder="项目说明" /></div><template #footer><el-button @click="projectDialogOpen = false">取消</el-button><el-button data-testid="project-create" type="primary" @click="submitProject">创建项目</el-button></template></CommonDialog>
-    <CommonDialog v-model:visible="functionDialogOpen" title="新建功能" width="620px" @confirm="submitFunction"><div class="form-grid"><el-input v-model="functionForm.code" placeholder="功能代码，例如 outside-rubbish-bag" /><el-input v-model="functionForm.name" placeholder="功能名称" /><el-input v-model="functionForm.description" type="textarea" placeholder="功能说明" /></div></CommonDialog>
+    <CommonDialog v-model:visible="projectDialogOpen" title="新建正式项目" width="620px" @confirm="submitProject"><div class="form-grid"><el-input data-testid="project-name" v-model="projectForm.name" placeholder="项目名称，可使用中文" /><el-input data-testid="project-code" v-model="projectForm.code" placeholder="技术代码（可选，留空自动生成）" /><el-input v-model="projectForm.description" type="textarea" placeholder="项目说明" /></div><p class="muted">技术代码用于接口和部署路径，仅支持小写字母、数字和连字符；日常显示使用项目名称。</p><template #footer><el-button @click="projectDialogOpen = false">取消</el-button><el-button data-testid="project-create" type="primary" @click="submitProject">创建项目</el-button></template></CommonDialog>
+    <CommonDialog v-model:visible="functionDialogOpen" title="新建功能" width="620px" @confirm="submitFunction"><div class="form-grid"><el-input data-testid="function-name" v-model="functionForm.name" placeholder="功能名称，可使用中文" /><el-input data-testid="function-code" v-model="functionForm.code" placeholder="技术代码（可选，留空自动生成）" /><el-input v-model="functionForm.description" type="textarea" placeholder="功能说明" /></div><p class="muted">技术代码用于功能包目录和接口，仅支持小写字母、数字和连字符；日常显示使用功能名称。</p><template #footer><el-button @click="functionDialogOpen = false">取消</el-button><el-button data-testid="function-create" type="primary" @click="submitFunction">创建功能</el-button></template></CommonDialog>
     <CommonDialog v-model:visible="releaseDialogOpen" title="新建版本草稿" width="620px" @confirm="submitRelease"><div class="form-grid"><el-select v-model="releaseForm.function_id" placeholder="选择功能"><el-option v-for="item in activeFunctions" :key="item.id" :label="`${item.name} (${item.code})`" :value="item.id" /></el-select><el-input v-model="releaseForm.version" placeholder="版本，例如 0.1.0" /><el-input v-model="releaseForm.release_notes" type="textarea" placeholder="版本说明" /></div></CommonDialog>
     <CommonDialog v-model:visible="variantDialogOpen" title="登记硬件变体" width="720px" @confirm="submitVariant"><div class="form-grid"><el-select v-model="variantForm.function_id" placeholder="选择功能" @change="variantForm.release_id = null"><el-option v-for="item in activeFunctions" :key="item.id" :label="item.name" :value="item.id" /></el-select><el-select v-model="variantForm.release_id" placeholder="选择草稿版本"><el-option v-for="item in (variantForm.function_id === null ? [] : releases[variantForm.function_id] ?? []).filter((release) => release.status === 'draft')" :key="item.id" :label="item.version" :value="item.id" /></el-select><el-select v-model="variantForm.hardware_profile_id" placeholder="硬件规格"><el-option v-for="profile in hardwareProfiles" :key="profile.id" :label="profile.name" :value="profile.id" /></el-select><el-input v-model="variantForm.artifact_uri" placeholder="制品 URI（阶段 1 人工登记）" /><el-input v-model="variantForm.artifact_sha256" placeholder="SHA-256" /><el-input-number v-model="variantForm.artifact_size" :min="1" placeholder="制品字节数" style="width: 100%" /></div></CommonDialog>
     <CommonDialog v-model:visible="assignmentDialogOpen" title="配置项目功能" width="700px" @confirm="submitAssignment"><div class="form-grid"><el-select :model-value="assignmentForm.function_id" placeholder="选择功能" @change="selectAssignmentFunction"><el-option v-for="item in activeFunctions" :key="item.id" :label="`${item.name} (${item.code})`" :value="item.id" /></el-select><el-select v-model="assignmentForm.desired_release_id" placeholder="选择已发布版本"><el-option v-for="item in assignmentReleases" :key="item.id" :label="item.version" :value="item.id" /></el-select><el-input v-model="assignmentForm.config_json" type="textarea" :rows="6" placeholder="项目默认配置 JSON" /></div></CommonDialog>
