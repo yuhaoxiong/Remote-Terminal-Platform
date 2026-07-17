@@ -10,6 +10,7 @@ from app.routers.alerts import router as alerts_router
 from app.routers.auth import router as auth_router
 from app.routers.bootstrap import router as bootstrap_router
 from app.routers.diagnostics import router as diagnostics_router
+from app.routers.deployment import router as deployment_router
 from app.routers.devices import router as devices_router
 from app.routers.frps import router as frps_router
 from app.routers.groups import router as groups_router
@@ -65,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(alerts_router, prefix=settings.api_prefix)
     app.include_router(alert_notifications_router, prefix=settings.api_prefix)
     app.include_router(diagnostics_router, prefix=settings.api_prefix)
+    app.include_router(deployment_router, prefix=settings.api_prefix)
     app.include_router(devices_router, prefix=settings.api_prefix)
     app.include_router(frps_router, prefix=settings.api_prefix)
     app.include_router(groups_router, prefix=settings.api_prefix)

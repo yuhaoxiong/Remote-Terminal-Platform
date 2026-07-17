@@ -14,3 +14,4 @@ export * from "./domains/settings";
 export * from "./domains/alerts";
 export * from "./domains/frps";
 export * from "./domains/lifecycle";
+export * from "./domains/deployment";

@@ -165,6 +165,8 @@ $env:ARTIFACT_MAX_UPLOAD_BYTES='1073741824'
 
 标准功能包由管理员在“项目与功能”页面上传。平台只接受符合 [标准功能包契约](docs/standard-function-package.md) 的 `.tar.gz`，自动计算 SHA-256；草稿制品可替换，发布后不可修改。生产部署还需同步配置 Nginx `client_max_body_size` 和后端可写的 `ARTIFACT_STORAGE_DIR`。
 
+“项目与功能”页面现可为单台在线且初始化就绪的设备生成部署预览，冻结项目全部功能的版本、硬件变体、配置和制品哈希，并要求管理员二次确认。计划有效期为 24 小时，相关状态变化后会失效；重复确认只返回同一执行 ID。当前执行实例停留在 `pending`，下一批将接入 SSH 和设备端 `edge-deploy` 生命周期脚本。
+
 告警 Webhook 通道的 URL 和请求头会作为敏感配置保存。创建或更新 Webhook 地址、请求头前必须配置 `CREDENTIAL_ENCRYPTION_KEY`;未配置时后端会拒绝保存敏感通知配置。
 
 生成 `CREDENTIAL_ENCRYPTION_KEY`:

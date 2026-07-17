@@ -79,8 +79,8 @@ export interface DeviceBootstrapPackageRead {
   updated_at: string;
 }
 
-export async function listDevices(): Promise<DeviceListResponse> {
-  const response = await api.get<DeviceListResponse>("/devices");
+export async function listDevices(params?: { project_id?: number }): Promise<DeviceListResponse> {
+  const response = await api.get<DeviceListResponse>("/devices", { params });
   return response.data;
 }
 

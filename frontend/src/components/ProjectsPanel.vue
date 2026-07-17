@@ -4,12 +4,15 @@ import { ElMessageBox } from "element-plus";
 import { computed, onMounted, reactive, ref } from "vue";
 
 import {
+  confirmDeploymentPlan,
+  createDeploymentPlan,
   createFunction,
   createFunctionRelease,
   createProject,
   getApiErrorMessage,
   listFunctionReleases,
   listFunctionVariants,
+  listDevices,
   listFunctions,
   listHardwareProfiles,
   listProjectFunctions,
@@ -22,6 +25,9 @@ import {
   type FunctionRead,
   type FunctionReleaseRead,
   type FunctionVariantRead,
+  type DeploymentExecutionRead,
+  type DeploymentPlanRead,
+  type DeviceRead,
   type HardwareProfileRead,
   type ProjectFunctionRead,
   type ProjectRead,
@@ -35,6 +41,9 @@ const hardwareProfiles = ref<HardwareProfileRead[]>([]);
 const releases = ref<Record<number, FunctionReleaseRead[]>>({});
 const variants = ref<Record<number, FunctionVariantRead[]>>({});
 const assignments = ref<Record<number, ProjectFunctionRead[]>>({});
+const deploymentDevices = ref<DeviceRead[]>([]);
+const deploymentPlan = ref<DeploymentPlanRead | null>(null);
+const deploymentExecution = ref<DeploymentExecutionRead | null>(null);
 const loading = ref(false);
 const errorMessage = ref("");
 const successMessage = ref("");
@@ -44,6 +53,7 @@ const functionDialogOpen = ref(false);
 const releaseDialogOpen = ref(false);
 const artifactDialogOpen = ref(false);
 const assignmentDialogOpen = ref(false);
+const deploymentDialogOpen = ref(false);
 
 const projectForm = reactive({ code: "", name: "", description: "" });
 const functionForm = reactive({ code: "", name: "", description: "" });
@@ -60,6 +70,7 @@ const assignmentForm = reactive({
   desired_release_id: null as number | null,
   config_json: "{}",
 });
+const deploymentForm = reactive({ project_id: null as number | null, device_id: null as number | null });
 
 const activeProjects = computed(() => projects.value.filter((item) => item.status === "active"));
 const activeFunctions = computed(() => functions.value.filter((item) => item.status === "active"));
@@ -332,6 +343,49 @@ async function pendingUninstall(item: ProjectFunctionRead) {
   await loadAssignments(item.project_id);
 }
 
+async function prepareDeployment(projectId: number) {
+  Object.assign(deploymentForm, { project_id: projectId, device_id: null });
+  deploymentPlan.value = null;
+  deploymentExecution.value = null;
+  deploymentDialogOpen.value = true;
+  try {
+    deploymentDevices.value = (await listDevices({ project_id: projectId })).items;
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error, "项目设备加载失败");
+  }
+}
+
+async function submitDeploymentPreview() {
+  if (deploymentForm.project_id === null || deploymentForm.device_id === null) {
+    errorMessage.value = "请选择要部署的设备";
+    return;
+  }
+  try {
+    deploymentPlan.value = await createDeploymentPlan(deploymentForm.project_id, [deploymentForm.device_id]);
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error, "部署预检失败");
+  }
+}
+
+async function confirmDeployment() {
+  if (deploymentPlan.value === null) return;
+  try {
+    await ElMessageBox.confirm(
+      `确认执行计划 #${deploymentPlan.value.id}？确认后将生成唯一执行 ID。`,
+      "人工确认部署",
+      { type: "warning", confirmButtonText: "确认部署" },
+    );
+  } catch {
+    return;
+  }
+  try {
+    deploymentExecution.value = await confirmDeploymentPlan(deploymentPlan.value.id);
+    successMessage.value = `部署计划已确认：${deploymentExecution.value.execution_id}`;
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error, "部署计划确认失败");
+  }
+}
+
 onMounted(() => void loadAll());
 </script>
 
@@ -358,7 +412,7 @@ onMounted(() => void loadAll());
             <el-table-column prop="description" label="说明" min-width="220" />
             <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="row.status === 'active' ? 'success' : 'info'">{{ row.status === "active" ? "启用" : "归档" }}</el-tag></template></el-table-column>
             <el-table-column label="功能" min-width="260"><template #default="{ row }"><span v-if="!(assignments[row.id] ?? []).length" class="muted">尚未分配</span><el-tag v-for="item in assignments[row.id] ?? []" :key="item.id" class="tag-chip" :type="item.status === 'active' ? 'success' : 'warning'">{{ functionName(item.function_id) }} · {{ releaseName(item.desired_release_id) }}</el-tag></template></el-table-column>
-            <el-table-column label="操作" width="260"><template #default="{ row }"><el-button size="small" :disabled="row.status !== 'active'" @click="prepareAssignment(row.id)">配置功能</el-button><el-button size="small" @click="toggleProject(row)">{{ row.status === "active" ? "归档" : "恢复" }}</el-button></template></el-table-column>
+            <el-table-column label="操作" width="350"><template #default="{ row }"><el-button size="small" :disabled="row.status !== 'active'" @click="prepareAssignment(row.id)">配置功能</el-button><el-button :data-testid="`open-deployment-plan-${row.id}`" size="small" type="primary" plain :disabled="row.status !== 'active'" @click="prepareDeployment(row.id)">部署预览</el-button><el-button size="small" @click="toggleProject(row)">{{ row.status === "active" ? "归档" : "恢复" }}</el-button></template></el-table-column>
           </el-table>
         </section>
         <section v-for="project in activeProjects" :key="`assignment-${project.id}`" class="panel compact-panel">
@@ -393,6 +447,7 @@ onMounted(() => void loadAll());
     <CommonDialog v-model:visible="releaseDialogOpen" title="新建版本草稿" width="620px" @confirm="submitRelease"><div class="form-grid"><el-select v-model="releaseForm.function_id" placeholder="选择功能"><el-option v-for="item in activeFunctions" :key="item.id" :label="`${item.name} (${item.code})`" :value="item.id" /></el-select><el-input v-model="releaseForm.version" placeholder="版本，例如 0.1.0" /><el-input v-model="releaseForm.release_notes" type="textarea" placeholder="版本说明" /></div></CommonDialog>
     <CommonDialog v-model:visible="artifactDialogOpen" title="上传标准功能包" width="680px" @confirm="submitArtifact"><div class="form-grid"><el-select data-testid="artifact-profile" v-model="artifactForm.hardware_profile_id" placeholder="选择硬件规格"><el-option v-for="profile in hardwareProfiles" :key="profile.id" :label="profile.name" :value="profile.id" /></el-select><input data-testid="artifact-file" type="file" accept=".tar.gz,application/gzip" @change="handleArtifactFileChange" /></div><p class="muted">草稿版本可重复上传并替换同一硬件规格的包；发布后版本与制品永久冻结。</p><template #footer><el-button @click="artifactDialogOpen = false">取消</el-button><el-button data-testid="artifact-upload" type="primary" @click="submitArtifact">上传并校验</el-button></template></CommonDialog>
     <CommonDialog v-model:visible="assignmentDialogOpen" title="配置项目功能" width="700px" @confirm="submitAssignment"><div class="form-grid"><el-select :model-value="assignmentForm.function_id" placeholder="选择功能" @change="selectAssignmentFunction"><el-option v-for="item in activeFunctions" :key="item.id" :label="`${item.name} (${item.code})`" :value="item.id" /></el-select><el-select v-model="assignmentForm.desired_release_id" placeholder="选择已发布版本"><el-option v-for="item in assignmentReleases" :key="item.id" :label="item.version" :value="item.id" /></el-select><el-input v-model="assignmentForm.config_json" type="textarea" :rows="6" placeholder="项目默认配置 JSON" /></div></CommonDialog>
+    <CommonDialog v-model:visible="deploymentDialogOpen" title="单设备部署计划" width="820px" :show-footer="false"><div v-if="deploymentPlan === null" class="form-grid"><el-select data-testid="deployment-device" v-model="deploymentForm.device_id" placeholder="选择项目设备"><el-option v-for="device in deploymentDevices" :key="device.id" :label="`${device.name} (${device.device_sn}) · ${device.status}`" :value="device.id" /></el-select><el-alert type="info" title="这里只生成 24 小时有效的冻结计划，不会立即修改设备。" :closable="false" /><el-button data-testid="deployment-plan-preview" type="primary" @click="submitDeploymentPreview">生成部署预览</el-button></div><div v-else><el-alert :type="deploymentPlan.status === 'ready' ? 'success' : 'warning'" :title="deploymentPlan.status === 'ready' ? '预检通过' : `计划状态：${deploymentPlan.status}`" :closable="false" /><p class="muted">计划 #{{ deploymentPlan.id }} · 快照 {{ deploymentPlan.snapshot_hash.slice(0, 12) }}… · 有效期至 {{ formatTime(deploymentPlan.expires_at) }}</p><el-table :data="deploymentPlan.items" size="small" row-key="id"><el-table-column prop="device_id" label="设备 ID" width="100" /><el-table-column label="功能"><template #default="{ row }">{{ functionName(row.function_id) }}</template></el-table-column><el-table-column label="版本"><template #default="{ row }">{{ releaseName(row.release_id) }}</template></el-table-column><el-table-column prop="status" label="预检" width="100" /><el-table-column label="制品 SHA-256" min-width="190"><template #default="{ row }">{{ row.artifact_sha256.slice(0, 16) }}…</template></el-table-column></el-table><el-alert v-if="deploymentExecution" class="validation-alert" type="success" :title="`已确认，执行 ID：${deploymentExecution.execution_id}`" :closable="false" /><div class="dialog-footer"><el-button @click="deploymentDialogOpen = false">关闭</el-button><el-button v-if="!deploymentExecution && deploymentPlan.status === 'ready'" data-testid="deployment-plan-confirm" type="danger" @click="confirmDeployment">人工确认部署</el-button></div></div></CommonDialog>
   </section>
 </template>
 

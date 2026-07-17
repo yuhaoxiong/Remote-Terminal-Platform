@@ -1,9 +1,11 @@
-import { mount } from "@vue/test-utils";
-import ElementPlus from "element-plus";
+import { mount, type VueWrapper } from "@vue/test-utils";
+import ElementPlus, { ElMessageBox } from "element-plus";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 
 import ProjectsPanel from "../ProjectsPanel.vue";
+
+const mountedWrappers: VueWrapper[] = [];
 
 const apiMocks = vi.hoisted(() => ({
   listProjects: vi.fn(),
@@ -12,12 +14,15 @@ const apiMocks = vi.hoisted(() => ({
   listProjectFunctions: vi.fn(),
   listFunctionReleases: vi.fn(),
   listFunctionVariants: vi.fn(),
+  listDevices: vi.fn(),
   createProject: vi.fn(),
   updateProject: vi.fn(),
   createFunction: vi.fn(),
   createFunctionRelease: vi.fn(),
   createFunctionVariant: vi.fn(),
   uploadFunctionArtifact: vi.fn(),
+  createDeploymentPlan: vi.fn(),
+  confirmDeploymentPlan: vi.fn(),
   publishFunctionRelease: vi.fn(),
   setProjectFunction: vi.fn(),
   markProjectFunctionPendingUninstall: vi.fn(),
@@ -50,20 +55,29 @@ function clickTeleported(selector: string) {
   button.click();
 }
 
-describe("ProjectsPanel", () => {
-  beforeEach(() => {
-    apiMocks.listProjects.mockResolvedValue({ total: 0, items: [] });
-    apiMocks.listFunctions.mockResolvedValue({ total: 0, items: [] });
-    apiMocks.listHardwareProfiles.mockResolvedValue({ total: 2, items: [] });
-    apiMocks.listProjectFunctions.mockResolvedValue({ total: 0, items: [] });
-    apiMocks.listFunctionReleases.mockResolvedValue({ total: 0, items: [] });
-    apiMocks.listFunctionVariants.mockResolvedValue({ total: 0, items: [] });
-  });
+function mountProjectsPanel(): VueWrapper {
+  const wrapper = mount(ProjectsPanel, { attachTo: document.body, global: { plugins: [ElementPlus] } });
+  mountedWrappers.push(wrapper);
+  return wrapper;
+}
 
-  afterEach(() => {
-    document.body.innerHTML = "";
-    vi.clearAllMocks();
-  });
+beforeEach(() => {
+  apiMocks.listProjects.mockResolvedValue({ total: 0, items: [] });
+  apiMocks.listFunctions.mockResolvedValue({ total: 0, items: [] });
+  apiMocks.listHardwareProfiles.mockResolvedValue({ total: 2, items: [] });
+  apiMocks.listProjectFunctions.mockResolvedValue({ total: 0, items: [] });
+  apiMocks.listFunctionReleases.mockResolvedValue({ total: 0, items: [] });
+  apiMocks.listFunctionVariants.mockResolvedValue({ total: 0, items: [] });
+  apiMocks.listDevices.mockResolvedValue({ total: 0, items: [] });
+});
+
+afterEach(() => {
+  mountedWrappers.splice(0).forEach((wrapper) => wrapper.unmount());
+  document.body.innerHTML = "";
+  vi.clearAllMocks();
+});
+
+describe("ProjectsPanel lifecycle management", () => {
 
   it("loads formal projects, functions, profiles, and assignments", async () => {
     apiMocks.listProjects.mockResolvedValue({
@@ -78,7 +92,7 @@ describe("ProjectsPanel", () => {
         updated_at: "2026-07-17T00:00:00Z",
       }],
     });
-    const wrapper = mount(ProjectsPanel, { attachTo: document.body, global: { plugins: [ElementPlus] } });
+    const wrapper = mountProjectsPanel();
     await flushAsync();
 
     expect(apiMocks.listProjects).toHaveBeenCalledOnce();
@@ -98,7 +112,7 @@ describe("ProjectsPanel", () => {
       id: 2, code: "function-abcd1234", name: "桶外垃圾袋识别", description: null, status: "active",
       created_at: "2026-07-17T00:00:00Z", updated_at: "2026-07-17T00:00:00Z",
     });
-    const wrapper = mount(ProjectsPanel, { attachTo: document.body, global: { plugins: [ElementPlus] } });
+    const wrapper = mountProjectsPanel();
     await flushAsync();
 
     await wrapper.find('[data-testid="open-project-create"]').trigger("click");
@@ -137,7 +151,7 @@ describe("ProjectsPanel", () => {
       artifact_sha256: "a".repeat(64), artifact_size: 1024, signature: null, key_id: null, status: "draft",
       created_at: "2026-07-17T00:00:00Z", updated_at: "2026-07-17T00:00:00Z",
     });
-    const wrapper = mount(ProjectsPanel, { attachTo: document.body, global: { plugins: [ElementPlus] } });
+    const wrapper = mountProjectsPanel();
     await flushAsync();
 
     await wrapper.find('[data-testid="open-artifact-upload-3"]').trigger("click");
@@ -159,5 +173,70 @@ describe("ProjectsPanel", () => {
     await flushAsync();
 
     expect(apiMocks.uploadFunctionArtifact).toHaveBeenCalledWith(2, 3, 4, file);
+  });
+});
+
+describe("ProjectsPanel deployment planning", () => {
+  it("previews a frozen single-device deployment plan before confirmation", async () => {
+    const project = {
+      id: 1, code: "site-a", name: "现场 A", description: null, status: "active",
+      created_at: "2026-07-17T00:00:00Z", updated_at: "2026-07-17T00:00:00Z",
+    };
+    const device = {
+      id: 8, device_uuid: "00000000-0000-0000-0000-000000000008", name: "边缘设备 8", device_sn: "EDGE-008",
+      project_id: 1, expected_profile_id: 1, actual_profile_id: 1, device_role: null, is_test_device: true,
+      initialization_status: "ready", vnc_status: "ready", bootstrap_generation: 1, initialized_at: "2026-07-17T00:00:00Z",
+      location: null, hardware_model: null, ssh_port: 10008, vnc_port: 10508, ssh_user: "edge",
+      ssh_auth_type: "password", ssh_credential_configured: true, local_ip: null, os_version: "debian11",
+      description: null, tags: [], group_id: null, status: "online", last_seen: "2026-07-17T00:00:00Z",
+      created_at: "2026-07-17T00:00:00Z", updated_at: "2026-07-17T00:00:00Z",
+    };
+    apiMocks.listProjects.mockResolvedValue({ total: 1, items: [project] });
+    apiMocks.listDevices.mockResolvedValue({ total: 1, items: [device] });
+    apiMocks.createDeploymentPlan.mockResolvedValue({
+      id: 11, project_id: 1, status: "ready", snapshot_hash: "a".repeat(64), expires_at: "2026-07-18T00:00:00Z",
+      stale_reason: null, created_by: 1, confirmed_by: null, confirmed_at: null,
+      created_at: "2026-07-17T00:00:00Z", updated_at: "2026-07-17T00:00:00Z",
+      items: [{
+        id: 12, plan_id: 11, device_id: 8, function_id: 2, release_id: 3, variant_id: 4,
+        config_snapshot: {}, config_hash: "b".repeat(64), artifact_sha256: "c".repeat(64),
+        preflight_json: { ready: true }, status: "ready", created_at: "2026-07-17T00:00:00Z",
+      }],
+    });
+    apiMocks.confirmDeploymentPlan.mockResolvedValue({
+      id: 13, execution_id: "execution-0001", plan_id: 11, status: "pending", started_at: null, finished_at: null,
+      created_by: 1, created_at: "2026-07-17T00:00:00Z", updated_at: "2026-07-17T00:00:00Z", items: [],
+    });
+    const confirmation = vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as never);
+    const wrapper = mountProjectsPanel();
+    await flushAsync();
+
+    await wrapper.find('[data-testid="open-deployment-plan-1"]').trigger("click");
+    await flushAsync();
+    const deviceSelect = document.body.querySelector<HTMLElement>('[data-testid="deployment-device"]');
+    if (!deviceSelect) throw new Error("Missing deployment device select");
+    deviceSelect.click();
+    await flushAsync();
+    const option = Array.from(document.body.querySelectorAll<HTMLElement>(".el-select-dropdown__item"))
+      .find((item) => item.textContent?.includes("EDGE-008"));
+    if (!option) throw new Error("Missing deployment device option");
+    option.click();
+    clickTeleported('[data-testid="deployment-plan-preview"]');
+    await flushAsync();
+
+    expect(apiMocks.listDevices).toHaveBeenCalledWith({ project_id: 1 });
+    expect(apiMocks.createDeploymentPlan).toHaveBeenCalledWith(1, [8]);
+    expect(document.body.textContent).toContain("预检通过");
+    expect(document.body.textContent).toContain("aaaaaaaaaaaa");
+
+    clickTeleported('[data-testid="deployment-plan-confirm"]');
+    await flushAsync();
+    expect(confirmation).toHaveBeenCalledWith(
+      "确认执行计划 #11？确认后将生成唯一执行 ID。",
+      "人工确认部署",
+      expect.objectContaining({ confirmButtonText: "确认部署" }),
+    );
+    expect(apiMocks.confirmDeploymentPlan).toHaveBeenCalledWith(11);
+    expect(document.body.textContent).toContain("execution-0001");
   });
 });
