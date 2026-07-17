@@ -54,6 +54,22 @@ key_id: null
 - `healthcheck.sh` 输出必须满足 [healthcheck.schema.json](schemas/healthcheck.schema.json)。
 - 其他生命周期脚本的标准输出应满足 [lifecycle-result.schema.json](schemas/lifecycle-result.schema.json)。
 
+设备端按以下固定顺序执行安装生命周期：
+
+```text
+preflight.sh -> install.sh -> configure.sh -> start.sh -> healthcheck.sh
+```
+
+每个脚本都可读取以下环境变量：
+
+- `EDGE_DEPLOY_EXECUTION_ID`：平台生成的不可变执行 ID；
+- `EDGE_FUNCTION_CODE`、`EDGE_FUNCTION_VERSION`：功能代码和版本；
+- `EDGE_PACKAGE_ROOT`：安全解压后的包顶层目录；
+- `EDGE_ARTIFACT_PATH`：设备制品缓存路径；
+- `EDGE_DEPLOY_CONFIG_JSON`：权限为 `0600` 的本次冻结配置 JSON 路径。
+
+`configure.sh` 应合并本次配置快照，但升级时不得覆盖未受平台管理的现场调试参数。`healthcheck.sh` 返回 `healthy` 才算部署成功。生产设备在 `install` 及后续步骤失败时会运行 `rollback.sh`；测试设备不会自动回滚，以便保留现场。平台可能因网络重试再次提交同一执行，脚本必须保持可重复执行，且不得依赖短时下载令牌作为业务幂等键。
+
 ## 平台上传与发布
 
 1. 管理员创建功能和草稿版本。

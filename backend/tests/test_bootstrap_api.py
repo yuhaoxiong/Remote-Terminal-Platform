@@ -1,6 +1,10 @@
 from io import BytesIO
+import base64
+import json
+import os
 from pathlib import Path
 import shlex
+import subprocess
 from zipfile import ZipFile
 
 from cryptography.fernet import Fernet
@@ -52,6 +56,7 @@ def _create_device(
     *,
     expected_profile_id: int | None = None,
     device_sn: str = "BOOTSTRAP-001",
+    ssh_user: str = "edge",
 ) -> dict:
     response = client.post(
         "/api/devices",
@@ -60,7 +65,7 @@ def _create_device(
             "name": "初始化设备",
             "device_sn": device_sn,
             "expected_profile_id": expected_profile_id,
-            "ssh_user": "edge",
+            "ssh_user": ssh_user,
             "ssh_password": "device-pass",
         },
     )
@@ -134,6 +139,10 @@ def test_ready_package_contains_device_specific_installer_and_uses_one_time_clai
         assert "\nreboot\n" not in installer
         assert "shutdown -r" not in installer
         assert "chmod 0600" in installer
+        assert "openssh-server sudo curl" in installer
+        assert "/etc/sudoers.d/edge-platform-deploy" in installer
+        assert "/usr/local/bin/edge-deploy apply --stdin" in installer
+        assert "visudo -cf" in installer
         assert "x0vncserver" in archive.read("systemd/x0vncserver.service").decode("utf-8")
         assert "remotePort = 10000" in archive.read("config/frpc.toml").decode("utf-8")
         assert "remotePort = 10500" in archive.read("config/frpc.toml").decode("utf-8")
@@ -210,6 +219,186 @@ def test_ready_package_contains_device_specific_installer_and_uses_one_time_clai
     )
     assert remote_vnc.status_code == 200
     assert remote_vnc.json()["vnc_password"] == vnc_password
+
+
+def test_bootstrap_rejects_ssh_username_that_could_inject_sudoers(
+    bootstrap_client: TestClient,
+    bootstrap_headers: dict[str, str],
+) -> None:
+    device = _create_device(
+        bootstrap_client,
+        bootstrap_headers,
+        device_sn="BOOTSTRAP-UNSAFE-USER",
+        ssh_user="edge\nroot ALL=(ALL) NOPASSWD: ALL",
+    )
+
+    package = bootstrap_client.post(
+        f"/api/devices/{device['id']}/bootstrap-package",
+        headers=bootstrap_headers,
+    )
+
+    assert package.status_code == 200
+    assert package.json()["status"] == "draft"
+    assert any("SSH 用户名" in error for error in package.json()["validation_errors"])
+
+
+def _download_edge_deploy_script(
+    bootstrap_client: TestClient,
+    bootstrap_headers: dict[str, str],
+    *,
+    device_sn: str,
+) -> str:
+    profile = bootstrap_client.get("/api/hardware-profiles", headers=bootstrap_headers).json()["items"][0]
+    device = _create_device(
+        bootstrap_client,
+        bootstrap_headers,
+        expected_profile_id=profile["id"],
+        device_sn=device_sn,
+    )
+    package = bootstrap_client.post(
+        f"/api/devices/{device['id']}/bootstrap-package",
+        headers=bootstrap_headers,
+    ).json()
+    downloaded = bootstrap_client.get(
+        f"/api/devices/{device['id']}/bootstrap-package/{package['id']}/download",
+        headers=bootstrap_headers,
+    )
+    with ZipFile(BytesIO(downloaded.content)) as archive:
+        return archive.read("bin/edge-deploy").decode("utf-8")
+
+
+def test_ready_package_edge_deploy_cli_supports_safe_idempotent_function_apply(
+    bootstrap_client: TestClient,
+    bootstrap_headers: dict[str, str],
+) -> None:
+    script = _download_edge_deploy_script(
+        bootstrap_client,
+        bootstrap_headers,
+        device_sn="BOOTSTRAP-EDGE-DEPLOY",
+    )
+
+    syntax = subprocess.run(
+        ["bash", "-n"],
+        input=script.encode("utf-8"),
+        capture_output=True,
+        check=False,
+    )
+
+    assert syntax.returncode == 0, syntax.stderr.decode("utf-8", errors="replace")
+    assert "apply)" in script
+    assert "--proto '=https'" in script
+    assert "https://192.0.2.10/api/deployment-executions/" in script
+    assert "artifact URL does not match platform execution" in script
+    assert '[[ "$ca_cert_path" == /usr/local/share/ca-certificates/edge-platform-ca.crt ]]' in script
+    assert "Authorization: Bearer" in script
+    assert "--config" in script
+    assert '-H "Authorization: Bearer $artifact_token"' not in script
+    assert "sha256sum --check" in script
+    assert "tarfile" in script
+    assert 'steps=(preflight install configure start healthcheck)' in script
+    assert "rollback_on_failure" in script
+    assert "/var/lib/edge-platform/deployments" in script
+
+
+def test_edge_deploy_cli_runtime_is_idempotent_when_root_is_available(
+    bootstrap_client: TestClient,
+    bootstrap_headers: dict[str, str],
+) -> None:
+    script = _download_edge_deploy_script(
+        bootstrap_client,
+        bootstrap_headers,
+        device_sn="BOOTSTRAP-EDGE-RUNTIME",
+    )
+
+    runtime_script = EDGE_DEPLOY_RUNTIME_TEST.replace("\r\n", "\n").replace("\r", "\n").replace(
+        "__EDGE_DEPLOY_SCRIPT__",
+        base64.b64encode(script.encode("utf-8")).decode("ascii"),
+    )
+    runtime_command = ["wsl", "-u", "root", "-e", "bash"] if os.name == "nt" else ["bash"]
+    runtime = subprocess.run(
+        runtime_command,
+        input=runtime_script.encode("utf-8"),
+        capture_output=True,
+        check=False,
+    )
+    if b"EDGE_DEPLOY_RUNTIME_SKIP" in runtime.stdout:
+        pytest.skip("当前环境没有 root 或免密 sudo，跳过 edge-deploy 运行级测试")
+    assert runtime.returncode == 0, runtime.stderr.decode("utf-8", errors="replace")
+    output_lines = runtime.stdout.decode("utf-8").splitlines()
+    first_result = json.loads(output_lines[-3])
+    second_result = json.loads(output_lines[-2])
+    assert first_result["status"] == "succeeded"
+    assert second_result == first_result
+    assert output_lines[-1] == "5"
+
+
+EDGE_DEPLOY_RUNTIME_TEST = r'''
+set -euo pipefail
+tmp="$(mktemp -d)"
+if [[ "$(id -u)" -eq 0 ]]; then
+  runner=(env)
+  cleanup=(rm -rf "$tmp")
+elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+  runner=(sudo -n env)
+  cleanup=(sudo -n rm -rf "$tmp")
+else
+  printf '%s\n' EDGE_DEPLOY_RUNTIME_SKIP
+  exit 0
+fi
+trap '"${cleanup[@]}"' EXIT
+printf '%s' '__EDGE_DEPLOY_SCRIPT__' | base64 --decode >"$tmp/edge-deploy"
+sed -i "s|/usr/local/share/ca-certificates/edge-platform-ca.crt|$tmp/ca.crt|g" "$tmp/edge-deploy"
+chmod 0755 "$tmp/edge-deploy"
+mkdir -p "$tmp/bin" "$tmp/package/demo-1.0.0-test/scripts" "$tmp/package/demo-1.0.0-test/artifacts"
+cat >"$tmp/bin/curl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == --output ]]; then output="$2"; shift 2; else shift; fi
+done
+cp "$EDGE_TEST_ARTIFACT" "$output"
+SH
+chmod 0755 "$tmp/bin/curl"
+for step in preflight install configure start; do
+  cat >"$tmp/package/demo-1.0.0-test/scripts/$step.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$(basename "$0" .sh)" >>"$EDGE_TEST_LOG"
+printf '%s\n' '{"schema_version":1,"status":"succeeded","changed":true,"message":"ok"}'
+SH
+  chmod 0755 "$tmp/package/demo-1.0.0-test/scripts/$step.sh"
+done
+cat >"$tmp/package/demo-1.0.0-test/scripts/healthcheck.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' healthcheck >>"$EDGE_TEST_LOG"
+printf '%s\n' '{"schema_version":1,"status":"healthy","severity":"info","checked_at":"2026-07-17T00:00:00Z","checks":[{"name":"runtime","status":"passed"}]}'
+SH
+cat >"$tmp/package/demo-1.0.0-test/scripts/rollback.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '{"schema_version":1,"status":"succeeded","changed":true,"message":"rolled back"}'
+SH
+chmod 0755 "$tmp/package/demo-1.0.0-test/scripts/healthcheck.sh" "$tmp/package/demo-1.0.0-test/scripts/rollback.sh"
+tar -czf "$tmp/artifact.tar.gz" -C "$tmp/package" demo-1.0.0-test
+sha="$(sha256sum "$tmp/artifact.tar.gz" | awk '{print $1}')"
+fingerprint="$(printf 'f%.0s' {1..64})"
+printf test-ca >"$tmp/ca.crt"
+make_descriptor() {
+  jq -nc --arg token "$1" --arg sha "$sha" --arg fingerprint "$fingerprint" --arg ca "$tmp/ca.crt" --arg url "${2:-https://192.0.2.10/api/deployment-executions/11111111-1111-1111-1111-111111111111/items/1/artifact}" \
+    '{schema_version:1,execution_id:"11111111-1111-1111-1111-111111111111",execution_item_id:1,function_code:"demo",version:"1.0.0",artifact_url:$url,artifact_token:$token,artifact_sha256:$sha,deployment_fingerprint:$fingerprint,config:{camera:0},rollback_on_failure:true,ca_cert_path:$ca}' | base64 -w0
+}
+run_apply() {
+  "${runner[@]}" PATH="$tmp/bin:$PATH" EDGE_TEST_ARTIFACT="$tmp/artifact.tar.gz" EDGE_TEST_LOG="$tmp/lifecycle.log" \
+    EDGE_DEPLOY_STATE_ROOT="$tmp/state" EDGE_DEPLOY_CACHE_ROOT="$tmp/cache" \
+    "$tmp/edge-deploy" apply --stdin <<<"$1"
+}
+if run_apply "$(make_descriptor 'token-cccccccccccccccccccccccc' 'https://attacker.example/artifact')" >/dev/null 2>&1; then
+  echo "untrusted artifact URL was accepted" >&2
+  exit 1
+fi
+first="$(run_apply "$(make_descriptor 'token-aaaaaaaaaaaaaaaaaaaaaaaa')")"
+second="$(run_apply "$(make_descriptor 'token-bbbbbbbbbbbbbbbbbbbbbbbb')")"
+printf '%s\n%s\n%s\n' "$(jq -c . <<<"$first")" "$(jq -c . <<<"$second")" "$(wc -l <"$tmp/lifecycle.log" | tr -d ' ')"
+'''
 
 
 def test_connection_change_invalidates_ready_package(

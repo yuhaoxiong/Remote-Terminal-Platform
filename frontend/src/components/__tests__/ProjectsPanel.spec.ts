@@ -23,6 +23,7 @@ const apiMocks = vi.hoisted(() => ({
   uploadFunctionArtifact: vi.fn(),
   createDeploymentPlan: vi.fn(),
   confirmDeploymentPlan: vi.fn(),
+  executeDeploymentExecution: vi.fn(),
   publishFunctionRelease: vi.fn(),
   setProjectFunction: vi.fn(),
   markProjectFunctionPendingUninstall: vi.fn(),
@@ -207,6 +208,17 @@ describe("ProjectsPanel deployment planning", () => {
       id: 13, execution_id: "execution-0001", plan_id: 11, status: "pending", started_at: null, finished_at: null,
       created_by: 1, created_at: "2026-07-17T00:00:00Z", updated_at: "2026-07-17T00:00:00Z", items: [],
     });
+    apiMocks.executeDeploymentExecution.mockResolvedValue({
+      id: 13, execution_id: "execution-0001", plan_id: 11, status: "completed",
+      started_at: "2026-07-17T00:01:00Z", finished_at: "2026-07-17T00:02:00Z",
+      created_by: 1, created_at: "2026-07-17T00:00:00Z", updated_at: "2026-07-17T00:02:00Z",
+      items: [{
+        id: 14, deployment_execution_id: 13, plan_item_id: 12, status: "success", attempt_count: 1,
+        result_json: { status: "succeeded" }, error_message: null,
+        started_at: "2026-07-17T00:01:00Z", finished_at: "2026-07-17T00:02:00Z",
+        created_at: "2026-07-17T00:00:00Z", updated_at: "2026-07-17T00:02:00Z",
+      }],
+    });
     const confirmation = vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as never);
     const wrapper = mountProjectsPanel();
     await flushAsync();
@@ -238,5 +250,11 @@ describe("ProjectsPanel deployment planning", () => {
     );
     expect(apiMocks.confirmDeploymentPlan).toHaveBeenCalledWith(11);
     expect(document.body.textContent).toContain("execution-0001");
+
+    clickTeleported('[data-testid="deployment-execution-start"]');
+    await flushAsync();
+    expect(apiMocks.executeDeploymentExecution).toHaveBeenCalledWith("execution-0001");
+    expect(document.body.textContent).toContain("completed");
+    expect(document.body.textContent).toContain("success");
   });
 });

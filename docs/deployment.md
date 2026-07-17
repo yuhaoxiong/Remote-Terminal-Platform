@@ -25,6 +25,9 @@ export BOOTSTRAP_FRPC_SHA256='<下载归档的 64 位小写 SHA-256>'
 # 标准功能包仓库（目录必须由后端服务账号写入）
 export ARTIFACT_STORAGE_DIR='/var/lib/edge-platform/artifacts'
 export ARTIFACT_MAX_UPLOAD_BYTES='1073741824'
+
+# 单个功能包下载、安装和健康检查的 SSH 等待上限
+export DEPLOYMENT_TIMEOUT_SECONDS='1800'
 ```
 
 4. Place the generated service at `/etc/systemd/system/edge-platform.service`, then run:
@@ -135,6 +138,24 @@ This compatibility mode was restored after the repository-owned deployment scrip
 - `failed`: 修复错误后幂等重试；只有 SSH 成功的 `ready` 注册会消费一次性令牌。
 
 设备端敏感文件写入 `/etc/edge-platform` 和 `/etc/frp`，权限为 `0600`。关键端口、SSH 账号、密码或期望硬件规格变化后，旧包立即失效，必须显式重新生成。
+
+## Single-device Function Deployment
+
+上线前必须确认 `BOOTSTRAP_PLATFORM_URL` 是设备可访问的 HTTPS 地址，证书包含当前 IP 的 SAN。管理员在“项目与功能”页面依次执行：生成部署预览、确认冻结计划、再次确认开始执行。只有最后一步会建立 SSH 连接并修改设备。
+
+最新初始化包会安装 `/usr/local/bin/edge-deploy`，并只授予初始化时填写的 SSH 用户以下免密 sudo 命令：
+
+```text
+sudo -n /usr/local/bin/edge-deploy apply --stdin
+```
+
+用旧初始化包配置过的设备没有这项能力。首次真实部署前，应从新生成的同设备初始化包中更新 `edge-deploy`，并由 root 写入 `/etc/sudoers.d/edge-platform-deploy`；规则只能包含上述完整命令，权限设为 `0440`，最后执行 `visudo -cf /etc/sudoers.d/edge-platform-deploy`。不要授予通配符命令或完整 root shell。可使用 `sudo -n -l` 核对授权。
+
+执行时平台通过 SSH 标准输入传递部署描述符，设备使用与执行项绑定的 30 分钟令牌从平台 HTTPS 下载冻结制品。初始化包会把 `edge-deploy` 锁定到当时配置的平台执行制品 URL 和固定 CA，其他 HTTPS 来源也会被拒绝；平台地址迁移后必须更新设备端 CLI。令牌不会出现在 SSH 命令行或持久配置中。设备支持断点续传和本地 SHA-256 缓存，并在解压前检查路径、链接、设备文件、成员数量及展开大小。
+
+设备依次执行 `preflight/install/configure/start/healthcheck`。生产设备在发生变更后失败会运行 `rollback.sh`；测试设备不自动回滚。平台页面记录每个功能的 `success/failed/rolled_back` 结果。相同执行重复启动只返回原终态，不会再次修改设备。
+
+真实设备验收顺序：先选一台测试设备，使用无业务影响的标准包验证 HTTPS 下载和五步生命周期；再验证失败保留现场；最后在生产设备验证健康检查失败后的自动回滚。RK3568-4G 与 RK3588-8G 应各完成一次成功部署。
 
 ## Operational Notes
 

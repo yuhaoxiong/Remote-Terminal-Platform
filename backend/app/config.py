@@ -20,6 +20,7 @@ class Settings(BaseModel):
     vnc_port_end: int = 10999
     health_check_interval_seconds: int = 60
     ssh_timeout_seconds: int = 10
+    deployment_timeout_seconds: int = 1800
     vnc_timeout_seconds: int = 10
     file_storage_dir: str | None = None
     artifact_storage_dir: str | None = None
@@ -64,6 +65,7 @@ def get_settings() -> Settings:
         vnc_gateway_host=os.getenv("VNC_GATEWAY_HOST"),
         default_vnc_password=os.getenv("DEFAULT_VNC_PASSWORD"),
         ssh_timeout_seconds=int(os.getenv("SSH_TIMEOUT_SECONDS", "10")),
+        deployment_timeout_seconds=int(os.getenv("DEPLOYMENT_TIMEOUT_SECONDS", "1800")),
         vnc_timeout_seconds=int(os.getenv("VNC_TIMEOUT_SECONDS", "10")),
         ssh_password=os.getenv("SSH_PASSWORD"),
         ssh_key_filename=os.getenv("SSH_KEY_FILENAME"),

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 from datetime import datetime, timedelta, timezone
 
 from artifact_helpers import build_standard_package
@@ -7,7 +9,7 @@ from app.database import session_scope
 from app.models.lifecycle import DeploymentPlan
 
 
-def _prepare_deployment_context(client, headers, create_device) -> dict:
+def _prepare_deployment_context(client, headers, create_device, *, is_test_device: bool = False) -> dict:
     project = client.post(
         "/api/projects",
         headers=headers,
@@ -49,6 +51,7 @@ def _prepare_deployment_context(client, headers, create_device) -> dict:
         expected_profile_id=profile["id"],
         actual_profile_id=profile["id"],
         initialization_status="ready",
+        is_test_device=is_test_device,
         status="online",
         ssh_port=12001,
     )
@@ -276,6 +279,10 @@ def test_operator_can_read_plan_but_cannot_confirm_it(
         headers=auth_headers,
         json={"device_ids": [context["device"].id]},
     ).json()
+    execution = client.post(
+        f"/api/deployment-plans/{plan['id']}/confirm",
+        headers=auth_headers,
+    ).json()
     created = client.post(
         "/api/users",
         headers=auth_headers,
@@ -289,6 +296,10 @@ def test_operator_can_read_plan_but_cannot_confirm_it(
     operator_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
     detail = client.get(f"/api/deployment-plans/{plan['id']}", headers=operator_headers)
+    execution_detail = client.get(
+        f"/api/deployment-executions/{execution['execution_id']}",
+        headers=operator_headers,
+    )
     confirmation = client.post(
         f"/api/deployment-plans/{plan['id']}/confirm",
         headers=operator_headers,
@@ -296,6 +307,8 @@ def test_operator_can_read_plan_but_cannot_confirm_it(
 
     assert detail.status_code == 200
     assert detail.json()["id"] == plan["id"]
+    assert execution_detail.status_code == 200
+    assert execution_detail.json()["execution_id"] == execution["execution_id"]
     assert confirmation.status_code == 403
 
 
@@ -329,3 +342,315 @@ def test_multi_device_plan_confirmation_is_independent_of_request_order(
 
     assert confirmation.status_code == 200, confirmation.text
     assert len(confirmation.json()["items"]) == 2
+
+
+def test_admin_executes_confirmed_deployment_and_records_success(
+    client,
+    auth_headers,
+    create_device,
+    fake_ssh_service,
+) -> None:
+    client.app.state.settings.bootstrap_platform_url = "https://platform.example.test"
+    context = _prepare_deployment_context(client, auth_headers, create_device)
+    plan = client.post(
+        f"/api/projects/{context['project']['id']}/deployment-plans",
+        headers=auth_headers,
+        json={"device_ids": [context["device"].id]},
+    ).json()
+    execution = client.post(
+        f"/api/deployment-plans/{plan['id']}/confirm",
+        headers=auth_headers,
+    ).json()
+    fake_ssh = fake_ssh_service()
+    fake_ssh.result = (
+        0,
+        json.dumps(
+            {
+                "schema_version": 1,
+                "execution_id": execution["execution_id"],
+                "function_code": context["function"]["code"],
+                "status": "succeeded",
+                "changed": True,
+                "rollback_performed": False,
+                "steps": {"healthcheck": "succeeded"},
+            }
+        ),
+        "",
+    )
+    client.app.state.ssh_service = fake_ssh
+
+    response = client.post(
+        f"/api/deployment-executions/{execution['execution_id']}/execute",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["execution_id"] == execution["execution_id"]
+    assert body["status"] == "completed"
+    assert body["started_at"]
+    assert body["finished_at"]
+    assert len(body["items"]) == 1
+    assert body["items"][0]["status"] == "success"
+    assert body["items"][0]["attempt_count"] == 1
+    assert body["items"][0]["result_json"]["steps"]["healthcheck"] == "succeeded"
+    assert fake_ssh.calls[0][2] == 1800
+    repeated = client.post(
+        f"/api/deployment-executions/{execution['execution_id']}/execute",
+        headers=auth_headers,
+    )
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json() == body
+    assert len(fake_ssh.calls) == 1
+
+
+def test_device_downloads_only_its_execution_artifact_with_short_lived_token(
+    client,
+    auth_headers,
+    create_device,
+    fake_ssh_service,
+) -> None:
+    client.app.state.settings.bootstrap_platform_url = "https://platform.example.test"
+    context = _prepare_deployment_context(client, auth_headers, create_device)
+    plan = client.post(
+        f"/api/projects/{context['project']['id']}/deployment-plans",
+        headers=auth_headers,
+        json={"device_ids": [context["device"].id]},
+    ).json()
+    execution = client.post(
+        f"/api/deployment-plans/{plan['id']}/confirm",
+        headers=auth_headers,
+    ).json()
+    fake_ssh = fake_ssh_service(
+        (
+            0,
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "execution_id": execution["execution_id"],
+                    "function_code": context["function"]["code"],
+                    "status": "succeeded",
+                    "changed": True,
+                    "rollback_performed": False,
+                    "steps": {"healthcheck": "succeeded"},
+                }
+            ),
+            "",
+        )
+    )
+    client.app.state.ssh_service = fake_ssh
+    started = client.post(
+        f"/api/deployment-executions/{execution['execution_id']}/execute",
+        headers=auth_headers,
+    )
+    assert started.status_code == 200, started.text
+    command = fake_ssh.calls[0][1]
+    assert command == "sudo -n /usr/local/bin/edge-deploy apply --stdin"
+    assert "artifact_token" not in command
+    encoded = fake_ssh.input_calls[0]
+    descriptor = json.loads(base64.b64decode(encoded).decode("utf-8"))
+    assert len(descriptor["deployment_fingerprint"]) == 64
+
+    artifact_path = descriptor["artifact_url"].removeprefix("https://platform.example.test")
+    downloaded = client.get(
+        artifact_path,
+        headers={"Authorization": f"Bearer {descriptor['artifact_token']}"},
+    )
+    rejected = client.get(
+        artifact_path,
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert downloaded.status_code == 200
+    assert downloaded.headers["etag"] == f'"{context["variant"]["artifact_sha256"]}"'
+    assert rejected.status_code == 401
+
+
+def test_production_deployment_failure_records_automatic_rollback(
+    client,
+    auth_headers,
+    create_device,
+    fake_ssh_service,
+) -> None:
+    client.app.state.settings.bootstrap_platform_url = "https://platform.example.test"
+    context = _prepare_deployment_context(client, auth_headers, create_device)
+    plan = client.post(
+        f"/api/projects/{context['project']['id']}/deployment-plans",
+        headers=auth_headers,
+        json={"device_ids": [context["device"].id]},
+    ).json()
+    execution = client.post(
+        f"/api/deployment-plans/{plan['id']}/confirm",
+        headers=auth_headers,
+    ).json()
+    failure = {
+        "schema_version": 1,
+        "execution_id": execution["execution_id"],
+        "function_code": context["function"]["code"],
+        "status": "failed",
+        "changed": True,
+        "message": "healthcheck failed",
+        "rollback_performed": True,
+        "steps": {"healthcheck": "failed", "rollback": "succeeded"},
+    }
+    fake_ssh = fake_ssh_service((1, json.dumps(failure), "healthcheck failed"))
+    client.app.state.ssh_service = fake_ssh
+
+    response = client.post(
+        f"/api/deployment-executions/{execution['execution_id']}/execute",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["items"][0]["status"] == "rolled_back"
+    assert body["items"][0]["result_json"]["rollback_performed"] is True
+    descriptor = json.loads(base64.b64decode(fake_ssh.input_calls[0]).decode("utf-8"))
+    assert descriptor["rollback_on_failure"] is True
+
+
+def test_test_device_failure_preserves_failed_state_without_rollback(
+    client,
+    auth_headers,
+    create_device,
+    fake_ssh_service,
+) -> None:
+    client.app.state.settings.bootstrap_platform_url = "https://platform.example.test"
+    context = _prepare_deployment_context(
+        client,
+        auth_headers,
+        create_device,
+        is_test_device=True,
+    )
+    plan = client.post(
+        f"/api/projects/{context['project']['id']}/deployment-plans",
+        headers=auth_headers,
+        json={"device_ids": [context["device"].id]},
+    ).json()
+    execution = client.post(
+        f"/api/deployment-plans/{plan['id']}/confirm",
+        headers=auth_headers,
+    ).json()
+    failure = {
+        "schema_version": 1,
+        "execution_id": execution["execution_id"],
+        "function_code": context["function"]["code"],
+        "status": "failed",
+        "changed": True,
+        "message": "healthcheck failed",
+        "rollback_performed": False,
+        "steps": {"healthcheck": "failed"},
+    }
+    fake_ssh = fake_ssh_service((1, json.dumps(failure), "healthcheck failed"))
+    client.app.state.ssh_service = fake_ssh
+
+    response = client.post(
+        f"/api/deployment-executions/{execution['execution_id']}/execute",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "failed"
+    assert response.json()["items"][0]["status"] == "failed"
+    assert response.json()["items"][0]["result_json"]["rollback_performed"] is False
+    descriptor = json.loads(base64.b64decode(fake_ssh.input_calls[0]).decode("utf-8"))
+    assert descriptor["rollback_on_failure"] is False
+
+
+def test_multi_function_execution_isolated_results_become_partial_failure(
+    client,
+    auth_headers,
+    create_device,
+    fake_ssh_service,
+) -> None:
+    client.app.state.settings.bootstrap_platform_url = "https://platform.example.test"
+    context = _prepare_deployment_context(client, auth_headers, create_device)
+    second_function = client.post(
+        "/api/functions",
+        headers=auth_headers,
+        json={"code": "deployment-function-two", "name": "部署测试功能二"},
+    ).json()
+    second_release = client.post(
+        f"/api/functions/{second_function['id']}/releases",
+        headers=auth_headers,
+        json={"version": "2.0.0"},
+    ).json()
+    package = build_standard_package(
+        second_function["code"],
+        second_release["version"],
+        context["profile"]["code"],
+    )
+    uploaded = client.post(
+        f"/api/functions/{second_function['id']}/releases/{second_release['id']}/artifacts",
+        headers=auth_headers,
+        data={"hardware_profile_id": str(context["profile"]["id"])},
+        files={"file": ("deployment-function-two.tar.gz", package, "application/gzip")},
+    )
+    assert uploaded.status_code == 201
+    assert client.post(
+        f"/api/functions/{second_function['id']}/releases/{second_release['id']}/publish",
+        headers=auth_headers,
+    ).status_code == 200
+    assert client.put(
+        f"/api/projects/{context['project']['id']}/functions/{second_function['id']}",
+        headers=auth_headers,
+        json={"desired_release_id": second_release["id"], "config_json": {}},
+    ).status_code == 200
+    plan = client.post(
+        f"/api/projects/{context['project']['id']}/deployment-plans",
+        headers=auth_headers,
+        json={"device_ids": [context["device"].id]},
+    ).json()
+    execution = client.post(
+        f"/api/deployment-plans/{plan['id']}/confirm",
+        headers=auth_headers,
+    ).json()
+    results = [
+        (
+            0,
+            json.dumps({
+                "schema_version": 1,
+                "execution_id": execution["execution_id"],
+                "function_code": context["function"]["code"],
+                "status": "succeeded",
+                "changed": True,
+                "rollback_performed": False,
+                "steps": {},
+            }),
+            "",
+        ),
+        (
+            1,
+            json.dumps({
+                "schema_version": 1,
+                "execution_id": execution["execution_id"],
+                "function_code": second_function["code"],
+                "status": "failed",
+                "changed": True,
+                "message": "start failed",
+                "rollback_performed": True,
+                "steps": {},
+            }),
+            "start failed",
+        ),
+    ]
+    fake_ssh = fake_ssh_service()
+
+    def execute_with_input(device, command, input_text, timeout_seconds):
+        fake_ssh.calls.append((device, command, timeout_seconds))
+        fake_ssh.input_calls.append(input_text)
+        return results.pop(0)
+
+    fake_ssh.execute_with_input = execute_with_input
+    client.app.state.ssh_service = fake_ssh
+
+    response = client.post(
+        f"/api/deployment-executions/{execution['execution_id']}/execute",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "partial_failed"
+    assert [item["status"] for item in response.json()["items"]] == ["success", "rolled_back"]
+    assert len(fake_ssh.calls) == 2

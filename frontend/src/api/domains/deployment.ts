@@ -73,3 +73,13 @@ export async function confirmDeploymentPlan(planId: number): Promise<DeploymentE
   const response = await api.post<DeploymentExecutionRead>(`/deployment-plans/${planId}/confirm`);
   return response.data;
 }
+
+export async function getDeploymentExecution(executionId: string): Promise<DeploymentExecutionRead> {
+  const response = await api.get<DeploymentExecutionRead>(`/deployment-executions/${executionId}`);
+  return response.data;
+}
+
+export async function executeDeploymentExecution(executionId: string): Promise<DeploymentExecutionRead> {
+  const response = await api.post<DeploymentExecutionRead>(`/deployment-executions/${executionId}/execute`);
+  return response.data;
+}

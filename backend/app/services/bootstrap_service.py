@@ -5,6 +5,7 @@ from hashlib import sha256
 from io import BytesIO
 import json
 from pathlib import Path
+import re
 import secrets
 import shlex
 from string import ascii_letters, digits
@@ -166,7 +167,7 @@ class BootstrapPackageService:
         output = BytesIO()
         with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
             for name, content in files.items():
-                archive.writestr(name, content)
+                archive.writestr(name, content.replace("\r\n", "\n").replace("\r", "\n"))
         package.downloaded_at = datetime.now(timezone.utc)
         session.flush()
         return output.getvalue(), f"edge-bootstrap-{device.device_sn}-g{package.generation}.zip"
@@ -258,6 +259,8 @@ class BootstrapPackageService:
             errors.append("设备必须分配 SSH 和 VNC 远程端口")
         if device.ssh_auth_type != "password" or not device.ssh_password_encrypted:
             errors.append("当前初始化器要求设备配置 SSH 密码认证")
+        if re.fullmatch(r"[a-z_][a-z0-9_-]{0,62}[$]?", device.ssh_user) is None:
+            errors.append("SSH 用户名必须是安全的 Unix 用户名")
         return errors
 
     def _ca_certificate(self) -> str:
@@ -335,13 +338,21 @@ class BootstrapPackageService:
             "CA_SHA256": self._digest(ca_certificate),
         }
         env_content = "\n".join(f"{key}={shlex.quote(value)}" for key, value in values.items()) + "\n"
+        artifact_url_prefix = (
+            f"{(self.settings.bootstrap_platform_url or '').rstrip('/')}"
+            f"{self.settings.api_prefix}/deployment-executions/"
+        )
+        edge_deploy_script = EDGE_DEPLOY_SCRIPT.replace(
+            "__ARTIFACT_URL_PREFIX__",
+            shlex.quote(artifact_url_prefix),
+        )
         return {
             "README.txt": README_TEXT,
             "install.sh": INSTALL_SCRIPT,
             "config/device.env": env_content,
             "config/frpc.toml": self._frpc_config(device),
             "config/platform-ca.crt": ca_certificate.rstrip() + "\n",
-            "bin/edge-deploy": EDGE_DEPLOY_SCRIPT,
+            "bin/edge-deploy": edge_deploy_script,
             "scripts/hardware_collect.sh": HARDWARE_COLLECT_SCRIPT,
             "scripts/register.sh": REGISTER_SCRIPT,
             "systemd/frpc.service": FRPC_SERVICE,
@@ -407,13 +418,18 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
+if [[ ! "$SSH_USER" =~ ^[a-z_][a-z0-9_-]{0,62}[$]?$ ]]; then
+  echo "failed: unsafe SSH user name" >&2
+  exit 1
+fi
+
 if ! grep -q '^VERSION_ID="\?11' /etc/os-release; then
   echo "failed: Debian 11 is required" >&2
   exit 1
 fi
 
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server curl ca-certificates jq tar gzip iproute2 tigervnc-scraping-server python3
+DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server sudo curl ca-certificates jq tar gzip iproute2 tigervnc-scraping-server python3
 
 id -u "$SSH_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$SSH_USER"
 printf '%s:%s\n' "$SSH_USER" "$SSH_PASSWORD" | chpasswd
@@ -437,6 +453,10 @@ frpc_binary="$(find "$tmp_extract" -type f -name frpc -print -quit)"
 install -m 0755 "$frpc_binary" /usr/local/bin/frpc
 
 install -m 0755 "$ROOT_DIR/bin/edge-deploy" /usr/local/bin/edge-deploy
+sudoers_file=/etc/sudoers.d/edge-platform-deploy
+printf '%s ALL=(root) NOPASSWD: /usr/local/bin/edge-deploy apply --stdin\n' "$SSH_USER" >"$sudoers_file"
+chmod 0440 "$sudoers_file"
+visudo -cf "$sudoers_file" >/dev/null
 install -m 0755 "$ROOT_DIR/scripts/hardware_collect.sh" /opt/edge-platform/bootstrap/hardware_collect.sh
 install -m 0755 "$ROOT_DIR/scripts/register.sh" /opt/edge-platform/bootstrap/register.sh
 install -m 0755 "$ROOT_DIR/scripts/set_governor.sh" /opt/edge-platform/bootstrap/set_governor.sh
@@ -528,11 +548,221 @@ curl --fail-with-body --silent --show-error --cacert /usr/local/share/ca-certifi
 
 EDGE_DEPLOY_SCRIPT = r'''#!/usr/bin/env bash
 set -euo pipefail
+readonly DEPLOYMENT_ARTIFACT_URL_PREFIX=__ARTIFACT_URL_PREFIX__
+
+apply_function() {
+  [[ "${EUID}" -eq 0 ]] || { echo "edge-deploy apply must run as root" >&2; return 2; }
+  [[ $# -eq 1 ]] || { echo "usage: edge-deploy apply <base64-descriptor>" >&2; return 2; }
+  local descriptor
+  descriptor="$(printf '%s' "$1" | base64 --decode)" || { echo "invalid deployment descriptor" >&2; return 2; }
+  jq -e '
+    .schema_version == 1 and
+    (.execution_id | type == "string" and test("^[A-Za-z0-9-]{1,64}$")) and
+    (.execution_item_id | type == "number") and
+    (.function_code | type == "string" and test("^[a-z0-9][a-z0-9-]{1,63}$")) and
+    (.version | type == "string" and test("^[A-Za-z0-9._+-]{1,64}$")) and
+    (.artifact_url | type == "string" and startswith("https://")) and
+    (.artifact_token | type == "string" and length > 20) and
+    (.artifact_sha256 | type == "string" and test("^[a-f0-9]{64}$")) and
+    (.deployment_fingerprint | type == "string" and test("^[a-f0-9]{64}$")) and
+    (.config | type == "object") and
+    (.rollback_on_failure | type == "boolean") and
+    (.ca_cert_path | type == "string" and length > 0)
+  ' <<<"$descriptor" >/dev/null || { echo "invalid deployment descriptor fields" >&2; return 2; }
+
+  local execution_id execution_item_id function_code version artifact_url artifact_token artifact_sha256 deployment_fingerprint rollback_on_failure ca_cert_path
+  execution_id="$(jq -r '.execution_id' <<<"$descriptor")"
+  execution_item_id="$(jq -r '.execution_item_id' <<<"$descriptor")"
+  function_code="$(jq -r '.function_code' <<<"$descriptor")"
+  version="$(jq -r '.version' <<<"$descriptor")"
+  artifact_url="$(jq -r '.artifact_url' <<<"$descriptor")"
+  artifact_token="$(jq -r '.artifact_token' <<<"$descriptor")"
+  artifact_sha256="$(jq -r '.artifact_sha256' <<<"$descriptor")"
+  deployment_fingerprint="$(jq -r '.deployment_fingerprint' <<<"$descriptor")"
+  rollback_on_failure="$(jq -r '.rollback_on_failure' <<<"$descriptor")"
+  ca_cert_path="$(jq -r '.ca_cert_path' <<<"$descriptor")"
+  local expected_artifact_url
+  expected_artifact_url="${DEPLOYMENT_ARTIFACT_URL_PREFIX}${execution_id}/items/${execution_item_id}/artifact"
+  [[ "$artifact_url" == "$expected_artifact_url" ]] || {
+    echo "artifact URL does not match platform execution" >&2
+    return 2
+  }
+  [[ "$ca_cert_path" == /usr/local/share/ca-certificates/edge-platform-ca.crt ]] || {
+    echo "platform CA path is not allowed" >&2
+    return 2
+  }
+  [[ -r "$ca_cert_path" ]] || { echo "platform CA certificate is not readable" >&2; return 2; }
+
+  local state_root cache_root state_dir result_file curl_config="" extract_dir=""
+  state_root="${EDGE_DEPLOY_STATE_ROOT:-/var/lib/edge-platform/deployments}"
+  cache_root="${EDGE_DEPLOY_CACHE_ROOT:-/var/cache/edge-platform/artifacts}"
+  state_dir="$state_root/$execution_id"
+  result_file="$state_dir/$function_code.json"
+  install -d -m 0700 "$state_dir" "$cache_root"
+  trap '[[ -z "${curl_config:-}" ]] || rm -f "$curl_config"; [[ -z "${extract_dir:-}" ]] || rm -rf "$extract_dir"' RETURN
+  if [[ -f "$result_file" ]]; then
+    [[ "$(jq -r '.deployment_fingerprint // empty' "$result_file")" == "$deployment_fingerprint" ]] || {
+      echo "execution id already exists with a different descriptor" >&2
+      return 2
+    }
+    cat "$result_file"
+    [[ "$(jq -r '.status' "$result_file")" == "succeeded" ]]
+    return
+  fi
+
+  local archive_path partial_path
+  archive_path="$cache_root/$artifact_sha256.tar.gz"
+  partial_path="$archive_path.part"
+  if [[ -f "$archive_path" ]] && ! echo "$artifact_sha256  $archive_path" | sha256sum --check --status; then
+    rm -f "$archive_path"
+  fi
+  if [[ ! -f "$archive_path" ]]; then
+    curl_config="$(mktemp "$state_dir/.curl-config.XXXXXX")"
+    chmod 0600 "$curl_config"
+    printf 'header = "Authorization: Bearer %s"\n' "$artifact_token" >"$curl_config"
+    curl --fail-with-body --silent --show-error --location --retry 3 --retry-all-errors \
+      --proto '=https' --tlsv1.2 --cacert "$ca_cert_path" \
+      --config "$curl_config" \
+      --continue-at - --output "$partial_path" "$artifact_url"
+    rm -f "$curl_config"
+    curl_config=""
+    echo "$artifact_sha256  $partial_path" | sha256sum --check --status || {
+      rm -f "$partial_path"
+      echo "artifact sha256 mismatch" >&2
+      return 1
+    }
+    mv -f "$partial_path" "$archive_path"
+  fi
+
+  local package_root config_path
+  extract_dir="$(mktemp -d)"
+  package_root="$(python3 - "$archive_path" "$extract_dir" <<'PY'
+import os
+import sys
+import tarfile
+from pathlib import PurePosixPath
+
+archive_path, destination = sys.argv[1:]
+with tarfile.open(archive_path, mode="r:gz") as archive:
+    members = archive.getmembers()
+    if len(members) > 10_000:
+        raise SystemExit("too many archive members")
+    if sum(member.size for member in members if member.isfile()) > 5 * 1024 * 1024 * 1024:
+        raise SystemExit("archive is too large after extraction")
+    roots = set()
+    for member in members:
+        path = PurePosixPath(member.name)
+        if path.is_absolute() or ".." in path.parts or member.issym() or member.islnk() or member.isdev():
+            raise SystemExit(f"unsafe archive member: {member.name}")
+        parts = [part for part in path.parts if part not in {"", "."}]
+        if parts:
+            roots.add(parts[0])
+    if len(roots) != 1:
+        raise SystemExit("archive must contain exactly one root directory")
+    archive.extractall(destination)
+    print(os.path.join(destination, roots.pop()))
+PY
+)" || { echo "artifact safe extraction failed" >&2; return 1; }
+  config_path="$state_dir/$function_code-config.json"
+  jq -c '.config' <<<"$descriptor" >"$config_path"
+  chmod 0600 "$config_path"
+
+  export EDGE_DEPLOY_EXECUTION_ID="$execution_id"
+  export EDGE_FUNCTION_CODE="$function_code"
+  export EDGE_FUNCTION_VERSION="$version"
+  export EDGE_PACKAGE_ROOT="$package_root"
+  export EDGE_ARTIFACT_PATH="$archive_path"
+  export EDGE_DEPLOY_CONFIG_JSON="$config_path"
+
+  local step output exit_code status failure_step="" failure_message="" changed=false
+  local step_results='{}'
+  local steps
+  steps=(preflight install configure start healthcheck)
+  for step in "${steps[@]}"; do
+    local script_path="$package_root/scripts/$step.sh"
+    if [[ ! -x "$script_path" ]]; then
+      failure_step="$step"
+      failure_message="missing executable lifecycle script: $step"
+      break
+    fi
+    set +e
+    output="$(cd "$package_root" && "$script_path")"
+    exit_code=$?
+    set -e
+    if ! jq -e 'type == "object" and .schema_version == 1' <<<"$output" >/dev/null 2>&1; then
+      failure_step="$step"
+      failure_message="$step returned invalid JSON"
+      break
+    fi
+    step_results="$(jq --arg step "$step" --argjson result "$output" '. + {($step): $result}' <<<"$step_results")"
+    status="$(jq -r '.status // empty' <<<"$output")"
+    if [[ "$step" == healthcheck ]]; then
+      [[ $exit_code -eq 0 && "$status" == healthy ]] || {
+        failure_step="$step"
+        failure_message="healthcheck did not report healthy"
+        break
+      }
+    else
+      [[ "$(jq -r '.changed // false' <<<"$output")" == true ]] && changed=true
+      [[ $exit_code -eq 0 && "$status" == succeeded ]] || {
+        failure_step="$step"
+        failure_message="$step failed"
+        break
+      }
+    fi
+  done
+
+  local rollback_performed=false rollback_output rollback_exit=0
+  if [[ -n "$failure_step" ]]; then
+    if [[ "$rollback_on_failure" == true && "$failure_step" != preflight ]]; then
+      set +e
+      rollback_output="$(cd "$package_root" && "$package_root/scripts/rollback.sh")"
+      rollback_exit=$?
+      set -e
+      if [[ $rollback_exit -eq 0 ]] && jq -e '.schema_version == 1 and .status == "succeeded"' <<<"$rollback_output" >/dev/null 2>&1; then
+        rollback_performed=true
+      else
+        failure_message="$failure_message; rollback failed"
+      fi
+      if jq -e 'type == "object"' <<<"$rollback_output" >/dev/null 2>&1; then
+        step_results="$(jq --argjson result "$rollback_output" '. + {rollback: $result}' <<<"$step_results")"
+      fi
+    fi
+    output="$(jq -n \
+      --arg execution_id "$execution_id" --arg function_code "$function_code" \
+      --arg message "$failure_message" --arg deployment_fingerprint "$deployment_fingerprint" \
+      --argjson changed "$changed" --argjson rollback_performed "$rollback_performed" \
+      --argjson steps "$step_results" \
+      '{schema_version:1,execution_id:$execution_id,function_code:$function_code,status:"failed",changed:$changed,message:$message,rollback_performed:$rollback_performed,deployment_fingerprint:$deployment_fingerprint,steps:$steps}')"
+    printf '%s\n' "$output" >"$result_file.tmp"
+    mv -f "$result_file.tmp" "$result_file"
+    cat "$result_file"
+    return 1
+  fi
+
+  output="$(jq -n \
+    --arg execution_id "$execution_id" --arg function_code "$function_code" \
+    --arg deployment_fingerprint "$deployment_fingerprint" --argjson changed "$changed" --argjson steps "$step_results" \
+    '{schema_version:1,execution_id:$execution_id,function_code:$function_code,status:"succeeded",changed:$changed,message:"deployment completed",rollback_performed:false,deployment_fingerprint:$deployment_fingerprint,steps:$steps}')"
+  printf '%s\n' "$output" >"$result_file.tmp"
+  mv -f "$result_file.tmp" "$result_file"
+  cat "$result_file"
+}
+
 case "${1:-help}" in
   hardware) exec /opt/edge-platform/bootstrap/hardware_collect.sh ;;
   register) shift; exec /opt/edge-platform/bootstrap/register.sh "$@" ;;
   health) systemctl is-active ssh frpc ;;
-  *) echo "usage: edge-deploy {hardware|register|health}" >&2; exit 2 ;;
+  apply)
+    shift
+    if [[ "${1:-}" == --stdin ]]; then
+      IFS= read -r descriptor_input
+      apply_function "$descriptor_input"
+    else
+      apply_function "$@"
+    fi
+    ;;
+  *) echo "usage: edge-deploy {hardware|register|health|apply}" >&2; exit 2 ;;
 esac
 '''
 

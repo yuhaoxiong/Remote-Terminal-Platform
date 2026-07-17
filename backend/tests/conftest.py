@@ -160,9 +160,21 @@ def fake_ssh_service():
         def __init__(self, result: tuple[int, str, str] = (0, "ok", "")) -> None:
             self.result = result
             self.calls: list[tuple[Device, str, int]] = []
+            self.input_calls: list[str] = []
 
         def execute(self, device: Device, command: str, timeout_seconds: int) -> tuple[int, str, str]:
             self.calls.append((device, command, timeout_seconds))
+            return self.result
+
+        def execute_with_input(
+            self,
+            device: Device,
+            command: str,
+            input_text: str,
+            timeout_seconds: int,
+        ) -> tuple[int, str, str]:
+            self.calls.append((device, command, timeout_seconds))
+            self.input_calls.append(input_text)
             return self.result
 
     return FakeSshService

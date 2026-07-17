@@ -2819,14 +2819,17 @@ GET  /api/hardware-profiles
 
 单个设备只归属一个项目，一个项目可以启用多个独立功能。项目功能移除先进入 `pending_uninstall`，为后续经人工确认的卸载计划保留状态。
 
-## 单设备部署计划（第三阶段第二批）
+## 单设备部署执行（第三阶段第三批）
 
-项目页面提供“部署预览”入口。当前一次选择一台设备，平台解析该项目启用的全部功能、项目默认版本、有效的单设备版本覆盖和设备实际硬件规格，冻结制品与配置快照；本批只生成待执行实例，尚未通过 SSH 调用设备端 `edge-deploy`。
+项目页面提供“部署预览”入口。当前一次选择一台设备，平台解析该项目启用的全部功能、项目默认版本、有效的单设备版本覆盖和设备实际硬件规格，冻结制品与配置快照。管理员先确认冻结计划，再经过第二次高风险确认启动执行；确认计划本身不会修改设备。
 
 ```http
 POST /api/projects/{project_id}/deployment-plans
 GET  /api/deployment-plans/{plan_id}
 POST /api/deployment-plans/{plan_id}/confirm
+GET  /api/deployment-executions/{execution_id}
+POST /api/deployment-executions/{execution_id}/execute
+GET  /api/deployment-executions/{execution_id}/items/{item_id}/artifact
 PUT  /api/devices/{device_id}/release-overrides/{function_id}
 ```
 
@@ -2847,7 +2850,21 @@ PUT  /api/devices/{device_id}/release-overrides/{function_id}
 - `expired`：超过 24 小时，必须重新生成；
 - `confirmed`：管理员已确认并生成唯一的部署执行实例。
 
-确认接口具备幂等性：重复确认同一计划返回相同 `execution_id`，不会创建重复执行。新执行当前状态为 `pending`，待下一批接入 SSH 和设备端生命周期脚本。上述写接口仅管理员可用，并记录操作日志。
+确认接口具备幂等性：重复确认同一计划返回相同 `execution_id`，不会创建重复执行。新执行状态为 `pending`，管理员必须再调用执行接口；重复启动终态执行会直接返回原结果。上述写接口仅管理员可用并记录操作日志，已认证运维人员可以只读查看执行结果。
+
+执行状态：
+
+- `pending`：等待管理员启动；
+- `running`：正在逐功能执行；
+- `completed`：全部功能成功；
+- `partial_failed`：部分功能成功，其余失败或已回滚；
+- `failed`：没有功能成功。
+
+执行项状态为 `pending/running/success/failed/rolled_back`，并记录尝试次数、开始/结束时间、结构化结果和截断后的错误信息。一个功能失败不会阻止同一设备的其他功能继续执行。
+
+平台通过 SSH 固定执行 `sudo -n /usr/local/bin/edge-deploy apply --stdin`，部署描述符经标准输入传入，短时制品令牌不会出现在命令行。设备只接受初始化包内冻结的平台执行制品 URL 与固定平台 CA，其他 HTTPS 地址也会被拒绝；下载支持断点续传，完成后核对冻结的 SHA-256，并拒绝危险路径、链接、设备文件或超限归档。随后固定运行 `preflight/install/configure/start/healthcheck`；生产设备在变更后失败会调用 `rollback.sh`，测试设备保留失败现场。
+
+制品下载接口供设备使用，要求与执行项绑定、有效期 30 分钟的 `deployment_artifact` Bearer 令牌，不接受普通用户令牌替代。部署幂等键不包含短时令牌，因此网络重试不会重复运行已经完成的生命周期。单个功能默认 SSH 等待上限为 1800 秒，可通过系统设置 `DEPLOYMENT_TIMEOUT_SECONDS` 调整。
 
 单设备版本覆盖请求：
 

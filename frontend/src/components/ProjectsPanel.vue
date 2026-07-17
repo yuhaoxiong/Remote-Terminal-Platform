@@ -6,6 +6,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import {
   confirmDeploymentPlan,
   createDeploymentPlan,
+  executeDeploymentExecution,
   createFunction,
   createFunctionRelease,
   createProject,
@@ -44,6 +45,7 @@ const assignments = ref<Record<number, ProjectFunctionRead[]>>({});
 const deploymentDevices = ref<DeviceRead[]>([]);
 const deploymentPlan = ref<DeploymentPlanRead | null>(null);
 const deploymentExecution = ref<DeploymentExecutionRead | null>(null);
+const deploymentExecuting = ref(false);
 const loading = ref(false);
 const errorMessage = ref("");
 const successMessage = ref("");
@@ -386,6 +388,28 @@ async function confirmDeployment() {
   }
 }
 
+async function startDeploymentExecution() {
+  if (deploymentExecution.value === null || deploymentExecution.value.status !== "pending") return;
+  try {
+    await ElMessageBox.confirm(
+      `确认开始执行 ${deploymentExecution.value.execution_id}？平台将通过 SSH 修改真实设备。`,
+      "开始真实部署",
+      { type: "error", confirmButtonText: "开始执行" },
+    );
+  } catch {
+    return;
+  }
+  deploymentExecuting.value = true;
+  try {
+    deploymentExecution.value = await executeDeploymentExecution(deploymentExecution.value.execution_id);
+    successMessage.value = `部署执行完成：${deploymentExecution.value.status}`;
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error, "部署执行失败");
+  } finally {
+    deploymentExecuting.value = false;
+  }
+}
+
 onMounted(() => void loadAll());
 </script>
 
@@ -447,7 +471,7 @@ onMounted(() => void loadAll());
     <CommonDialog v-model:visible="releaseDialogOpen" title="新建版本草稿" width="620px" @confirm="submitRelease"><div class="form-grid"><el-select v-model="releaseForm.function_id" placeholder="选择功能"><el-option v-for="item in activeFunctions" :key="item.id" :label="`${item.name} (${item.code})`" :value="item.id" /></el-select><el-input v-model="releaseForm.version" placeholder="版本，例如 0.1.0" /><el-input v-model="releaseForm.release_notes" type="textarea" placeholder="版本说明" /></div></CommonDialog>
     <CommonDialog v-model:visible="artifactDialogOpen" title="上传标准功能包" width="680px" @confirm="submitArtifact"><div class="form-grid"><el-select data-testid="artifact-profile" v-model="artifactForm.hardware_profile_id" placeholder="选择硬件规格"><el-option v-for="profile in hardwareProfiles" :key="profile.id" :label="profile.name" :value="profile.id" /></el-select><input data-testid="artifact-file" type="file" accept=".tar.gz,application/gzip" @change="handleArtifactFileChange" /></div><p class="muted">草稿版本可重复上传并替换同一硬件规格的包；发布后版本与制品永久冻结。</p><template #footer><el-button @click="artifactDialogOpen = false">取消</el-button><el-button data-testid="artifact-upload" type="primary" @click="submitArtifact">上传并校验</el-button></template></CommonDialog>
     <CommonDialog v-model:visible="assignmentDialogOpen" title="配置项目功能" width="700px" @confirm="submitAssignment"><div class="form-grid"><el-select :model-value="assignmentForm.function_id" placeholder="选择功能" @change="selectAssignmentFunction"><el-option v-for="item in activeFunctions" :key="item.id" :label="`${item.name} (${item.code})`" :value="item.id" /></el-select><el-select v-model="assignmentForm.desired_release_id" placeholder="选择已发布版本"><el-option v-for="item in assignmentReleases" :key="item.id" :label="item.version" :value="item.id" /></el-select><el-input v-model="assignmentForm.config_json" type="textarea" :rows="6" placeholder="项目默认配置 JSON" /></div></CommonDialog>
-    <CommonDialog v-model:visible="deploymentDialogOpen" title="单设备部署计划" width="820px" :show-footer="false"><div v-if="deploymentPlan === null" class="form-grid"><el-select data-testid="deployment-device" v-model="deploymentForm.device_id" placeholder="选择项目设备"><el-option v-for="device in deploymentDevices" :key="device.id" :label="`${device.name} (${device.device_sn}) · ${device.status}`" :value="device.id" /></el-select><el-alert type="info" title="这里只生成 24 小时有效的冻结计划，不会立即修改设备。" :closable="false" /><el-button data-testid="deployment-plan-preview" type="primary" @click="submitDeploymentPreview">生成部署预览</el-button></div><div v-else><el-alert :type="deploymentPlan.status === 'ready' ? 'success' : 'warning'" :title="deploymentPlan.status === 'ready' ? '预检通过' : `计划状态：${deploymentPlan.status}`" :closable="false" /><p class="muted">计划 #{{ deploymentPlan.id }} · 快照 {{ deploymentPlan.snapshot_hash.slice(0, 12) }}… · 有效期至 {{ formatTime(deploymentPlan.expires_at) }}</p><el-table :data="deploymentPlan.items" size="small" row-key="id"><el-table-column prop="device_id" label="设备 ID" width="100" /><el-table-column label="功能"><template #default="{ row }">{{ functionName(row.function_id) }}</template></el-table-column><el-table-column label="版本"><template #default="{ row }">{{ releaseName(row.release_id) }}</template></el-table-column><el-table-column prop="status" label="预检" width="100" /><el-table-column label="制品 SHA-256" min-width="190"><template #default="{ row }">{{ row.artifact_sha256.slice(0, 16) }}…</template></el-table-column></el-table><el-alert v-if="deploymentExecution" class="validation-alert" type="success" :title="`已确认，执行 ID：${deploymentExecution.execution_id}`" :closable="false" /><div class="dialog-footer"><el-button @click="deploymentDialogOpen = false">关闭</el-button><el-button v-if="!deploymentExecution && deploymentPlan.status === 'ready'" data-testid="deployment-plan-confirm" type="danger" @click="confirmDeployment">人工确认部署</el-button></div></div></CommonDialog>
+    <CommonDialog v-model:visible="deploymentDialogOpen" title="单设备部署计划" width="820px" :show-footer="false"><div v-if="deploymentPlan === null" class="form-grid"><el-select data-testid="deployment-device" v-model="deploymentForm.device_id" placeholder="选择项目设备"><el-option v-for="device in deploymentDevices" :key="device.id" :label="`${device.name} (${device.device_sn}) · ${device.status}`" :value="device.id" /></el-select><el-alert type="info" title="这里只生成 24 小时有效的冻结计划，不会立即修改设备。" :closable="false" /><el-button data-testid="deployment-plan-preview" type="primary" @click="submitDeploymentPreview">生成部署预览</el-button></div><div v-else><el-alert :type="deploymentPlan.status === 'ready' ? 'success' : 'warning'" :title="deploymentPlan.status === 'ready' ? '预检通过' : `计划状态：${deploymentPlan.status}`" :closable="false" /><p class="muted">计划 #{{ deploymentPlan.id }} · 快照 {{ deploymentPlan.snapshot_hash.slice(0, 12) }}… · 有效期至 {{ formatTime(deploymentPlan.expires_at) }}</p><el-table :data="deploymentPlan.items" size="small" row-key="id"><el-table-column prop="device_id" label="设备 ID" width="100" /><el-table-column label="功能"><template #default="{ row }">{{ functionName(row.function_id) }}</template></el-table-column><el-table-column label="版本"><template #default="{ row }">{{ releaseName(row.release_id) }}</template></el-table-column><el-table-column prop="status" label="预检" width="100" /><el-table-column label="制品 SHA-256" min-width="190"><template #default="{ row }">{{ row.artifact_sha256.slice(0, 16) }}…</template></el-table-column></el-table><template v-if="deploymentExecution"><el-alert class="validation-alert" :type="deploymentExecution.status === 'completed' ? 'success' : deploymentExecution.status === 'pending' ? 'info' : 'warning'" :title="`执行 ID：${deploymentExecution.execution_id} · 状态：${deploymentExecution.status}`" :closable="false" /><el-table v-if="deploymentExecution.items.length" :data="deploymentExecution.items" size="small" row-key="id"><el-table-column prop="plan_item_id" label="计划项" width="100" /><el-table-column prop="status" label="执行状态" width="130" /><el-table-column prop="attempt_count" label="尝试次数" width="100" /><el-table-column prop="error_message" label="错误" min-width="220" /></el-table></template><div class="dialog-footer"><el-button @click="deploymentDialogOpen = false">关闭</el-button><el-button v-if="!deploymentExecution && deploymentPlan.status === 'ready'" data-testid="deployment-plan-confirm" type="danger" @click="confirmDeployment">人工确认部署</el-button><el-button v-if="deploymentExecution?.status === 'pending'" data-testid="deployment-execution-start" type="danger" :loading="deploymentExecuting" @click="startDeploymentExecution">开始执行</el-button></div></div></CommonDialog>
   </section>
 </template>
 

@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import FileResponse
+from fastapi.security import HTTPAuthorizationCredentials
 
-from app.dependencies import conflict_error, get_current_user, not_found_error, request_session, require_admin_user
+from app.dependencies import bearer_scheme, conflict_error, get_current_user, not_found_error, request_session, require_admin_user
 from app.models.user import User
 from app.schemas.deployment import (
     DeploymentExecutionItemRead,
@@ -12,6 +14,12 @@ from app.schemas.deployment import (
     DeploymentPlanRead,
 )
 from app.services.deployment_service import DeploymentConflictError, DeploymentNotFoundError, DeploymentPlanService
+from app.services.deployment_execution_service import (
+    DeploymentArtifactAuthorizationError,
+    DeploymentExecutionConflictError,
+    DeploymentExecutionNotFoundError,
+    DeploymentExecutionService,
+)
 from app.services.operation_log import OperationLogService
 
 
@@ -161,3 +169,74 @@ def confirm_deployment_plan(
         raise conflict_error(pending_conflict)
     assert response is not None
     return response
+
+
+@router.post("/deployment-executions/{execution_id}/execute", response_model=DeploymentExecutionRead)
+def execute_deployment(
+    execution_id: str,
+    request: Request,
+    current_user: User = Depends(require_admin_user),
+) -> DeploymentExecutionRead:
+    with request_session(request) as (settings, session):
+        service = DeploymentExecutionService(
+            settings,
+            ssh_service=getattr(request.app.state, "ssh_service", None),
+        )
+        try:
+            execution, items = service.execute(session, execution_id)
+        except DeploymentExecutionNotFoundError as exc:
+            raise not_found_error(exc) from exc
+        except DeploymentExecutionConflictError as exc:
+            raise conflict_error(exc) from exc
+        OperationLogService(settings).record(
+            session,
+            user_id=current_user.id,
+            action="deployment.execution.execute",
+            target_type="deployment_execution",
+            target_id=execution.id,
+            status=execution.status,
+            detail=execution.execution_id,
+        )
+    return _read_execution(execution, items)
+
+
+@router.get("/deployment-executions/{execution_id}", response_model=DeploymentExecutionRead)
+def get_deployment_execution(
+    execution_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> DeploymentExecutionRead:
+    with request_session(request) as (settings, session):
+        try:
+            execution, items = DeploymentExecutionService(settings).get(session, execution_id)
+        except DeploymentExecutionNotFoundError as exc:
+            raise not_found_error(exc) from exc
+        return _read_execution(execution, items)
+
+
+@router.get("/deployment-executions/{execution_id}/items/{item_id}/artifact")
+def download_deployment_artifact(
+    execution_id: str,
+    item_id: int,
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> FileResponse:
+    with request_session(request) as (settings, session):
+        try:
+            path, variant, filename = DeploymentExecutionService(settings).get_artifact(
+                session,
+                execution_id=execution_id,
+                item_id=item_id,
+                token=credentials.credentials,
+            )
+        except DeploymentArtifactAuthorizationError as exc:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        except DeploymentExecutionNotFoundError as exc:
+            raise not_found_error(exc) from exc
+        except DeploymentExecutionConflictError as exc:
+            raise conflict_error(exc) from exc
+        headers = {
+            "Accept-Ranges": "bytes",
+            "ETag": f'"{variant.artifact_sha256}"',
+        }
+    return FileResponse(path, media_type="application/gzip", filename=filename, headers=headers)

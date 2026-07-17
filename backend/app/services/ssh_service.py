@@ -110,6 +110,25 @@ class SshService:
         finally:
             client.close()
 
+    def execute_with_input(
+        self,
+        device: Device,
+        command: str,
+        input_text: str,
+        timeout: int | None = None,
+    ) -> tuple[int, str, str]:
+        client = self._connect(device)
+        try:
+            stdin, stdout, stderr = client.exec_command(command, timeout=timeout or self.settings.ssh_timeout_seconds)
+            stdin.write(input_text)
+            stdin.flush()
+            stdin.channel.shutdown_write()
+            stdout_text = stdout.read().decode("utf-8", errors="replace")
+            stderr_text = stderr.read().decode("utf-8", errors="replace")
+            return stdout.channel.recv_exit_status(), stdout_text, stderr_text
+        finally:
+            client.close()
+
     def _connect(self, device: Device):
         if device.ssh_port is None:
             raise RemoteConnectionError("设备没有分配 SSH 端口")
