@@ -182,6 +182,22 @@ export async function createFunctionVariant(
   return response.data;
 }
 
+export async function uploadFunctionArtifact(
+  functionId: number,
+  releaseId: number,
+  hardwareProfileId: number,
+  file: File,
+): Promise<FunctionVariantRead> {
+  const form = new FormData();
+  form.append("hardware_profile_id", String(hardwareProfileId));
+  form.append("file", file);
+  const response = await api.post<FunctionVariantRead>(
+    `/functions/${functionId}/releases/${releaseId}/artifacts`,
+    form,
+  );
+  return response.data;
+}
+
 export async function publishFunctionRelease(functionId: number, releaseId: number): Promise<FunctionReleaseRead> {
   const response = await api.post<FunctionReleaseRead>(`/functions/${functionId}/releases/${releaseId}/publish`);
   return response.data;

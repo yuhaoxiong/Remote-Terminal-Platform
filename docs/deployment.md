@@ -21,6 +21,10 @@ export BOOTSTRAP_FRP_SERVER_PORT='7000'
 export BOOTSTRAP_FRP_AUTH_TOKEN='<frps token，如未启用 token 可省略>'
 export BOOTSTRAP_FRPC_DOWNLOAD_URL='https://example.test/frp_0.61.0_linux_arm64.tar.gz'
 export BOOTSTRAP_FRPC_SHA256='<下载归档的 64 位小写 SHA-256>'
+
+# 标准功能包仓库（目录必须由后端服务账号写入）
+export ARTIFACT_STORAGE_DIR='/var/lib/edge-platform/artifacts'
+export ARTIFACT_MAX_UPLOAD_BYTES='1073741824'
 ```
 
 4. Place the generated service at `/etc/systemd/system/edge-platform.service`, then run:
@@ -69,6 +73,8 @@ server {
     }
 
     location /api/ {
+        client_max_body_size 1024m;
+        proxy_request_buffering off;
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -202,6 +208,14 @@ curl "$BASE_URL/api/devices/$DEVICE_ID/metrics?limit=1" \
 - 文件下载走 `/api/devices/{id}/files/download`,请确认 Nginx 没有拦截 `Content-Disposition` 响应头,浏览器应直接下载文件。
 - 定时任务前端页面仍可用于创建、编辑、启停和手动执行任务;Wave 18 之后后台调度器也会自动扫描到期任务并生成执行记录。
 - Web SSH 主动断开会发送 `{ "type": "close" }`,后端关闭 shell 后返回 `status=closed`;如果浏览器显示已断开但后端仍有长连接,优先检查 `/api/ws/` 的 WebSocket 升级和超时配置。
+
+## 阶段 3 标准功能包仓库
+
+- 生产环境必须显式设置 `ARTIFACT_STORAGE_DIR`，并确保后端 systemd 服务账号对该目录有读写权限；不要把制品存入 Git 工作区。
+- `ARTIFACT_MAX_UPLOAD_BYTES` 默认 1 GiB。Nginx 的 `client_max_body_size` 必须不小于该值，否则请求会在到达后端前返回 413。
+- 上传路径使用 `proxy_request_buffering off`，避免 Nginx 先把整个大文件缓冲到代理临时目录。
+- 下载接口支持 HTTP Range。验证命令：`curl -H "Range: bytes=0-1023" -i <artifact-url>`，预期返回 `206 Partial Content`。
+- 制品目录应纳入独立备份和容量监控；数据库备份不包含 `.tar.gz` 文件。
 
 ## Wave 16 批量任务部署检查
 

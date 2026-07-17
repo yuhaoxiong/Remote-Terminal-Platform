@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://edge-platform.local/schemas/function-manifest.schema.json",
+  "title": "Edge function package manifest",
+  "type": "object",
+  "required": ["schema_version", "function_code", "version", "hardware_profile", "runtime"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "function_code": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,63}$" },
+    "version": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "hardware_profile": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,63}$" },
+    "runtime": { "const": "python-venv-systemd" },
+    "signature": { "type": ["string", "null"] },
+    "key_id": { "type": ["string", "null"], "maxLength": 120 }
+  }
+}

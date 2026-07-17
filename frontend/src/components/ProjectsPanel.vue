@@ -6,10 +6,10 @@ import { computed, onMounted, reactive, ref } from "vue";
 import {
   createFunction,
   createFunctionRelease,
-  createFunctionVariant,
   createProject,
   getApiErrorMessage,
   listFunctionReleases,
+  listFunctionVariants,
   listFunctions,
   listHardwareProfiles,
   listProjectFunctions,
@@ -18,19 +18,22 @@ import {
   publishFunctionRelease,
   setProjectFunction,
   updateProject,
+  uploadFunctionArtifact,
   type FunctionRead,
   type FunctionReleaseRead,
+  type FunctionVariantRead,
   type HardwareProfileRead,
   type ProjectFunctionRead,
   type ProjectRead,
 } from "../api/platform";
-import { formatTime } from "../utils/format";
+import { formatSize, formatTime } from "../utils/format";
 import CommonDialog from "./CommonDialog.vue";
 
 const projects = ref<ProjectRead[]>([]);
 const functions = ref<FunctionRead[]>([]);
 const hardwareProfiles = ref<HardwareProfileRead[]>([]);
 const releases = ref<Record<number, FunctionReleaseRead[]>>({});
+const variants = ref<Record<number, FunctionVariantRead[]>>({});
 const assignments = ref<Record<number, ProjectFunctionRead[]>>({});
 const loading = ref(false);
 const errorMessage = ref("");
@@ -39,19 +42,17 @@ const successMessage = ref("");
 const projectDialogOpen = ref(false);
 const functionDialogOpen = ref(false);
 const releaseDialogOpen = ref(false);
-const variantDialogOpen = ref(false);
+const artifactDialogOpen = ref(false);
 const assignmentDialogOpen = ref(false);
 
 const projectForm = reactive({ code: "", name: "", description: "" });
 const functionForm = reactive({ code: "", name: "", description: "" });
 const releaseForm = reactive({ function_id: null as number | null, version: "", release_notes: "" });
-const variantForm = reactive({
+const artifactForm = reactive({
   function_id: null as number | null,
   release_id: null as number | null,
   hardware_profile_id: null as number | null,
-  artifact_uri: "",
-  artifact_sha256: "",
-  artifact_size: 0,
+  file: null as File | null,
 });
 const assignmentForm = reactive({
   project_id: null as number | null,
@@ -105,7 +106,13 @@ async function loadAll() {
 }
 
 async function loadReleases(functionId: number) {
-  releases.value[functionId] = (await listFunctionReleases(functionId)).items;
+  const items = (await listFunctionReleases(functionId)).items;
+  releases.value[functionId] = items;
+  await Promise.all(items.map((item) => loadVariants(functionId, item.id)));
+}
+
+async function loadVariants(functionId: number, releaseId: number) {
+  variants.value[releaseId] = (await listFunctionVariants(functionId, releaseId)).items;
 }
 
 async function loadAssignments(projectId: number) {
@@ -197,30 +204,58 @@ async function submitRelease() {
   }
 }
 
-async function submitVariant() {
+function prepareArtifactUpload(release: FunctionReleaseRead) {
+  Object.assign(artifactForm, {
+    function_id: release.function_id,
+    release_id: release.id,
+    hardware_profile_id: null,
+    file: null,
+  });
+  artifactDialogOpen.value = true;
+}
+
+function handleArtifactFileChange(event: Event) {
+  artifactForm.file = (event.target as HTMLInputElement).files?.[0] ?? null;
+}
+
+async function submitArtifact() {
   if (
-    variantForm.function_id === null ||
-    variantForm.release_id === null ||
-    variantForm.hardware_profile_id === null ||
-    !variantForm.artifact_uri ||
-    !/^[0-9a-f]{64}$/.test(variantForm.artifact_sha256) ||
-    variantForm.artifact_size <= 0
+    artifactForm.function_id === null ||
+    artifactForm.release_id === null ||
+    artifactForm.hardware_profile_id === null ||
+    artifactForm.file === null
   ) {
-    errorMessage.value = "请完整填写变体信息，SHA-256 必须为 64 位小写十六进制";
+    errorMessage.value = "请选择硬件规格和标准功能包";
+    return;
+  }
+  if (!artifactForm.file.name.toLowerCase().endsWith(".tar.gz")) {
+    errorMessage.value = "标准功能包必须使用 .tar.gz 格式";
     return;
   }
   try {
-    await createFunctionVariant(variantForm.function_id, variantForm.release_id, {
-      hardware_profile_id: variantForm.hardware_profile_id,
-      artifact_uri: variantForm.artifact_uri,
-      artifact_sha256: variantForm.artifact_sha256,
-      artifact_size: variantForm.artifact_size,
-    });
-    variantDialogOpen.value = false;
-    successMessage.value = "硬件变体已登记";
+    await uploadFunctionArtifact(
+      artifactForm.function_id,
+      artifactForm.release_id,
+      artifactForm.hardware_profile_id,
+      artifactForm.file,
+    );
+    await loadVariants(artifactForm.function_id, artifactForm.release_id);
+    artifactDialogOpen.value = false;
+    successMessage.value = "功能包已上传，SHA-256 已由平台计算";
   } catch (error) {
-    errorMessage.value = getApiErrorMessage(error, "登记变体失败");
+    errorMessage.value = getApiErrorMessage(error, "功能包上传失败");
   }
+}
+
+function variantSummary(releaseId: number): string {
+  const items = variants.value[releaseId] ?? [];
+  if (!items.length) return "尚未上传";
+  return items
+    .map((variant) => {
+      const profile = hardwareProfiles.value.find((item) => item.id === variant.hardware_profile_id);
+      return `${profile?.name ?? `规格 #${variant.hardware_profile_id}`} · ${variant.artifact_sha256.slice(0, 12)}… · ${formatSize(variant.artifact_size)}`;
+    })
+    .join("、");
 }
 
 async function publishRelease(item: FunctionReleaseRead) {
@@ -305,7 +340,7 @@ onMounted(() => void loadAll());
     <div class="page-title-row">
       <div>
         <h3>项目与功能</h3>
-        <p class="muted">正式项目、不可变功能版本及硬件变体；部署计划将在后续阶段接入。</p>
+        <p class="muted">正式项目、不可变功能版本及标准功能包；平台自动校验包结构并计算 SHA-256。</p>
       </div>
       <el-button :icon="Refresh" :loading="loading" @click="loadAll">刷新</el-button>
     </div>
@@ -338,15 +373,16 @@ onMounted(() => void loadAll());
       </el-tab-pane>
 
       <el-tab-pane label="功能与版本">
-        <div class="toolbar"><h4>可复用功能</h4><div><el-button data-testid="open-function-create" :icon="Plus" @click="functionDialogOpen = true">新建功能</el-button><el-button type="primary" :icon="Plus" @click="releaseDialogOpen = true">新建版本</el-button><el-button :icon="Plus" @click="variantDialogOpen = true">登记变体</el-button></div></div>
+        <div class="toolbar"><h4>可复用功能</h4><div><el-button data-testid="open-function-create" :icon="Plus" @click="functionDialogOpen = true">新建功能</el-button><el-button type="primary" :icon="Plus" @click="releaseDialogOpen = true">新建版本</el-button></div></div>
         <section v-for="item in functions" :key="item.id" class="panel compact-panel">
           <div class="panel-header"><div><h4>{{ item.name }}</h4><p class="muted">{{ item.code }} · {{ item.description || "暂无说明" }}</p></div><el-tag :type="item.status === 'active' ? 'success' : 'info'">{{ item.status }}</el-tag></div>
           <el-table :data="releases[item.id] ?? []" size="small" row-key="id" empty-text="暂无版本">
             <el-table-column prop="version" label="版本" width="150" />
             <el-table-column prop="status" label="状态" width="120" />
+            <el-table-column label="硬件制品" min-width="230"><template #default="{ row }">{{ variantSummary(row.id) }}</template></el-table-column>
             <el-table-column prop="release_notes" label="说明" min-width="220" />
             <el-table-column label="发布时间" width="180"><template #default="{ row }">{{ formatTime(row.published_at, "未发布") }}</template></el-table-column>
-            <el-table-column label="操作" width="120"><template #default="{ row }"><el-button v-if="row.status === 'draft'" size="small" type="primary" @click="publishRelease(row)">发布</el-button><el-tag v-else type="success">已冻结</el-tag></template></el-table-column>
+            <el-table-column label="操作" width="190"><template #default="{ row }"><template v-if="row.status === 'draft'"><el-button :data-testid="`open-artifact-upload-${row.id}`" size="small" @click="prepareArtifactUpload(row)">上传包</el-button><el-button size="small" type="primary" @click="publishRelease(row)">发布</el-button></template><el-tag v-else type="success">已冻结</el-tag></template></el-table-column>
           </el-table>
         </section>
       </el-tab-pane>
@@ -355,7 +391,7 @@ onMounted(() => void loadAll());
     <CommonDialog v-model:visible="projectDialogOpen" title="新建正式项目" width="620px" @confirm="submitProject"><div class="form-grid"><el-input data-testid="project-name" v-model="projectForm.name" placeholder="项目名称，可使用中文" /><el-input data-testid="project-code" v-model="projectForm.code" placeholder="技术代码（可选，留空自动生成）" /><el-input v-model="projectForm.description" type="textarea" placeholder="项目说明" /></div><p class="muted">技术代码用于接口和部署路径，仅支持小写字母、数字和连字符；日常显示使用项目名称。</p><template #footer><el-button @click="projectDialogOpen = false">取消</el-button><el-button data-testid="project-create" type="primary" @click="submitProject">创建项目</el-button></template></CommonDialog>
     <CommonDialog v-model:visible="functionDialogOpen" title="新建功能" width="620px" @confirm="submitFunction"><div class="form-grid"><el-input data-testid="function-name" v-model="functionForm.name" placeholder="功能名称，可使用中文" /><el-input data-testid="function-code" v-model="functionForm.code" placeholder="技术代码（可选，留空自动生成）" /><el-input v-model="functionForm.description" type="textarea" placeholder="功能说明" /></div><p class="muted">技术代码用于功能包目录和接口，仅支持小写字母、数字和连字符；日常显示使用功能名称。</p><template #footer><el-button @click="functionDialogOpen = false">取消</el-button><el-button data-testid="function-create" type="primary" @click="submitFunction">创建功能</el-button></template></CommonDialog>
     <CommonDialog v-model:visible="releaseDialogOpen" title="新建版本草稿" width="620px" @confirm="submitRelease"><div class="form-grid"><el-select v-model="releaseForm.function_id" placeholder="选择功能"><el-option v-for="item in activeFunctions" :key="item.id" :label="`${item.name} (${item.code})`" :value="item.id" /></el-select><el-input v-model="releaseForm.version" placeholder="版本，例如 0.1.0" /><el-input v-model="releaseForm.release_notes" type="textarea" placeholder="版本说明" /></div></CommonDialog>
-    <CommonDialog v-model:visible="variantDialogOpen" title="登记硬件变体" width="720px" @confirm="submitVariant"><div class="form-grid"><el-select v-model="variantForm.function_id" placeholder="选择功能" @change="variantForm.release_id = null"><el-option v-for="item in activeFunctions" :key="item.id" :label="item.name" :value="item.id" /></el-select><el-select v-model="variantForm.release_id" placeholder="选择草稿版本"><el-option v-for="item in (variantForm.function_id === null ? [] : releases[variantForm.function_id] ?? []).filter((release) => release.status === 'draft')" :key="item.id" :label="item.version" :value="item.id" /></el-select><el-select v-model="variantForm.hardware_profile_id" placeholder="硬件规格"><el-option v-for="profile in hardwareProfiles" :key="profile.id" :label="profile.name" :value="profile.id" /></el-select><el-input v-model="variantForm.artifact_uri" placeholder="制品 URI（阶段 1 人工登记）" /><el-input v-model="variantForm.artifact_sha256" placeholder="SHA-256" /><el-input-number v-model="variantForm.artifact_size" :min="1" placeholder="制品字节数" style="width: 100%" /></div></CommonDialog>
+    <CommonDialog v-model:visible="artifactDialogOpen" title="上传标准功能包" width="680px" @confirm="submitArtifact"><div class="form-grid"><el-select data-testid="artifact-profile" v-model="artifactForm.hardware_profile_id" placeholder="选择硬件规格"><el-option v-for="profile in hardwareProfiles" :key="profile.id" :label="profile.name" :value="profile.id" /></el-select><input data-testid="artifact-file" type="file" accept=".tar.gz,application/gzip" @change="handleArtifactFileChange" /></div><p class="muted">草稿版本可重复上传并替换同一硬件规格的包；发布后版本与制品永久冻结。</p><template #footer><el-button @click="artifactDialogOpen = false">取消</el-button><el-button data-testid="artifact-upload" type="primary" @click="submitArtifact">上传并校验</el-button></template></CommonDialog>
     <CommonDialog v-model:visible="assignmentDialogOpen" title="配置项目功能" width="700px" @confirm="submitAssignment"><div class="form-grid"><el-select :model-value="assignmentForm.function_id" placeholder="选择功能" @change="selectAssignmentFunction"><el-option v-for="item in activeFunctions" :key="item.id" :label="`${item.name} (${item.code})`" :value="item.id" /></el-select><el-select v-model="assignmentForm.desired_release_id" placeholder="选择已发布版本"><el-option v-for="item in assignmentReleases" :key="item.id" :label="item.version" :value="item.id" /></el-select><el-input v-model="assignmentForm.config_json" type="textarea" :rows="6" placeholder="项目默认配置 JSON" /></div></CommonDialog>
   </section>
 </template>

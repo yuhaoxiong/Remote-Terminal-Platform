@@ -2799,10 +2799,14 @@ PUT  /api/functions/{function_id}/releases/{release_id}
 GET  /api/functions/{function_id}/releases/{release_id}/variants
 POST /api/functions/{function_id}/releases/{release_id}/variants
 PUT  /api/functions/{function_id}/releases/{release_id}/variants/{variant_id}
+POST /api/functions/{function_id}/releases/{release_id}/artifacts
+GET  /api/functions/{function_id}/releases/{release_id}/variants/{variant_id}/artifact
 POST /api/functions/{function_id}/releases/{release_id}/publish
 ```
 
-草稿版本及其变体可以修改；发布前至少要有一个硬件变体。已发布版本和变体不可修改，项目只能选择已发布版本。
+`artifacts` 接口仅管理员可用，接收 `multipart/form-data`：`hardware_profile_id` 与 `.tar.gz` 文件字段 `file`。平台校验标准包结构、清单、配置格式和脚本权限，并自动计算 `artifact_size` 与 `artifact_sha256`。同一草稿版本和硬件规格再次上传会替换原包。
+
+制品下载接口要求登录，支持 `Range`、`ETag` 和断点续传。发布前至少要有一个已上传到平台仓库的硬件变体；平台会重新核对文件、大小和 SHA-256。已发布版本、变体和制品不可修改，项目只能选择已发布版本。完整包契约见 `docs/standard-function-package.md`。
 
 ### 项目功能配置
 

@@ -22,6 +22,8 @@ class Settings(BaseModel):
     ssh_timeout_seconds: int = 10
     vnc_timeout_seconds: int = 10
     file_storage_dir: str | None = None
+    artifact_storage_dir: str | None = None
+    artifact_max_upload_bytes: int = 1024 * 1024 * 1024
     remote_gateway_host: str = "127.0.0.1"
     vnc_gateway_host: str | None = None
     default_vnc_password: str | None = None
@@ -72,6 +74,8 @@ def get_settings() -> Settings:
         scheduler_poll_interval_seconds=int(os.getenv("SCHEDULER_POLL_INTERVAL_SECONDS", "30")),
         file_backend=os.getenv("FILE_BACKEND", "sftp"),
         file_storage_dir=os.getenv("FILE_STORAGE_DIR"),
+        artifact_storage_dir=os.getenv("ARTIFACT_STORAGE_DIR"),
+        artifact_max_upload_bytes=int(os.getenv("ARTIFACT_MAX_UPLOAD_BYTES", str(1024 * 1024 * 1024))),
         default_device_ssh_user=os.getenv("DEFAULT_DEVICE_SSH_USER", "ztl"),
         default_device_ssh_password=os.getenv("DEFAULT_DEVICE_SSH_PASSWORD", "123456"),
         credential_encryption_key=os.getenv("CREDENTIAL_ENCRYPTION_KEY"),

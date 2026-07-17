@@ -155,11 +155,15 @@ $env:BOOTSTRAP_FRP_SERVER_PORT='7000'
 $env:BOOTSTRAP_FRP_AUTH_TOKEN='<frps token>'
 $env:BOOTSTRAP_FRPC_DOWNLOAD_URL='https://example.test/frp_linux_arm64.tar.gz'
 $env:BOOTSTRAP_FRPC_SHA256='<64 位小写 SHA-256>'
+$env:ARTIFACT_STORAGE_DIR='C:\edge-platform-data\artifacts'
+$env:ARTIFACT_MAX_UPLOAD_BYTES='1073741824'
 ```
 
 `FILE_BACKEND` 默认是 `sftp`,文件列表、上传、下载和删除会通过设备 frp SSH 端口访问真实设备。没有真实设备的本地开发可显式设置为 `local`。远程 SSH/VNC 连接依赖设备记录中的代理端口、设备级 SSH 凭据、frpc/frps 可达性和 Nginx WebSocket 代理。
 
 初始化包要求平台使用 HTTPS；过渡期自建 CA 证书必须包含实际平台 IP 的 SAN。管理员在设备列表生成 ZIP 后，通过局域网或 U 盘复制到对应设备，以 root 执行 `bash install.sh`。每个包的注册令牌和 VNC 密码均独立，禁止跨设备复用。
+
+标准功能包由管理员在“项目与功能”页面上传。平台只接受符合 [标准功能包契约](docs/standard-function-package.md) 的 `.tar.gz`，自动计算 SHA-256；草稿制品可替换，发布后不可修改。生产部署还需同步配置 Nginx `client_max_body_size` 和后端可写的 `ARTIFACT_STORAGE_DIR`。
 
 告警 Webhook 通道的 URL 和请求头会作为敏感配置保存。创建或更新 Webhook 地址、请求头前必须配置 `CREDENTIAL_ENCRYPTION_KEY`;未配置时后端会拒绝保存敏感通知配置。
 

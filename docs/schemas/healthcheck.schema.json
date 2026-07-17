@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://edge-platform.local/schemas/healthcheck.schema.json",
+  "title": "Edge function healthcheck result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "severity", "checked_at", "checks"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "status": { "enum": ["healthy", "degraded", "unhealthy"] },
+    "severity": { "enum": ["info", "warning", "critical"] },
+    "checked_at": { "type": "string", "format": "date-time" },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["passed", "warning", "failed"] },
+          "message": { "type": "string" },
+          "details": { "type": "object" }
+        }
+      }
+    }
+  }
+}

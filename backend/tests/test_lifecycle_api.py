@@ -1,3 +1,6 @@
+from artifact_helpers import build_standard_package
+
+
 def _create_project(client, headers, *, code: str = "outside-bin") -> dict:
     response = client.post(
         "/api/projects",
@@ -62,15 +65,12 @@ def test_project_function_release_workflow_is_immutable_after_publish(client, au
     profiles = client.get("/api/hardware-profiles", headers=auth_headers).json()["items"]
     variants = []
     for profile in profiles:
+        package = build_standard_package(edge_function["code"], release["version"], profile["code"])
         variant = client.post(
-            f"/api/functions/{edge_function['id']}/releases/{release['id']}/variants",
+            f"/api/functions/{edge_function['id']}/releases/{release['id']}/artifacts",
             headers=auth_headers,
-            json={
-                "hardware_profile_id": profile["id"],
-                "artifact_uri": f"artifacts/outside-rubbish-bag/0.1.0/{profile['code']}.tar.gz",
-                "artifact_sha256": "a" * 64,
-                "artifact_size": 1024,
-            },
+            data={"hardware_profile_id": str(profile["id"])},
+            files={"file": (f"{profile['code']}.tar.gz", package, "application/gzip")},
         )
         assert variant.status_code == 201
         variants.append(variant.json())
@@ -78,10 +78,10 @@ def test_project_function_release_workflow_is_immutable_after_publish(client, au
     draft_update = client.put(
         f"/api/functions/{edge_function['id']}/releases/{release['id']}/variants/{variants[0]['id']}",
         headers=auth_headers,
-        json={"artifact_sha256": "b" * 64, "artifact_size": 2048},
+        json={"key_id": "future-signing-key"},
     )
     assert draft_update.status_code == 200
-    assert draft_update.json()["artifact_sha256"] == "b" * 64
+    assert draft_update.json()["key_id"] == "future-signing-key"
 
     unpublished_assignment = client.put(
         f"/api/projects/{project['id']}/functions/{edge_function['id']}",

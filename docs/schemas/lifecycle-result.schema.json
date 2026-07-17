@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://edge-platform.local/schemas/lifecycle-result.schema.json",
+  "title": "Edge function lifecycle script result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "changed", "message"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "status": { "enum": ["succeeded", "failed", "reboot_required"] },
+    "changed": { "type": "boolean" },
+    "message": { "type": "string" },
+    "details": { "type": "object" }
+  }
+}

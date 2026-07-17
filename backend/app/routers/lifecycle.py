@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse
+from starlette.datastructures import UploadFile
 
 from app.dependencies import conflict_error, get_current_user, not_found_error, request_session, require_admin_user
 from app.models.user import User
@@ -25,6 +27,7 @@ from app.schemas.lifecycle import (
     ProjectRead,
     ProjectUpdate,
 )
+from app.services.artifact_service import ArtifactService, ArtifactStorageError, ArtifactValidationError
 from app.services.lifecycle_service import (
     FunctionService,
     HardwareProfileService,
@@ -306,6 +309,90 @@ def list_function_variants(
 
 
 @router.post(
+    "/functions/{function_id}/releases/{release_id}/artifacts",
+    response_model=FunctionVariantRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_function_artifact(
+    function_id: int,
+    release_id: int,
+    request: Request,
+    current_user: User = Depends(require_admin_user),
+) -> FunctionVariantRead:
+    form = await request.form()
+    upload = form.get("file")
+    try:
+        hardware_profile_id = int(str(form.get("hardware_profile_id") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="请选择硬件规格") from exc
+    if not isinstance(upload, UploadFile):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="请选择要上传的功能包")
+    with request_session(request) as (settings, session):
+        try:
+            variant = await ArtifactService(settings).upload(
+                session,
+                function_id=function_id,
+                release_id=release_id,
+                hardware_profile_id=hardware_profile_id,
+                upload=upload,
+            )
+        except LifecycleNotFoundError as exc:
+            raise _not_found(exc) from exc
+        except (LifecycleConflictError, LifecycleImmutableError) as exc:
+            raise _conflict(exc) from exc
+        except ArtifactValidationError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        _record(
+            request,
+            session,
+            current_user,
+            "function.artifact.upload",
+            "function_variant",
+            variant.id,
+            variant.artifact_sha256,
+        )
+        return FunctionVariantRead.model_validate(variant)
+
+
+@router.get(
+    "/functions/{function_id}/releases/{release_id}/variants/{variant_id}/artifact",
+)
+def download_function_artifact(
+    function_id: int,
+    release_id: int,
+    variant_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> FileResponse:
+    with request_session(request) as (settings, session):
+        try:
+            path, variant, filename = ArtifactService(settings).get_download(
+                session,
+                function_id=function_id,
+                release_id=release_id,
+                variant_id=variant_id,
+            )
+        except LifecycleNotFoundError as exc:
+            raise _not_found(exc) from exc
+        except ArtifactStorageError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        _record(
+            request,
+            session,
+            current_user,
+            "function.artifact.download",
+            "function_variant",
+            variant.id,
+            variant.artifact_sha256,
+        )
+        headers = {
+            "Accept-Ranges": "bytes",
+            "ETag": f'"{variant.artifact_sha256}"',
+        }
+    return FileResponse(path, media_type="application/gzip", filename=filename, headers=headers)
+
+
+@router.post(
     "/functions/{function_id}/releases/{release_id}/variants",
     response_model=FunctionVariantRead,
     status_code=status.HTTP_201_CREATED,
@@ -361,8 +448,13 @@ def publish_function_release(
     request: Request,
     current_user: User = Depends(require_admin_user),
 ) -> FunctionReleaseRead:
-    with request_session(request) as (_settings, session):
+    with request_session(request) as (settings, session):
         try:
+            ArtifactService(settings).verify_release_artifacts(
+                session,
+                function_id=function_id,
+                release_id=release_id,
+            )
             release = FunctionService().publish_release(session, function_id, release_id)
         except LifecycleNotFoundError as exc:
             raise _not_found(exc) from exc
