@@ -8,7 +8,7 @@ def _auth(client) -> tuple[dict[str, str], str]:
     return {"Authorization": f"Bearer {token}"}, token
 
 
-def _device_payload(device_sn: str, *, project_id: str, tags: list[str]) -> dict[str, object]:
+def _device_payload(device_sn: str, *, project_id: int, tags: list[str]) -> dict[str, object]:
     return {
         "name": f"Device {device_sn}",
         "device_sn": device_sn,
@@ -21,18 +21,20 @@ def _device_payload(device_sn: str, *, project_id: str, tags: list[str]) -> dict
     }
 
 
-def test_update_task_lifecycle_filters_targets_and_streams_progress(client) -> None:
+def test_update_task_lifecycle_filters_targets_and_streams_progress(client, create_project) -> None:
     headers, token = _auth(client)
+    project_a = create_project("factory-a")
+    project_b = create_project("factory-b")
     first = client.post(
         "/api/devices",
         headers=headers,
-        json=_device_payload("edge-update-001", project_id="factory-a", tags=["vision", "prod"]),
+        json=_device_payload("edge-update-001", project_id=project_a.id, tags=["vision", "prod"]),
     )
     assert first.status_code == 201
     second = client.post(
         "/api/devices",
         headers=headers,
-        json=_device_payload("edge-update-002", project_id="factory-b", tags=["vision"]),
+        json=_device_payload("edge-update-002", project_id=project_b.id, tags=["vision"]),
     )
     assert second.status_code == 201
 
@@ -43,7 +45,7 @@ def test_update_task_lifecycle_filters_targets_and_streams_progress(client) -> N
             "name": "Config rollback required",
             "task_type": "config",
             "command": "sudo systemctl restart ai-app",
-            "target_filter": {"project_id": "factory-a"},
+            "target_filter": {"project_id": project_a.id},
             "failure_strategy": "rollback",
         },
     )
@@ -56,7 +58,7 @@ def test_update_task_lifecycle_filters_targets_and_streams_progress(client) -> N
             "name": "Restart factory A",
             "task_type": "script",
             "command": "sudo systemctl restart ai-app",
-            "target_filter": {"project_id": "factory-a", "tags": ["vision"]},
+            "target_filter": {"project_id": project_a.id, "tags": ["vision"]},
             "failure_strategy": "continue",
             "concurrency_limit": 2,
         },
@@ -90,12 +92,13 @@ def test_update_task_lifecycle_filters_targets_and_streams_progress(client) -> N
     assert "exit_code" in snapshot["task"]["devices"][0]
 
 
-def test_update_task_cancel_marks_pending_devices(client) -> None:
+def test_update_task_cancel_marks_pending_devices(client, create_project) -> None:
     headers, _token = _auth(client)
+    project = create_project("factory-c")
     device = client.post(
         "/api/devices",
         headers=headers,
-        json=_device_payload("edge-update-003", project_id="factory-c", tags=["prod"]),
+        json=_device_payload("edge-update-003", project_id=project.id, tags=["prod"]),
     )
     assert device.status_code == 201
 
@@ -106,7 +109,7 @@ def test_update_task_cancel_marks_pending_devices(client) -> None:
             "name": "Cancel pending task",
             "task_type": "script",
             "command": "echo later",
-            "target_filter": {"project_id": "factory-c"},
+            "target_filter": {"project_id": project.id},
         },
     )
     assert created.status_code == 201

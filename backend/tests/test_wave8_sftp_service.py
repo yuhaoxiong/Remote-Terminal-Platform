@@ -105,7 +105,7 @@ def test_paramiko_sftp_session_delegates_file_mutations() -> None:
 
 
 def _device() -> Device:
-    return Device(id=7, name="SFTP", device_sn="sftp-001", project_id="factory", ssh_user="root", ssh_port=10000)
+    return Device(id=7, name="SFTP", device_sn="sftp-001", project_id=None, ssh_user="root", ssh_port=10000)
 
 
 def test_file_service_can_use_sftp_backend_for_remote_files() -> None:

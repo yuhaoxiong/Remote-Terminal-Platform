@@ -425,9 +425,14 @@ it("keeps the authenticated surface visible when a data endpoint fails after log
 it("creates a device through the backend API and exposes SSH/VNC entry points", async () => {
   api.createDevice.mockResolvedValueOnce({
     id: 2,
+    device_uuid: "device-2",
     name: "边缘相机 09",
     device_sn: "SN-W5-009",
-    project_id: "工厂-wave5",
+    project_id: 1,
+    expected_profile_id: null,
+    actual_profile_id: null,
+    device_role: null,
+    is_test_device: false,
     location: null,
     hardware_model: null,
     ssh_port: 10001,
@@ -454,7 +459,6 @@ it("creates a device through the backend API and exposes SSH/VNC entry points", 
   await wrapper.find('[data-testid="open-device-create"]').trigger("click");
   await wrapper.find('[data-testid="device-name"] input').setValue("边缘相机 09");
   await wrapper.find('[data-testid="device-sn"] input').setValue("SN-W5-009");
-  await wrapper.find('[data-testid="device-project"] input').setValue("工厂-wave5");
   await wrapper.find('[data-testid="device-tags"] input').setValue("视觉,生产");
   await wrapper.find('[data-testid="save-device"]').trigger("click");
   await flushAsync();
@@ -462,7 +466,9 @@ it("creates a device through the backend API and exposes SSH/VNC entry points", 
   expect(api.createDevice).toHaveBeenCalledWith({
     name: "边缘相机 09",
     device_sn: "SN-W5-009",
-    project_id: "工厂-wave5",
+    project_id: null,
+    expected_profile_id: null,
+    is_test_device: false,
     group_id: 1,
     location: undefined,
     tags: ["视觉", "生产"],
@@ -491,9 +497,14 @@ it("imports existing frps proxies into devices", async () => {
     items: [
       {
         id: 2,
+        device_uuid: "device-2",
         name: "frps-12008",
         device_sn: "frps-12008",
-        project_id: "frps-import",
+        project_id: 1,
+        expected_profile_id: null,
+        actual_profile_id: null,
+        device_role: null,
+        is_test_device: false,
         location: "frps",
         hardware_model: null,
         ssh_port: 12008,
@@ -524,7 +535,7 @@ it("imports existing frps proxies into devices", async () => {
     ssh_port_end: 17000,
     vnc_port_start: 17001,
     vnc_port_end: 22000,
-    project_id: "frps-import",
+    project_id: null,
     location: "frps",
     overwrite_project_location: false,
   });
@@ -684,9 +695,14 @@ it("creates, edits, filters, and deletes groups", async () => {
 it("edits, refreshes, and deletes a device from the device table", async () => {
   api.updateDevice.mockResolvedValueOnce({
     id: 1,
+    device_uuid: "device-1",
     name: "装配边缘终端 01 已更新",
     device_sn: "SN-EDGE-001",
-    project_id: "工厂-b",
+    project_id: 2,
+    expected_profile_id: null,
+    actual_profile_id: null,
+    device_role: null,
+    is_test_device: false,
     location: "上海",
     hardware_model: null,
     ssh_port: 10010,
@@ -713,7 +729,6 @@ it("edits, refreshes, and deletes a device from the device table", async () => {
   await navigateTo(router, "devices");
   await wrapper.find('[data-testid="edit-device-1"]').trigger("click");
   await wrapper.find('[data-testid="device-name"] input').setValue("装配边缘终端 01 已更新");
-  await wrapper.find('[data-testid="device-project"] input').setValue("工厂-b");
   await wrapper.find('[data-testid="device-tags"] input').setValue("维护");
   await wrapper.find('[data-testid="device-ssh-port"] input').setValue("10010");
   await wrapper.find('[data-testid="device-vnc-port"] input').setValue("10510");
@@ -722,7 +737,9 @@ it("edits, refreshes, and deletes a device from the device table", async () => {
 
   expect(api.updateDevice).toHaveBeenCalledWith(1, {
     name: "装配边缘终端 01 已更新",
-    project_id: "工厂-b",
+    project_id: 1,
+    expected_profile_id: null,
+    is_test_device: false,
     group_id: 1,
     location: "北京",
     tags: ["维护"],
@@ -872,7 +889,7 @@ it("cancels a pending update task", async () => {
         task_type: "command",
         command: "hostname",
         rollback_command: null,
-        target_filter: { project_id: "工厂-a" },
+        target_filter: { project_id: 1 },
         execution_mode: "dry_run",
         failure_strategy: "continue",
         concurrency_limit: 5,
@@ -890,7 +907,7 @@ it("cancels a pending update task", async () => {
     task_type: "command",
     command: "hostname",
     rollback_command: null,
-    target_filter: { project_id: "工厂-a" },
+    target_filter: { project_id: 1 },
     execution_mode: "dry_run",
     failure_strategy: "continue",
     concurrency_limit: 5,
@@ -920,7 +937,7 @@ it("creates and executes a filtered update task through the backend API", async 
     task_type: "command",
     command: "sudo systemctl restart vision",
     rollback_command: null,
-    target_filter: { project_id: "工厂-a" },
+    target_filter: { project_id: 1 },
     execution_mode: "dry_run",
     failure_strategy: "continue",
     concurrency_limit: 5,
@@ -950,7 +967,7 @@ it("creates and executes a filtered update task through the backend API", async 
     task_type: "command",
     command: "sudo systemctl restart vision",
     rollback_command: null,
-    target_filter: { project_id: "工厂-a" },
+    target_filter: { project_id: 1 },
     execution_mode: "ssh_command",
     failure_strategy: "continue",
     concurrency_limit: 5,
@@ -992,14 +1009,14 @@ it("creates and executes a filtered update task through the backend API", async 
   await flushAsync();
 
   expect(api.previewUpdateTaskTargets).toHaveBeenCalledWith({
-    target_filter: { project_id: "工厂-a" },
+    target_filter: { project_id: 1 },
     execution_mode: "ssh_command",
   });
   expect(api.createUpdateTask).toHaveBeenCalledWith({
     name: "重启视觉服务",
     task_type: "command",
     command: "sudo systemctl restart vision",
-    target_filter: { project_id: "工厂-a" },
+    target_filter: { project_id: 1 },
     execution_mode: "ssh_command",
     failure_strategy: "continue",
     concurrency_limit: 5,

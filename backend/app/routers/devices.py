@@ -29,7 +29,7 @@ from app.schemas.file_transfer import (
     FileRenameRequest,
     FileUploadRequest,
 )
-from app.services.device_service import DeviceDuplicateError, DeviceNotFoundError, DeviceService
+from app.services.device_service import DeviceDuplicateError, DeviceNotFoundError, DeviceReferenceError, DeviceService
 from app.services.file_service import FilePathError, FileService, RemoteFileNotFoundError
 from app.services.frpc_config import FrpcConfigService
 from app.services.monitoring_service import MonitoringService
@@ -81,6 +81,8 @@ def create_device(
             raise conflict_error(exc) from exc
         except PortPoolExhaustedError as exc:
             raise conflict_error(exc) from exc
+        except DeviceReferenceError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,
@@ -100,7 +102,7 @@ def list_devices(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
     search: str | None = None,
-    project_id: str | None = None,
+    project_id: int | None = Query(default=None, ge=1),
     group_id: int | None = None,
     tag: str | None = None,
     status: str | None = None,
@@ -146,6 +148,8 @@ def update_device(
             raise not_found_error(exc) from exc
         except PortPoolExhaustedError as exc:
             raise conflict_error(exc) from exc
+        except DeviceReferenceError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,

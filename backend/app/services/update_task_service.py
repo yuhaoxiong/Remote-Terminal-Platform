@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -127,7 +127,11 @@ class UpdateTaskService:
         target_filter = target_filter or {}
         statement = select(Device)
         if project_id := target_filter.get("project_id"):
-            statement = statement.where(Device.project_id == str(project_id))
+            statement = statement.where(
+                Device.project_id == project_id
+                if isinstance(project_id, int) and not isinstance(project_id, bool)
+                else false()
+            )
         if group_id := target_filter.get("group_id"):
             statement = statement.where(Device.group_id == int(group_id))
         if status := target_filter.get("status"):

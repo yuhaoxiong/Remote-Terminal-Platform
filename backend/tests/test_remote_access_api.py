@@ -18,7 +18,6 @@ def _create_device(client, headers: dict[str, str]) -> dict:
         json={
             "name": "Remote edge box",
             "device_sn": "remote-sn-001",
-            "project_id": "factory-a",
             "ssh_user": "root",
             "local_ip": "192.168.30.10",
         },

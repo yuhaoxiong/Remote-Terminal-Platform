@@ -224,9 +224,14 @@ async function mountRemotePanel() {
 function remoteDevice(overrides: Partial<Device> = {}): Device {
   return {
     id: 1,
+    device_uuid: "device-1",
     name: "装配边缘终端 01",
     device_sn: "SN-EDGE-001",
-    project_id: "工厂-a",
+    project_id: 1,
+    expected_profile_id: null,
+    actual_profile_id: null,
+    device_role: null,
+    is_test_device: false,
     group: "产线一",
     group_id: 1,
     location: "北京",

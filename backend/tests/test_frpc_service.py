@@ -7,7 +7,7 @@ def test_frpc_config_generation_includes_ssh_and_vnc_proxies() -> None:
         id=7,
         name="Edge box",
         device_sn="edge-sn-007",
-        project_id="factory-a",
+        project_id=None,
         ssh_user="root",
         ssh_port=10007,
         vnc_port=10507,

@@ -7,7 +7,7 @@ def _auth(client) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
-def _create_device(client, headers: dict[str, str], device_sn: str, *, project_id: str = "wave10") -> int:
+def _create_device(client, headers: dict[str, str], device_sn: str, *, project_id: int | None = None) -> int:
     response = client.post(
         "/api/devices",
         headers=headers,
@@ -42,9 +42,10 @@ def _create_task(client, headers: dict[str, str], payload: dict) -> dict:
     return response.json()
 
 
-def test_dry_run_update_task_does_not_call_ssh(client) -> None:
+def test_dry_run_update_task_does_not_call_ssh(client, create_project) -> None:
     headers = _auth(client)
-    _create_device(client, headers, "dry-001")
+    project = create_project("wave10")
+    _create_device(client, headers, "dry-001", project_id=project.id)
     fake_ssh = FakeSshService(results=[])
     client.app.state.ssh_service = fake_ssh
 
@@ -55,7 +56,7 @@ def test_dry_run_update_task_does_not_call_ssh(client) -> None:
             "name": "演练任务",
             "task_type": "command",
             "command": "hostname",
-            "target_filter": {"project_id": "wave10"},
+            "target_filter": {"project_id": project.id},
         },
     )
     executed = client.post(f"/api/update-tasks/{task['id']}/execute", headers=headers)
@@ -149,10 +150,11 @@ def test_ssh_command_auth_failure_is_redacted(client) -> None:
     assert "123456" not in row["error_message"]
 
 
-def test_pause_strategy_skips_devices_after_first_failure(client) -> None:
+def test_pause_strategy_skips_devices_after_first_failure(client, create_project) -> None:
     headers = _auth(client)
-    first_id = _create_device(client, headers, "pause-001", project_id="pause")
-    second_id = _create_device(client, headers, "pause-002", project_id="pause")
+    project = create_project("pause")
+    first_id = _create_device(client, headers, "pause-001", project_id=project.id)
+    second_id = _create_device(client, headers, "pause-002", project_id=project.id)
     fake_ssh = FakeSshService(results=[(1, "", "failed")])
     client.app.state.ssh_service = fake_ssh
 
@@ -163,7 +165,7 @@ def test_pause_strategy_skips_devices_after_first_failure(client) -> None:
             "name": "暂停策略",
             "task_type": "command",
             "command": "hostname",
-            "target_filter": {"project_id": "pause"},
+            "target_filter": {"project_id": project.id},
             "execution_mode": "ssh_command",
             "failure_strategy": "pause",
         },

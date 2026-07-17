@@ -55,7 +55,7 @@ export function statusTextForTask(status: string): string {
 export function mapUpdateTask(task: UpdateTaskRead): UpdateTask {
   const completed = task.devices.filter((device) => ["success", "completed", "failed", "skipped"].includes(device.status)).length;
   const targetFilter = task.target_filter ?? {};
-  const projectId = typeof targetFilter.project_id === "string" ? targetFilter.project_id : "全部项目";
+  const projectId = typeof targetFilter.project_id === "number" ? String(targetFilter.project_id) : "全部项目";
   const lastDevice = task.devices.at(-1);
   return {
     id: task.id,

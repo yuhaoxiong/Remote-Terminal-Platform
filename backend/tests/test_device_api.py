@@ -15,7 +15,6 @@ def _device_payload(device_sn: str = "edge-sn-001") -> dict[str, object]:
     return {
         "name": "Assembly line edge box",
         "device_sn": device_sn,
-        "project_id": "factory-a",
         "location": "Line 1",
         "hardware_model": "IPC-3000",
         "ssh_user": "root",

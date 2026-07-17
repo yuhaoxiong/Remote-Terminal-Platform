@@ -50,7 +50,7 @@ export interface UpdateTaskTargetDeviceRead {
   id: number;
   name: string;
   device_sn: string;
-  project_id: string;
+  project_id: number | null;
   group_id: number | null;
   status: string;
   ssh_port: number | null;

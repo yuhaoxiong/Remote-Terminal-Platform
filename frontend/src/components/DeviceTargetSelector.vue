@@ -11,7 +11,7 @@ interface TargetDevice {
   id: number;
   name: string;
   device_sn: string;
-  project_id: string;
+  project_id: number | null;
   group_id: number | null;
   group: string;
   location: string;
@@ -30,7 +30,7 @@ const props = defineProps<{
   devices: TargetDevice[];
   groups: TargetGroup[];
   executionMode: "dry_run" | "ssh_command";
-  initialProjectId?: string;
+  initialProjectId?: number | null;
   initialDeviceIds?: number[];
 }>();
 
@@ -69,6 +69,11 @@ const visibleDevices = computed(() => {
 });
 
 const selectedSet = computed(() => new Set(selectedDeviceIds.value));
+const projectIds = computed(() =>
+  Array.from(
+    new Set(props.devices.map((device) => device.project_id).filter((value): value is number => value !== null)),
+  ),
+);
 
 function buildTargetFilter(): Record<string, unknown> {
   if (selectedDeviceIds.value.length > 0) {
@@ -165,7 +170,13 @@ emitTarget();
 
     <div class="form-grid compact-grid">
       <div data-testid="target-search" class="input-wrap"><el-input v-model="filters.search" placeholder="搜索名称、序列号、项目号" /></div>
-      <div data-testid="target-project" class="input-wrap"><el-input v-model="filters.project_id" placeholder="项目号" /></div>
+      <label class="field-label">
+        <span>项目</span>
+        <select data-testid="target-project" v-model="filters.project_id" class="native-select">
+          <option value="">全部项目</option>
+          <option v-for="projectId in projectIds" :key="projectId" :value="projectId">项目 #{{ projectId }}</option>
+        </select>
+      </label>
       <label class="field-label">
         <span>分组</span>
         <select data-testid="target-group" v-model="filters.group_id" class="native-select">

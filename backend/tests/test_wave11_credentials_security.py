@@ -51,7 +51,7 @@ def test_device_create_update_and_frps_import_store_encrypted_passwords(tmp_path
     created = client.post(
         "/api/devices",
         headers=headers,
-        json={"name": "Edge", "device_sn": "enc-001", "project_id": "secure", "ssh_password": "secret-pass"},
+        json={"name": "Edge", "device_sn": "enc-001", "ssh_password": "secret-pass"},
     )
     assert created.status_code == 201
     assert "secret-pass" not in str(created.json())
@@ -94,7 +94,7 @@ def test_device_create_update_and_frps_import_store_encrypted_passwords(tmp_path
             "ssh_port_end": 17000,
             "vnc_port_start": 17001,
             "vnc_port_end": 22000,
-            "project_id": "frps-secure",
+            "project_id": None,
         },
     )
     assert imported.status_code == 200
@@ -138,8 +138,8 @@ def test_ssh_service_uses_decrypted_device_password_and_accepts_legacy_plaintext
     monkeypatch.setitem(sys.modules, "paramiko", fake_paramiko)
 
     service = SshService(settings)
-    service._connect(Device(id=1, name="one", device_sn="one", project_id="p", ssh_port=12001, ssh_user="ztl", ssh_password_encrypted=encrypted))
-    service._connect(Device(id=2, name="two", device_sn="two", project_id="p", ssh_port=12002, ssh_user="ztl", ssh_password_encrypted="legacy-pass"))
+    service._connect(Device(id=1, name="one", device_sn="one", project_id=None, ssh_port=12001, ssh_user="ztl", ssh_password_encrypted=encrypted))
+    service._connect(Device(id=2, name="two", device_sn="two", project_id=None, ssh_port=12002, ssh_user="ztl", ssh_password_encrypted="legacy-pass"))
 
     assert captured[0]["password"] == "secret-pass"
     assert captured[1]["password"] == "legacy-pass"

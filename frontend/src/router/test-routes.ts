@@ -7,6 +7,7 @@ import DiagnosticsView from "@/views/DiagnosticsView.vue";
 import FilesView from "@/views/FilesView.vue";
 import GroupsView from "@/views/GroupsView.vue";
 import LogsView from "@/views/LogsView.vue";
+import ProjectsView from "@/views/ProjectsView.vue";
 import RemoteView from "@/views/RemoteView.vue";
 import ScheduledView from "@/views/ScheduledView.vue";
 import SettingsView from "@/views/SettingsView.vue";
@@ -17,6 +18,7 @@ import { SECTION_ROUTE_DEFINITIONS } from "./routes";
 const testRouteComponents: Record<string, NonNullable<RouteRecordRaw["component"]>> = {
   dashboard: DashboardView,
   devices: DevicesView,
+  projects: ProjectsView,
   remote: RemoteView,
   files: FilesView,
   updates: UpdatesView,

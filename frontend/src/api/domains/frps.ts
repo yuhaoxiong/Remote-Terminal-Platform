@@ -8,7 +8,7 @@ export interface FrpsImportRequest {
   ssh_port_end: number;
   vnc_port_start: number;
   vnc_port_end: number;
-  project_id: string;
+  project_id?: number | null;
   location?: string;
   overwrite_project_location?: boolean;
 }
@@ -16,7 +16,7 @@ export interface FrpsImportRequest {
 export interface FrpsDiscoveredDevice {
   name: string;
   device_sn: string;
-  project_id: string;
+  project_id: number | null;
   ssh_port: number;
   vnc_port: number | null;
   ssh_proxy_name: string;

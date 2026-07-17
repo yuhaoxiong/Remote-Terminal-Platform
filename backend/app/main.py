@@ -13,6 +13,7 @@ from app.routers.devices import router as devices_router
 from app.routers.frps import router as frps_router
 from app.routers.groups import router as groups_router
 from app.routers.logs import router as logs_router
+from app.routers.lifecycle import router as lifecycle_router
 from app.routers.monitoring import router as monitoring_router
 from app.routers.scheduler import router as scheduler_router
 from app.routers.scheduled_tasks import router as scheduled_tasks_router
@@ -69,6 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(update_task_templates_router, prefix=settings.api_prefix)
     app.include_router(users_router, prefix=settings.api_prefix)
     app.include_router(logs_router, prefix=settings.api_prefix)
+    app.include_router(lifecycle_router, prefix=settings.api_prefix)
     app.include_router(monitoring_router, prefix=settings.api_prefix)
     app.include_router(scheduled_tasks_router, prefix=settings.api_prefix)
     app.include_router(scheduler_router, prefix=settings.api_prefix)

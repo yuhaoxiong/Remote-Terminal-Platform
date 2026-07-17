@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Plus, Refresh, Search } from "@element-plus/icons-vue";
 import { ElMessageBox } from "element-plus";
-import { computed, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { storeToRefs } from "pinia";
 
 import {
@@ -10,12 +10,16 @@ import {
   getApiErrorMessage,
   getDeviceStatus,
   importFrpsDevices,
+  listHardwareProfiles,
+  listProjects,
   syncDeviceConfig,
   updateDevice,
   type DeviceCreateRequest,
   type DeviceUpdateRequest,
   type FrpsDiscoveredDevice,
   type FrpsImportRequest,
+  type HardwareProfileRead,
+  type ProjectRead,
 } from "../api/platform";
 import { mapDevice, normalizeDeviceStatus, useDevicesStore, type Device, type DeviceStatus } from "../stores/devices";
 import { groupNameFor, useGroupsStore } from "../stores/groups";
@@ -44,6 +48,8 @@ const { groups } = storeToRefs(groupsStore);
 const { recalculateGroupCounts } = groupsStore;
 const platformDataStore = usePlatformDataStore();
 const { prependLocalLog } = useLogsStore();
+const projects = ref<ProjectRead[]>([]);
+const hardwareProfiles = ref<HardwareProfileRead[]>([]);
 
 const statusType: Record<DeviceStatus, "success" | "warning" | "danger" | "info"> = {
   online: "success", offline: "danger", degraded: "warning", unknown: "info",
@@ -57,7 +63,8 @@ const deviceEditId = ref<number | null>(null);
 const deviceDetailOpen = ref(false);
 const deviceDetail = ref<Device | null>(null);
 const deviceForm = reactive({
-  name: "", device_sn: "", project_id: "", group_id: null as number | null,
+  name: "", device_sn: "", project_id: null as number | null, expected_profile_id: null as number | null,
+  is_test_device: false, group_id: null as number | null,
   location: "", tags: "", ssh_user: "ztl", ssh_auth_type: "password", ssh_password: "",
   ssh_port: null as number | null, vnc_port: null as number | null,
 });
@@ -71,7 +78,7 @@ const frpsImportItems = ref<FrpsDiscoveredDevice[]>([]);
 const frpsForm = reactive({
   dashboard_url: "http://127.0.0.1:7000", username: "admin", password: "admin",
   ssh_port_start: 12001, ssh_port_end: 17000, vnc_port_start: 17001, vnc_port_end: 22000,
-  project_id: "frps-import", location: "frps", overwrite_project_location: false,
+  project_id: null as number | null, location: "frps", overwrite_project_location: false,
 });
 
 const syncConfigOpen = ref(false);
@@ -80,18 +87,18 @@ const syncConfigText = ref("");
 
 function openDeviceCreate() {
   deviceEditId.value = null;
-  Object.assign(deviceForm, { name: "", device_sn: "", project_id: "", group_id: selectedGroupId.value ?? groups.value[0]?.id ?? null, location: "", tags: "", ssh_user: "ztl", ssh_auth_type: "password", ssh_password: "", ssh_port: null, vnc_port: null });
+  Object.assign(deviceForm, { name: "", device_sn: "", project_id: null, expected_profile_id: null, is_test_device: false, group_id: selectedGroupId.value ?? groups.value[0]?.id ?? null, location: "", tags: "", ssh_user: "ztl", ssh_auth_type: "password", ssh_password: "", ssh_port: null, vnc_port: null });
   deviceCreateOpen.value = true;
 }
 function openDeviceEdit(device: Device) {
   deviceEditId.value = device.id;
-  Object.assign(deviceForm, { name: device.name, device_sn: device.device_sn, project_id: device.project_id, group_id: device.group_id, location: device.location === "未分配" ? "" : device.location, tags: device.tags.join(","), ssh_user: device.ssh_user, ssh_auth_type: device.ssh_auth_type, ssh_password: "", ssh_port: device.ssh_port, vnc_port: device.vnc_port });
+  Object.assign(deviceForm, { name: device.name, device_sn: device.device_sn, project_id: device.project_id, expected_profile_id: device.expected_profile_id, is_test_device: device.is_test_device, group_id: device.group_id, location: device.location === "未分配" ? "" : device.location, tags: device.tags.join(","), ssh_user: device.ssh_user, ssh_auth_type: device.ssh_auth_type, ssh_password: "", ssh_port: device.ssh_port, vnc_port: device.vnc_port });
   deviceCreateOpen.value = true;
 }
 async function saveDevice() {
-  if (!deviceForm.name || !deviceForm.device_sn || !deviceForm.project_id) { prependLocalLog("设备校验", deviceEditId.value === null ? "新设备" : `设备：${deviceEditId.value}`, "blocked", "设备名称、序列号和项目号为必填项"); return; }
+  if (!deviceForm.name || !deviceForm.device_sn) { prependLocalLog("设备校验", deviceEditId.value === null ? "新设备" : `设备：${deviceEditId.value}`, "blocked", "设备名称和序列号为必填项"); return; }
   platformDataStore.clearOperationError();
-  const basePayload = { name: deviceForm.name, project_id: deviceForm.project_id, group_id: deviceForm.group_id, location: deviceForm.location || undefined, tags: parseTags(deviceForm.tags), ssh_user: deviceForm.ssh_user || "ztl", ssh_auth_type: deviceForm.ssh_auth_type || "password", ssh_port: deviceForm.ssh_port, vnc_port: deviceForm.vnc_port };
+  const basePayload = { name: deviceForm.name, project_id: deviceForm.project_id, expected_profile_id: deviceForm.expected_profile_id, is_test_device: deviceForm.is_test_device, group_id: deviceForm.group_id, location: deviceForm.location || undefined, tags: parseTags(deviceForm.tags), ssh_user: deviceForm.ssh_user || "ztl", ssh_auth_type: deviceForm.ssh_auth_type || "password", ssh_port: deviceForm.ssh_port, vnc_port: deviceForm.vnc_port };
   const pwdPayload = deviceForm.ssh_password ? { ssh_password: deviceForm.ssh_password } : {};
   try {
     if (deviceEditId.value === null) { const payload: DeviceCreateRequest = { ...basePayload, ...pwdPayload, device_sn: deviceForm.device_sn }; devices.value.push(mapDevice(await createDevice(payload), groups.value)); }
@@ -125,6 +132,22 @@ async function importFromFrps() {
   catch { frpsImportResult.value = "frps 导入失败，请检查 Dashboard 地址、账号密码和后端网络"; }
   frpsImporting.value = false;
 }
+
+function projectLabel(projectId: number | null): string {
+  if (projectId === null) return "未分配";
+  const project = projects.value.find((item) => item.id === projectId);
+  return project ? `${project.name} (${project.code})` : `项目 #${projectId}`;
+}
+
+onMounted(async () => {
+  try {
+    const [projectResponse, profileResponse] = await Promise.all([listProjects(), listHardwareProfiles()]);
+    projects.value = projectResponse.items;
+    hardwareProfiles.value = profileResponse.items;
+  } catch {
+    prependLocalLog("加载设备选项", "项目与硬件规格", "blocked", "无法加载项目或硬件规格列表");
+  }
+});
 </script>
 
 <template>
@@ -142,7 +165,7 @@ async function importFromFrps() {
         <label class="field-label"><span>状态</span><el-select v-model="deviceStatusFilter" placeholder="全部状态" clearable><el-option v-for="(text,key) in deviceStatusText" :key="key" :label="text" :value="key" /></el-select></label>
         <label class="field-label"><span>分组</span><el-select v-model="selectedGroupId" placeholder="全部分组" clearable><el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" /></el-select></label>
         <label class="field-label"><span>标签</span><el-input v-model="deviceTagFilter" placeholder="请输入标签" /></label>
-        <label class="field-label"><span>项目号</span><el-input v-model="deviceProjectFilter" placeholder="请输入项目号" /></label>
+        <label class="field-label"><span>项目 ID</span><el-input v-model="deviceProjectFilter" placeholder="请输入项目 ID" /></label>
         <div class="filter-actions">
           <el-button @click="deviceSearch='';selectedGroupId=null;deviceStatusFilter='';deviceTagFilter='';deviceProjectFilter=''">重置</el-button>
           <el-button type="primary" :icon="Search">筛选</el-button>
@@ -158,9 +181,11 @@ async function importFromFrps() {
         <div data-testid="frps-url" class="input-wrap"><el-input v-model="frpsForm.dashboard_url" placeholder="Dashboard 地址" /></div>
         <div data-testid="frps-username" class="input-wrap"><el-input v-model="frpsForm.username" placeholder="用户名" /></div>
         <div data-testid="frps-password" class="input-wrap"><el-input v-model="frpsForm.password" type="password" show-password placeholder="密码" /></div>
-        <div data-testid="frps-project" class="input-wrap"><el-input v-model="frpsForm.project_id" placeholder="导入项目号" /></div>
+        <el-select data-testid="frps-project" v-model="frpsForm.project_id" placeholder="导入后保持未分配" clearable>
+          <el-option v-for="project in projects.filter((item) => item.status === 'active')" :key="project.id" :label="`${project.name} (${project.code})`" :value="project.id" />
+        </el-select>
         <div data-testid="frps-location" class="input-wrap"><el-input v-model="frpsForm.location" placeholder="部署位置" /></div>
-        <el-checkbox data-testid="frps-overwrite" v-model="frpsForm.overwrite_project_location">覆盖项目号和位置</el-checkbox>
+        <el-checkbox data-testid="frps-overwrite" v-model="frpsForm.overwrite_project_location">覆盖正式项目和位置</el-checkbox>
         <el-input-number v-model="frpsForm.ssh_port_start" :min="1" controls-position="right" />
         <el-input-number v-model="frpsForm.ssh_port_end" :min="1" controls-position="right" />
         <el-input-number v-model="frpsForm.vnc_port_start" :min="1" controls-position="right" />
@@ -179,7 +204,7 @@ async function importFromFrps() {
         <el-table-column prop="name" label="设备" min-width="180" />
         <el-table-column prop="device_sn" label="序列号" min-width="150" />
         <el-table-column label="状态" width="110"><template #default="{row}"><el-tag :type="statusType[row.status as DeviceStatus]">{{ deviceStatusText[row.status as DeviceStatus] }}</el-tag></template></el-table-column>
-        <el-table-column prop="project_id" label="项目号" width="130" />
+        <el-table-column label="项目" min-width="180"><template #default="{row}">{{ projectLabel(row.project_id) }}</template></el-table-column>
         <el-table-column prop="group" label="分组" width="110" />
         <el-table-column prop="location" label="部署位置" min-width="130" />
         <el-table-column prop="ssh_port" label="SSH 端口" width="100" />
@@ -207,7 +232,13 @@ async function importFromFrps() {
       <div class="form-grid">
         <div data-testid="device-name" class="input-wrap"><el-input v-model="deviceForm.name" placeholder="设备名称" /></div>
         <div data-testid="device-sn" class="input-wrap"><el-input v-model="deviceForm.device_sn" :disabled="deviceEditId!==null" placeholder="设备序列号" /></div>
-        <div data-testid="device-project" class="input-wrap"><el-input v-model="deviceForm.project_id" placeholder="项目号" /></div>
+        <el-select data-testid="device-project" v-model="deviceForm.project_id" placeholder="未分配项目" clearable>
+          <el-option v-for="project in projects.filter((item) => item.status === 'active')" :key="project.id" :label="`${project.name} (${project.code})`" :value="project.id" />
+        </el-select>
+        <el-select data-testid="device-profile" v-model="deviceForm.expected_profile_id" placeholder="期望硬件规格" clearable>
+          <el-option v-for="profile in hardwareProfiles" :key="profile.id" :label="profile.name" :value="profile.id" />
+        </el-select>
+        <label class="field-label inline-field"><span>测试设备</span><el-switch v-model="deviceForm.is_test_device" /></label>
         <el-select v-model="deviceForm.group_id" placeholder="选择分组" clearable><el-option v-for="g in groups" :key="g.id" :label="g.name" :value="g.id" /></el-select>
         <el-input v-model="deviceForm.location" placeholder="位置" />
         <div data-testid="device-tags" class="input-wrap"><el-input v-model="deviceForm.tags" placeholder="标签，用逗号分隔" /></div>

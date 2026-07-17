@@ -9,6 +9,7 @@ from app.database import init_db, session_scope
 from app.main import create_app
 from app.models.device import Device
 from app.models.group import Group
+from app.models.lifecycle import Project
 from app.models.update_task import UpdateTask, UpdateTaskDevice
 
 
@@ -58,12 +59,26 @@ def create_group(initialized_settings: Settings):
 
 
 @pytest.fixture()
+def create_project(initialized_settings: Settings):
+    def _create_project(code: str = "test-project", name: str | None = None) -> Project:
+        with session_scope(initialized_settings) as session:
+            project = Project(code=code, name=name or code)
+            session.add(project)
+            session.flush()
+            project_id = project.id
+        with session_scope(initialized_settings) as session:
+            return session.get(Project, project_id)
+
+    return _create_project
+
+
+@pytest.fixture()
 def create_device(initialized_settings: Settings):
     def _create_device(
         *,
         name: str = "测试设备",
         device_sn: str = "SN-TEST-001",
-        project_id: str = "test-project",
+        project_id: int | None = None,
         group_id: int | None = None,
         status: str = "online",
         ssh_port: int | None = 12001,

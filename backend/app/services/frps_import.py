@@ -6,12 +6,17 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models.device import Device
+from app.models.lifecycle import Project
 from app.schemas.frps import FrpsDiscoveredDevice, FrpsImportRequest, FrpsImportResponse
 from app.services.encryption import EncryptionService
 from app.services.port_pool import PortPoolExhaustedError, PortPoolService
 
 
 class FrpsDashboardError(RuntimeError):
+    pass
+
+
+class FrpsProjectError(ValueError):
     pass
 
 
@@ -23,11 +28,13 @@ class FrpsImportService:
         self.encryption = EncryptionService(settings)
 
     def discover(self, session: Session, payload: FrpsImportRequest) -> FrpsImportResponse:
+        self._validate_project(session, payload.project_id)
         proxies = self._fetch_tcp_proxies(payload)
         items = self._classify_items(session, self._map_proxies(payload, proxies))
         return self._response(items, created=0, synced=0)
 
     def import_devices(self, session: Session, payload: FrpsImportRequest) -> FrpsImportResponse:
+        self._validate_project(session, payload.project_id)
         proxies = self._fetch_tcp_proxies(payload)
         items = self._classify_items(session, self._map_proxies(payload, proxies))
         created = 0
@@ -98,6 +105,13 @@ class FrpsImportService:
         if not isinstance(proxies, list):
             raise FrpsDashboardError("frps Dashboard 返回格式不包含 proxies")
         return proxies
+
+    def _validate_project(self, session: Session, project_id: int | None) -> None:
+        if project_id is None:
+            return
+        project = session.get(Project, project_id)
+        if project is None or project.status != "active":
+            raise FrpsProjectError(f"项目不存在或不可分配：{project_id}")
 
     def _map_proxies(self, payload: FrpsImportRequest, proxies: list[dict[str, Any]]) -> list[FrpsDiscoveredDevice]:
         ssh_by_port: dict[int, dict[str, Any]] = {}

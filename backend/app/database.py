@@ -144,6 +144,19 @@ def init_db(settings: Settings | None = None) -> None:
     from app.models.device import Device
     from app.models.group import Group
     from app.models.log import OperationLog
+    from app.models.lifecycle import (
+        DeploymentExecution,
+        DeploymentExecutionItem,
+        DeploymentPlan,
+        DeploymentPlanItem,
+        DeviceReleaseOverride,
+        EdgeFunction,
+        FunctionRelease,
+        FunctionVariant,
+        HardwareProfile,
+        Project,
+        ProjectFunction,
+    )
     from app.models.metric import DeviceMetric
     from app.models.port_pool import PortPool
     from app.models.scheduled_task import ScheduledTask, ScheduledTaskRun
@@ -175,6 +188,23 @@ def init_db(settings: Settings | None = None) -> None:
             for port in range(settings.vnc_port_start, settings.vnc_port_end + 1):
                 session.add(PortPool(service_type="vnc", port=port, status="available"))
 
+        default_profiles = (
+            ("rk3568-4g-debian11", "RK3568 4G / Debian 11", "rk3568", 4096),
+            ("rk3588-8g-debian11", "RK3588 8G / Debian 11", "rk3588", 8192),
+        )
+        for code, name, soc, memory_mb in default_profiles:
+            if session.scalar(select(HardwareProfile.id).where(HardwareProfile.code == code)) is None:
+                session.add(
+                    HardwareProfile(
+                        code=code,
+                        name=name,
+                        soc=soc,
+                        memory_mb=memory_mb,
+                        os_version="debian11",
+                        active=True,
+                    )
+                )
+
         AlertService(settings).ensure_default_rules(session)
 
     _ = (
@@ -184,6 +214,17 @@ def init_db(settings: Settings | None = None) -> None:
         AlertNotificationDelivery,
         AlertNotificationPolicy,
         Device,
+        Project,
+        HardwareProfile,
+        EdgeFunction,
+        FunctionRelease,
+        FunctionVariant,
+        ProjectFunction,
+        DeviceReleaseOverride,
+        DeploymentPlan,
+        DeploymentPlanItem,
+        DeploymentExecution,
+        DeploymentExecutionItem,
         Group,
         OperationLog,
         DeviceMetric,

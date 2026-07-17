@@ -31,7 +31,6 @@ def test_wave17_device_enums_reject_unknown_values(client, auth_headers, create_
         json={
             "name": "bad auth device",
             "device_sn": "bad-auth-001",
-            "project_id": "factory-a",
             "ssh_auth_type": "agent",
         },
     )

@@ -9,7 +9,7 @@ class FrpsImportRequest(BaseModel):
     ssh_port_end: int = 17000
     vnc_port_start: int = 17001
     vnc_port_end: int = 22000
-    project_id: str = "frps-import"
+    project_id: int | None = Field(default=None, ge=1)
     location: str | None = "frps"
     overwrite_project_location: bool = False
 
@@ -17,7 +17,7 @@ class FrpsImportRequest(BaseModel):
 class FrpsDiscoveredDevice(BaseModel):
     name: str
     device_sn: str
-    project_id: str
+    project_id: int | None
     ssh_port: int
     vnc_port: int | None
     ssh_proxy_name: str

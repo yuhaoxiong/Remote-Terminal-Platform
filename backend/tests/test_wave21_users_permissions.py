@@ -77,7 +77,7 @@ def test_operator_permission_matrix(client, auth_headers, create_device, create_
     create_response = client.post(
         "/api/devices",
         headers=operator_headers,
-        json={"name": "operator device", "device_sn": "OP-001", "project_id": "operator-project"},
+        json={"name": "operator device", "device_sn": "OP-001"},
     )
     assert create_response.status_code == 201
 

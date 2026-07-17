@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from app.dependencies import request_session, require_admin_user
 from app.models.user import User
 from app.schemas.frps import FrpsImportRequest, FrpsImportResponse
-from app.services.frps_import import FrpsDashboardError, FrpsImportService
+from app.services.frps_import import FrpsDashboardError, FrpsImportService, FrpsProjectError
 from app.services.operation_log import OperationLogService
 
 router = APIRouter(prefix="/frps", tags=["frps"])
@@ -21,6 +21,8 @@ def discover_frps_devices(
             return service.discover(session, payload)
         except FrpsDashboardError as exc:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        except FrpsProjectError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.post("/import", response_model=FrpsImportResponse)
@@ -35,6 +37,8 @@ def import_frps_devices(
             result = service.import_devices(session, payload)
         except FrpsDashboardError as exc:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        except FrpsProjectError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         OperationLogService(settings).record(
             session,
             user_id=current_user.id,

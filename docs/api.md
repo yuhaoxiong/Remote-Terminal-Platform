@@ -2767,3 +2767,48 @@ DELETE /api/users/{user_id}
 ```
 
 该字段只返回计数和风险提示,不返回密码哈希或 token。
+
+## 设备项目与边缘功能生命周期（第一阶段）
+
+本阶段将项目、边缘功能、功能版本、硬件变体和设备硬件规格升级为正式实体。所有写接口仅管理员可用，已认证操作员可只读查询。
+
+### 项目与设备归属
+
+```http
+GET  /api/projects
+POST /api/projects
+GET  /api/projects/{project_id}
+PUT  /api/projects/{project_id}
+```
+
+设备的 `project_id` 现在是项目实体的整数主键，也允许为 `null`（待分配池），不再接受自由文本项目号。迁移 `20260717_0007` 会主动清空旧的字符串项目关系，但保留设备、端口、凭据和历史任务数据。
+
+设备新增字段包括稳定的 `device_uuid`、预期/实际上报硬件规格、预留设备角色及测试设备标记。当前支持的硬件规格为 `rk3568-4g-debian11` 和 `rk3588-8g-debian11`。
+
+### 功能、版本与硬件变体
+
+```http
+GET  /api/functions
+POST /api/functions
+PUT  /api/functions/{function_id}
+GET  /api/functions/{function_id}/releases
+POST /api/functions/{function_id}/releases
+PUT  /api/functions/{function_id}/releases/{release_id}
+GET  /api/functions/{function_id}/releases/{release_id}/variants
+POST /api/functions/{function_id}/releases/{release_id}/variants
+PUT  /api/functions/{function_id}/releases/{release_id}/variants/{variant_id}
+POST /api/functions/{function_id}/releases/{release_id}/publish
+```
+
+草稿版本及其变体可以修改；发布前至少要有一个硬件变体。已发布版本和变体不可修改，项目只能选择已发布版本。
+
+### 项目功能配置
+
+```http
+GET  /api/projects/{project_id}/functions
+PUT  /api/projects/{project_id}/functions/{function_id}
+POST /api/projects/{project_id}/functions/{function_id}/pending-uninstall
+GET  /api/hardware-profiles
+```
+
+单个设备只归属一个项目，一个项目可以启用多个独立功能。项目功能移除先进入 `pending_uninstall`，为后续经人工确认的卸载计划保留状态。

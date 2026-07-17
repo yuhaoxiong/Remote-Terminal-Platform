@@ -11,7 +11,7 @@ def _auth_headers(client) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
-def _device_payload(device_sn: str, *, project_id: str, group_id: int | None, tags: list[str]) -> dict[str, object]:
+def _device_payload(device_sn: str, *, project_id: int, group_id: int | None, tags: list[str]) -> dict[str, object]:
     return {
         "name": f"Device {device_sn}",
         "device_sn": device_sn,
@@ -25,8 +25,10 @@ def _device_payload(device_sn: str, *, project_id: str, group_id: int | None, ta
     }
 
 
-def test_group_crud_device_filters_and_log_csv_export(client, initialized_settings) -> None:
+def test_group_crud_device_filters_and_log_csv_export(client, initialized_settings, create_project) -> None:
     headers = _auth_headers(client)
+    project_a = create_project("factory-a")
+    project_b = create_project("factory-b")
 
     created_group = client.post(
         "/api/groups",
@@ -50,17 +52,17 @@ def test_group_crud_device_filters_and_log_csv_export(client, initialized_settin
     first = client.post(
         "/api/devices",
         headers=headers,
-        json=_device_payload("edge-filter-001", project_id="factory-a", group_id=group_id, tags=["vision", "prod"]),
+        json=_device_payload("edge-filter-001", project_id=project_a.id, group_id=group_id, tags=["vision", "prod"]),
     )
     assert first.status_code == 201
     second = client.post(
         "/api/devices",
         headers=headers,
-        json=_device_payload("edge-filter-002", project_id="factory-b", group_id=None, tags=["audio"]),
+        json=_device_payload("edge-filter-002", project_id=project_b.id, group_id=None, tags=["audio"]),
     )
     assert second.status_code == 201
 
-    filtered = client.get(f"/api/devices?project_id=factory-a&group_id={group_id}&tag=vision", headers=headers)
+    filtered = client.get(f"/api/devices?project_id={project_a.id}&group_id={group_id}&tag=vision", headers=headers)
     assert filtered.status_code == 200
     assert filtered.json()["total"] == 1
     assert filtered.json()["items"][0]["device_sn"] == "edge-filter-001"

@@ -22,9 +22,14 @@ vi.mock("../../api/platform", () => ({
 
 const device = {
   id: 1,
+  device_uuid: "device-1",
   name: "测试设备",
   device_sn: "FILE-TREE-001",
-  project_id: "test",
+  project_id: 1,
+  expected_profile_id: null,
+  actual_profile_id: null,
+  device_role: null,
+  is_test_device: false,
   group: "未分组",
   group_id: null,
   location: "未分配",

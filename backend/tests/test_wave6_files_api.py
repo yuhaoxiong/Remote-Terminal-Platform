@@ -32,7 +32,6 @@ def _device_payload(device_sn: str = "edge-files-001") -> dict[str, object]:
     return {
         "name": "File transfer edge",
         "device_sn": device_sn,
-        "project_id": "factory-files",
         "ssh_user": "root",
         "tags": ["files"],
     }

@@ -25,7 +25,7 @@ function targetSummaryForFilter(targetFilter: Record<string, unknown>): string {
     return `手动选择 ${deviceIds.length} 台设备`;
   }
   const parts: string[] = [];
-  if (typeof targetFilter.project_id === "string" && targetFilter.project_id) {
+  if (typeof targetFilter.project_id === "number" && targetFilter.project_id) {
     parts.push(`项目 ${targetFilter.project_id}`);
   }
   if (typeof targetFilter.group_id === "number") {

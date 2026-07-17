@@ -47,7 +47,7 @@ const updateCreateOpen = ref(false);
 const updateForm = reactive({
   name: "",
   command: "",
-  project_id: "",
+  project_id: "" as number | "",
   target_filter: {} as Record<string, unknown>,
   execution_mode: "dry_run" as ExecutionMode,
   failure_strategy: "continue" as "continue" | "pause" | "rollback",
@@ -77,7 +77,7 @@ function openUpdateCreate() {
 
 function handleUpdateTargetChange(targetFilter: Record<string, unknown>) {
   updateForm.target_filter = targetFilter;
-  updateForm.project_id = typeof targetFilter.project_id === "string" ? targetFilter.project_id : "";
+  updateForm.project_id = typeof targetFilter.project_id === "number" ? targetFilter.project_id : "";
 }
 
 function handleUpdateTargetPreview(preview: UpdateTaskTargetPreviewResponse | null) {
@@ -200,7 +200,7 @@ function openRetryFailedTask(task: UpdateTask, deviceIds: number[]) {
   Object.assign(updateForm, {
     name: `${task.name} 失败重试`,
     command: task.command,
-    project_id: "",
+    project_id: "" as number | "",
     target_filter: { device_ids: deviceIds },
     execution_mode: task.execution_mode,
     failure_strategy: task.failure_strategy,
@@ -267,7 +267,7 @@ async function downloadUpdateTaskResults(task: UpdateTask) {
         :devices="devices"
         :groups="groups"
         :execution-mode="updateForm.execution_mode"
-        :initial-project-id="updateForm.project_id"
+        :initial-project-id="updateForm.project_id || null"
         :initial-device-ids="updateInitialDeviceIds"
         @target-change="handleUpdateTargetChange"
         @preview-change="handleUpdateTargetPreview"

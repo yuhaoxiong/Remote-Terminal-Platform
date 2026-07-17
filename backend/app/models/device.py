@@ -1,6 +1,7 @@
 from datetime import datetime
+from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -10,9 +11,27 @@ class Device(Base):
     __tablename__ = "devices"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    device_uuid: Mapped[str] = mapped_column(
+        String(36),
+        unique=True,
+        index=True,
+        default=lambda: str(uuid4()),
+    )
     name: Mapped[str] = mapped_column(String(120), index=True)
     device_sn: Mapped[str] = mapped_column(String(120), unique=True, index=True)
-    project_id: Mapped[str] = mapped_column(String(120), index=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), index=True, nullable=True)
+    expected_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hardware_profiles.id"),
+        index=True,
+        nullable=True,
+    )
+    actual_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hardware_profiles.id"),
+        index=True,
+        nullable=True,
+    )
+    device_role: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_test_device: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     hardware_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
     ssh_port: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)

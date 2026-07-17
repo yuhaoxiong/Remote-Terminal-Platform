@@ -8,7 +8,10 @@ from app.enums import DeviceStatus, SshAuthType
 class DeviceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     device_sn: str = Field(min_length=1, max_length=120)
-    project_id: str = Field(min_length=1, max_length=120)
+    project_id: int | None = Field(default=None, ge=1)
+    expected_profile_id: int | None = Field(default=None, ge=1)
+    device_role: str | None = Field(default=None, max_length=64)
+    is_test_device: bool = False
     location: str | None = Field(default=None, max_length=255)
     hardware_model: str | None = Field(default=None, max_length=120)
     ssh_user: str = Field(default="ztl", min_length=1, max_length=64)
@@ -25,7 +28,11 @@ class DeviceCreate(BaseModel):
 
 class DeviceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    project_id: str | None = Field(default=None, min_length=1, max_length=120)
+    project_id: int | None = Field(default=None, ge=1)
+    expected_profile_id: int | None = Field(default=None, ge=1)
+    actual_profile_id: int | None = Field(default=None, ge=1)
+    device_role: str | None = Field(default=None, max_length=64)
+    is_test_device: bool | None = None
     location: str | None = Field(default=None, max_length=255)
     hardware_model: str | None = Field(default=None, max_length=120)
     ssh_user: str | None = Field(default=None, min_length=1, max_length=64)
@@ -45,9 +52,14 @@ class DeviceRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    device_uuid: str
     name: str
     device_sn: str
-    project_id: str
+    project_id: int | None
+    expected_profile_id: int | None
+    actual_profile_id: int | None
+    device_role: str | None
+    is_test_device: bool
     location: str | None
     hardware_model: str | None
     ssh_port: int | None

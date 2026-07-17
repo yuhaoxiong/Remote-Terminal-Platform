@@ -9,6 +9,7 @@ type SectionRouteDefinition = {
 export const SECTION_ROUTE_DEFINITIONS: SectionRouteDefinition[] = [
   { path: "/dashboard", name: "dashboard", meta: { requiresAuth: true, label: "仪表盘" } },
   { path: "/devices", name: "devices", meta: { requiresAuth: true, label: "设备管理" } },
+  { path: "/projects", name: "projects", meta: { requiresAuth: true, adminOnly: true, label: "项目与功能" } },
   { path: "/remote", name: "remote", meta: { requiresAuth: true, label: "远程连接" } },
   { path: "/files", name: "files", meta: { requiresAuth: true, label: "文件管理" } },
   { path: "/updates", name: "updates", meta: { requiresAuth: true, label: "批量更新" } },
@@ -32,6 +33,7 @@ export const SECTION_ROUTE_DEFINITIONS: SectionRouteDefinition[] = [
 const routeComponents: Record<string, NonNullable<RouteRecordRaw["component"]>> = {
   dashboard: () => import("@/views/DashboardView.vue"),
   devices: () => import("@/views/DevicesView.vue"),
+  projects: () => import("@/views/ProjectsView.vue"),
   remote: () => import("@/views/RemoteView.vue"),
   files: () => import("@/views/FilesView.vue"),
   updates: () => import("@/views/UpdatesView.vue"),

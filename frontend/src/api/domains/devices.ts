@@ -2,9 +2,14 @@ import { api } from "../core";
 
 export interface DeviceRead {
   id: number;
+  device_uuid: string;
   name: string;
   device_sn: string;
-  project_id: string;
+  project_id: number | null;
+  expected_profile_id: number | null;
+  actual_profile_id: number | null;
+  device_role: string | null;
+  is_test_device: boolean;
   location: string | null;
   hardware_model: string | null;
   ssh_port: number | null;
@@ -31,7 +36,10 @@ export interface DeviceListResponse {
 export interface DeviceCreateRequest {
   name: string;
   device_sn: string;
-  project_id: string;
+  project_id?: number | null;
+  expected_profile_id?: number | null;
+  device_role?: string | null;
+  is_test_device?: boolean;
   group_id?: number | null;
   location?: string;
   tags?: string[];

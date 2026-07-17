@@ -20,7 +20,7 @@ def _create_device(
     headers: dict[str, str],
     device_sn: str,
     *,
-    project_id: str = "wave16",
+    project_id: int | None = None,
     group_id: int | None = None,
     tags: list[str] | None = None,
     ssh_password: str | None = "123456",
@@ -51,15 +51,18 @@ class FakeSshService:
         return result
 
 
-def test_preview_targets_reuses_filters_and_redacts_credentials(client, initialized_settings) -> None:
+def test_preview_targets_reuses_filters_and_redacts_credentials(client, initialized_settings, create_project) -> None:
     headers = _auth(client)
+    project = create_project("wave16")
+    other_project = create_project("other")
     group_id = _create_group(client, headers)
-    first_id = _create_device(client, headers, "preview-001", group_id=group_id, tags=["vision", "prod"])
-    _create_device(client, headers, "preview-002", project_id="other", group_id=group_id, tags=["vision"])
+    first_id = _create_device(client, headers, "preview-001", project_id=project.id, group_id=group_id, tags=["vision", "prod"])
+    _create_device(client, headers, "preview-002", project_id=other_project.id, group_id=group_id, tags=["vision"])
     missing_credential_id = _create_device(
         client,
         headers,
         "preview-003",
+        project_id=project.id,
         group_id=group_id,
         tags=["vision", "prod"],
         ssh_password=None,
@@ -75,7 +78,7 @@ def test_preview_targets_reuses_filters_and_redacts_credentials(client, initiali
         headers=headers,
         json={
             "execution_mode": "ssh_command",
-            "target_filter": {"project_id": "wave16", "group_id": group_id, "tags": ["vision", "prod"]},
+            "target_filter": {"project_id": project.id, "group_id": group_id, "tags": ["vision", "prod"]},
         },
     )
 
@@ -93,7 +96,7 @@ def test_preview_targets_reuses_filters_and_redacts_credentials(client, initiali
             "name": "预览一致性任务",
             "task_type": "command",
             "command": "hostname",
-            "target_filter": {"project_id": "wave16", "group_id": group_id, "tags": ["vision", "prod"]},
+            "target_filter": {"project_id": project.id, "group_id": group_id, "tags": ["vision", "prod"]},
         },
     )
     assert created.status_code == 201

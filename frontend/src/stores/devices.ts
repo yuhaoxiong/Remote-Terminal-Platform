@@ -38,9 +38,14 @@ export function mapDevice(
 ): Device {
   return {
     id: device.id,
+    device_uuid: device.device_uuid,
     name: device.name,
     device_sn: device.device_sn,
     project_id: device.project_id,
+    expected_profile_id: device.expected_profile_id,
+    actual_profile_id: device.actual_profile_id,
+    device_role: device.device_role,
+    is_test_device: device.is_test_device,
     group: groupNameFor(device.group_id, sourceGroups),
     group_id: device.group_id,
     location: device.location || "未分配",
@@ -66,9 +71,14 @@ export function mapDevice(
  */
 export interface Device {
   id: number;
+  device_uuid: string;
   name: string;
   device_sn: string;
-  project_id: string;
+  project_id: number | null;
+  expected_profile_id: number | null;
+  actual_profile_id: number | null;
+  device_role: string | null;
+  is_test_device: boolean;
   group: string;
   group_id: number | null;
   location: string;
@@ -125,7 +135,7 @@ export const useDevicesStore = defineStore("devices", () => {
     return devices.value.filter((device) => {
       const matchesGroup = selectedGroupId.value === null || device.group_id === selectedGroupId.value;
       const matchesStatus = !deviceStatusFilter.value || device.status === deviceStatusFilter.value;
-      const matchesProject = !projectKeyword || device.project_id.toLowerCase().includes(projectKeyword);
+      const matchesProject = !projectKeyword || String(device.project_id ?? "").includes(projectKeyword);
       const matchesTag = !tagKeyword || device.tags.some((tag) => tag.toLowerCase().includes(tagKeyword));
       const matchesKeyword =
         !keyword ||

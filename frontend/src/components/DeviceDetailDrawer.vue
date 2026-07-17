@@ -1,31 +1,11 @@
 <script setup lang="ts">
 import { Close, Connection, Delete, Document, Edit, FolderOpened, VideoPlay } from "@element-plus/icons-vue";
 import { formatTime as formatTimeBase } from "../utils/format";
+import type { Device } from "../stores/devices";
 
 import StatusBadge from "./StatusBadge.vue";
 
-interface DeviceDetail {
-  id: number;
-  name: string;
-  device_sn: string;
-  project_id: string;
-  group: string;
-  group_id: number | null;
-  location: string;
-  tags: string[];
-  status: "online" | "offline" | "degraded" | "unknown";
-  ssh_port: number | null;
-  vnc_port: number | null;
-  ssh_user: string;
-  ssh_auth_type: string;
-  ssh_credential_configured: boolean;
-  cpu: number | null;
-  memory: number | null;
-  disk: number | null;
-  metricRecordedAt: string | null;
-  metricStale: boolean;
-  metricLoadFailed: boolean;
-}
+type DeviceDetail = Device;
 
 const props = defineProps<{
   visible: boolean;

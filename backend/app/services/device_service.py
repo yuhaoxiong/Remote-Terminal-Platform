@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models.device import Device
+from app.models.lifecycle import HardwareProfile, Project
 from app.schemas.device import DeviceCreate, DeviceUpdate
 from app.services.alert_service import AlertService
 from app.services.encryption import EncryptionService
@@ -14,6 +15,10 @@ class DeviceDuplicateError(RuntimeError):
 
 
 class DeviceNotFoundError(RuntimeError):
+    pass
+
+
+class DeviceReferenceError(ValueError):
     pass
 
 
@@ -34,6 +39,12 @@ class DeviceService:
             "ssh": values.pop("ssh_port", None),
             "vnc": values.pop("vnc_port", None),
         }
+        self._validate_references(
+            session,
+            project_id=values.get("project_id"),
+            expected_profile_id=values.get("expected_profile_id"),
+            actual_profile_id=None,
+        )
         device = Device(**values)
         if ssh_password:
             device.ssh_password_encrypted = self.encryption.encrypt_optional(ssh_password)
@@ -58,7 +69,7 @@ class DeviceService:
         offset: int,
         limit: int,
         search: str | None = None,
-        project_id: str | None = None,
+        project_id: int | None = None,
         group_id: int | None = None,
         tag: str | None = None,
         status: str | None = None,
@@ -95,6 +106,20 @@ class DeviceService:
     def update(self, session: Session, device_id: int, payload: DeviceUpdate) -> Device:
         device = self.get(session, device_id)
         changes = payload.model_dump(exclude_unset=True)
+        self._validate_references(
+            session,
+            project_id=changes.get("project_id") if "project_id" in changes else device.project_id,
+            expected_profile_id=(
+                changes.get("expected_profile_id")
+                if "expected_profile_id" in changes
+                else device.expected_profile_id
+            ),
+            actual_profile_id=(
+                changes.get("actual_profile_id")
+                if "actual_profile_id" in changes
+                else device.actual_profile_id
+            ),
+        )
         for service_type in ("ssh", "vnc"):
             field = f"{service_type}_port"
             if field in changes:
@@ -110,6 +135,30 @@ class DeviceService:
         AlertService(self.settings).evaluate_device_status(session, device)
         session.refresh(device)
         return device
+
+    def _validate_references(
+        self,
+        session: Session,
+        *,
+        project_id: int | None,
+        expected_profile_id: int | None,
+        actual_profile_id: int | None,
+    ) -> None:
+        if project_id is not None:
+            project = session.get(Project, project_id)
+            if project is None:
+                raise DeviceReferenceError(f"项目不存在：{project_id}")
+            if project.status != "active":
+                raise DeviceReferenceError(f"项目不可分配：{project.code}")
+        for field_name, profile_id in (
+            ("expected_profile_id", expected_profile_id),
+            ("actual_profile_id", actual_profile_id),
+        ):
+            if profile_id is None:
+                continue
+            profile = session.get(HardwareProfile, profile_id)
+            if profile is None or not profile.active:
+                raise DeviceReferenceError(f"无效硬件规格 {field_name}：{profile_id}")
 
     def _change_remote_port(
         self,

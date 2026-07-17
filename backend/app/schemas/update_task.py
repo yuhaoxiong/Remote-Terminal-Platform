@@ -48,7 +48,7 @@ class UpdateTaskTargetDeviceRead(BaseModel):
     id: int
     name: str
     device_sn: str
-    project_id: str
+    project_id: int | None
     group_id: int | None
     status: str
     ssh_port: int | None

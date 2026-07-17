@@ -15,7 +15,6 @@ def _create_device(client, headers: dict[str, str]) -> dict:
         json={
             "name": "Wave8 remote device",
             "device_sn": "wave8-remote-001",
-            "project_id": "factory-wave8",
             "ssh_user": "root",
         },
     )

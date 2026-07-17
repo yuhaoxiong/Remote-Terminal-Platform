@@ -110,9 +110,14 @@ function setupInventoryMocks(api: PlatformApiMock, health: HealthApiMock) {
     items: [
       {
         id: 1,
+        device_uuid: "device-1",
         name: "装配边缘终端 01",
         device_sn: "SN-EDGE-001",
-        project_id: "工厂-a",
+        project_id: 1,
+        expected_profile_id: null,
+        actual_profile_id: null,
+        device_role: null,
+        is_test_device: false,
         location: "北京",
         hardware_model: null,
         ssh_port: 10000,
@@ -174,7 +179,7 @@ function setupUpdateTaskMocks(api: PlatformApiMock, health: HealthApiMock) {
         id: 1,
         name: "装配边缘终端 01",
         device_sn: "SN-EDGE-001",
-        project_id: "工厂-a",
+        project_id: 1,
         group_id: 1,
         status: "online",
         ssh_port: 10000,
@@ -1105,7 +1110,7 @@ function setupRemoteAndFrpsMocks(api: PlatformApiMock, health: HealthApiMock) {
       {
         name: "frps-12008",
         device_sn: "frps-12008",
-        project_id: "frps-import",
+        project_id: 1,
         ssh_port: 12008,
         vnc_port: 17008,
         ssh_proxy_name: "ssh-12008",

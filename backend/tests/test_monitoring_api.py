@@ -14,7 +14,6 @@ def _create_device(client, headers: dict[str, str], device_sn: str = "monitor-sn
         json={
             "name": "Monitoring edge box",
             "device_sn": device_sn,
-            "project_id": "factory-a",
             "ssh_user": "root",
             "local_ip": "192.168.20.10",
         },

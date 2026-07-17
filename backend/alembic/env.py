@@ -10,6 +10,19 @@ from app.models.alert_notification import AlertNotificationChannel, AlertNotific
 from app.models.device import Device
 from app.models.group import Group
 from app.models.log import OperationLog
+from app.models.lifecycle import (
+    DeploymentExecution,
+    DeploymentExecutionItem,
+    DeploymentPlan,
+    DeploymentPlanItem,
+    DeviceReleaseOverride,
+    EdgeFunction,
+    FunctionRelease,
+    FunctionVariant,
+    HardwareProfile,
+    Project,
+    ProjectFunction,
+)
 from app.models.metric import DeviceMetric
 from app.models.port_pool import PortPool
 from app.models.scheduled_task import ScheduledTask, ScheduledTaskRun
@@ -31,6 +44,17 @@ _ = (
     AlertNotificationPolicy,
     Group,
     OperationLog,
+    Project,
+    HardwareProfile,
+    EdgeFunction,
+    FunctionRelease,
+    FunctionVariant,
+    ProjectFunction,
+    DeviceReleaseOverride,
+    DeploymentPlan,
+    DeploymentPlanItem,
+    DeploymentExecution,
+    DeploymentExecutionItem,
     DeviceMetric,
     PortPool,
     ScheduledTask,

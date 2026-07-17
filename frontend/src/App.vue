@@ -1,6 +1,7 @@
 ﻿<script setup lang="ts">
 import {
   Cpu,
+  Collection,
   Document,
   Finished,
   FolderOpened,
@@ -31,11 +32,12 @@ import AppSidebar from "./components/AppSidebar.vue";
 import AppTopbar from "./components/AppTopbar.vue";
 import LayoutShell from "./components/LayoutShell.vue";
 
-type SectionId = "dashboard" | "devices" | "groups" | "remote" | "files" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics" | "settings";
+type SectionId = "dashboard" | "devices" | "projects" | "groups" | "remote" | "files" | "updates" | "scheduled" | "alerts" | "users" | "logs" | "diagnostics" | "settings";
 
 const navItems: Array<{ id: SectionId; label: string; icon: Component; group: "overview" | "operations" | "governance"; adminOnly?: boolean }> = [
   { id: "dashboard", label: "仪表盘", icon: Monitor, group: "overview" },
   { id: "devices", label: "设备管理", icon: Cpu, group: "operations" },
+  { id: "projects", label: "项目与功能", icon: Collection, group: "operations", adminOnly: true },
   { id: "remote", label: "远程连接", icon: VideoPlay, group: "operations" },
   { id: "files", label: "文件管理", icon: FolderOpened, group: "operations" },
   { id: "updates", label: "批量更新", icon: Finished, group: "operations" },
@@ -91,6 +93,12 @@ const activeSectionTitle = computed(() => {
 });
 const currentRoleLabel = computed(() => (isAdmin.value ? "管理员" : "运维人员"));
 const schedulerRunning = computed(() => diagnosticsConfig.value?.scheduler.running ?? null);
+
+function adminOnlyMessage(section: SectionId): string {
+  if (section === "projects") return "当前账号无权限访问项目与功能。";
+  if (section === "users") return "当前账号无权限访问用户管理。";
+  return "当前账号无权限访问系统设置。";
+}
 
 async function login() {
   if (!loginUsername.value.trim()) {
@@ -167,8 +175,8 @@ async function savePasswordChange() {
 }
 
 async function selectSection(section: SectionId) {
-  if ((section === "users" || section === "settings") && !isAdmin.value) {
-    setOperationError(section === "users" ? "当前账号无权限访问用户管理。" : "当前账号无权限访问系统设置。");
+  if ((section === "users" || section === "settings" || section === "projects") && !isAdmin.value) {
+    setOperationError(adminOnlyMessage(section));
     return;
   }
   clearOperationError();
@@ -178,7 +186,7 @@ async function selectSection(section: SectionId) {
 watch([authenticated, currentUser, activeSection], ([isAuthenticated, user, section]) => {
   const navItem = navItems.find((item) => item.id === section);
   if (isAuthenticated && user && navItem?.adminOnly && user.role !== "admin") {
-    setOperationError(section === "users" ? "当前账号无权限访问用户管理。" : "当前账号无权限访问系统设置。");
+    setOperationError(adminOnlyMessage(section));
     void router.replace({ name: "dashboard" });
   }
 });

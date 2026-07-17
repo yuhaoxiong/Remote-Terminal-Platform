@@ -2,7 +2,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 
 def test_alembic_upgrade_head_creates_wave1_schema(tmp_path: Path) -> None:
@@ -14,7 +14,8 @@ def test_alembic_upgrade_head_creates_wave1_schema(tmp_path: Path) -> None:
 
     command.upgrade(config, "head")
 
-    inspector = inspect(create_engine(f"sqlite:///{db_path}"))
+    engine = create_engine(f"sqlite:///{db_path}")
+    inspector = inspect(engine)
     assert set(inspector.get_table_names()) >= {
         "users",
         "devices",
@@ -31,6 +32,29 @@ def test_alembic_upgrade_head_creates_wave1_schema(tmp_path: Path) -> None:
         "alert_notification_policies",
         "alert_notification_deliveries",
         "port_pool",
+        "projects",
+        "hardware_profiles",
+        "functions",
+        "function_releases",
+        "function_variants",
+        "project_functions",
+        "device_release_overrides",
+        "deployment_plans",
+        "deployment_plan_items",
+        "deployment_executions",
+        "deployment_execution_items",
     }
     user_columns = {column["name"] for column in inspector.get_columns("users")}
     assert {"role", "is_active", "last_login_at", "last_login_ip", "password_changed_at"}.issubset(user_columns)
+    device_columns = {column["name"] for column in inspector.get_columns("devices")}
+    assert {
+        "device_uuid",
+        "project_id",
+        "expected_profile_id",
+        "actual_profile_id",
+        "device_role",
+        "is_test_device",
+    }.issubset(device_columns)
+    with engine.connect() as connection:
+        profile_codes = set(connection.execute(text("SELECT code FROM hardware_profiles")).scalars())
+    assert profile_codes == {"rk3568-4g-debian11", "rk3588-8g-debian11"}

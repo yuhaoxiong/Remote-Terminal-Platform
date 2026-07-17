@@ -108,11 +108,13 @@ def test_init_db_migrates_legacy_device_credential_columns(tmp_path: Path) -> No
     with sqlite3.connect(db_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(devices)").fetchall()}
         device = connection.execute(
-            "SELECT ssh_user, ssh_auth_type, ssh_password_encrypted FROM devices WHERE device_sn = 'legacy-1'"
+            "SELECT ssh_user, ssh_auth_type, ssh_password_encrypted, project_id, device_uuid "
+            "FROM devices WHERE device_sn = 'legacy-1'"
         ).fetchone()
 
     assert {"ssh_user", "ssh_auth_type", "ssh_password_encrypted", "ssh_key_encrypted"}.issubset(columns)
-    assert device == ("ztl", "password", "123456")
+    assert device[:4] == ("ztl", "password", "123456", None)
+    assert device[4]
 
 
 def test_init_db_migrates_legacy_scheduled_task_columns(tmp_path: Path) -> None:
