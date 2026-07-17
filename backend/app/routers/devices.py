@@ -21,6 +21,8 @@ from app.schemas.device import (
     RemoteSessionResponse,
     SyncConfigResponse,
 )
+from app.schemas.bootstrap import DeviceBootstrapPackageRead
+from app.services.bootstrap_service import BootstrapConflictError, BootstrapNotFoundError, BootstrapPackageService
 from app.schemas.file_transfer import (
     FileDeleteRequest,
     FileListResponse,
@@ -223,6 +225,76 @@ def sync_device_config(
             detail=device.device_sn,
         )
         return SyncConfigResponse(device_id=device.id, status="generated", config=config)
+
+
+@router.get("/{device_id}/bootstrap-package", response_model=DeviceBootstrapPackageRead)
+def get_device_bootstrap_package(
+    device_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> DeviceBootstrapPackageRead:
+    with request_session(request) as (settings, session):
+        try:
+            DeviceService(settings).get(session, device_id)
+            package = BootstrapPackageService(settings).latest(session, device_id)
+        except (DeviceNotFoundError, BootstrapNotFoundError) as exc:
+            raise not_found_error(exc) from exc
+        return DeviceBootstrapPackageRead.model_validate(package)
+
+
+@router.post("/{device_id}/bootstrap-package", response_model=DeviceBootstrapPackageRead)
+def prepare_device_bootstrap_package(
+    device_id: int,
+    request: Request,
+    current_user: User = Depends(require_admin_user),
+) -> DeviceBootstrapPackageRead:
+    with request_session(request) as (settings, session):
+        try:
+            device = DeviceService(settings).get(session, device_id)
+            package = BootstrapPackageService(settings).prepare(session, device, created_by=current_user.id)
+        except DeviceNotFoundError as exc:
+            raise not_found_error(exc) from exc
+        OperationLogService(settings).record(
+            session,
+            user_id=current_user.id,
+            action="device.bootstrap.prepare",
+            target_type="device_bootstrap_package",
+            target_id=package.id,
+            status=package.status,
+            detail=f"device={device.device_sn}, generation={package.generation}",
+        )
+        return DeviceBootstrapPackageRead.model_validate(package)
+
+
+@router.get("/{device_id}/bootstrap-package/{package_id}/download")
+def download_device_bootstrap_package(
+    device_id: int,
+    package_id: int,
+    request: Request,
+    current_user: User = Depends(require_admin_user),
+) -> Response:
+    with request_session(request) as (settings, session):
+        try:
+            device = DeviceService(settings).get(session, device_id)
+            content, filename = BootstrapPackageService(settings).build_archive(session, device, package_id)
+        except (DeviceNotFoundError, BootstrapNotFoundError) as exc:
+            raise not_found_error(exc) from exc
+        except BootstrapConflictError as exc:
+            raise conflict_error(exc) from exc
+        OperationLogService(settings).record(
+            session,
+            user_id=current_user.id,
+            action="device.bootstrap.download",
+            target_type="device_bootstrap_package",
+            target_id=package_id,
+            status="success",
+            detail=device.device_sn,
+        )
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 @router.get("/{device_id}/files", response_model=FileListResponse)

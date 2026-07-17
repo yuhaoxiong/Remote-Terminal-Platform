@@ -111,10 +111,22 @@ def test_init_db_migrates_legacy_device_credential_columns(tmp_path: Path) -> No
             "SELECT ssh_user, ssh_auth_type, ssh_password_encrypted, project_id, device_uuid "
             "FROM devices WHERE device_sn = 'legacy-1'"
         ).fetchone()
+        bootstrap_package = connection.execute(
+            "SELECT generation, status FROM device_bootstrap_packages WHERE device_id = ?",
+            (1,),
+        ).fetchone()
 
-    assert {"ssh_user", "ssh_auth_type", "ssh_password_encrypted", "ssh_key_encrypted"}.issubset(columns)
+    assert {
+        "ssh_user",
+        "ssh_auth_type",
+        "ssh_password_encrypted",
+        "ssh_key_encrypted",
+        "initialization_status",
+        "vnc_password_encrypted",
+    }.issubset(columns)
     assert device[:4] == ("ztl", "password", "123456", None)
     assert device[4]
+    assert bootstrap_package == (1, "draft")
 
 
 def test_init_db_migrates_legacy_scheduled_task_columns(tmp_path: Path) -> None:

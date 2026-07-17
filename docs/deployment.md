@@ -12,6 +12,15 @@ export CREDENTIAL_ENCRYPTION_KEY="$(python3 -c 'from cryptography.fernet import 
 export DEFAULT_ADMIN_PASSWORD='replace-admin-password'
 export SSH_HOST_KEY_POLICY='auto_add'
 # export SSH_KNOWN_HOSTS_FILE='/etc/edge-platform/known_hosts'
+
+# 单设备初始化包（必须使用带 IP SAN 的 HTTPS 证书）
+export BOOTSTRAP_PLATFORM_URL='https://192.0.2.10'
+export BOOTSTRAP_CA_CERT_PATH='/etc/edge-platform/platform-ca.crt'
+export BOOTSTRAP_FRP_SERVER_ADDR='192.0.2.10'
+export BOOTSTRAP_FRP_SERVER_PORT='7000'
+export BOOTSTRAP_FRP_AUTH_TOKEN='<frps token，如未启用 token 可省略>'
+export BOOTSTRAP_FRPC_DOWNLOAD_URL='https://example.test/frp_0.61.0_linux_arm64.tar.gz'
+export BOOTSTRAP_FRPC_SHA256='<下载归档的 64 位小写 SHA-256>'
 ```
 
 4. Place the generated service at `/etc/systemd/system/edge-platform.service`, then run:
@@ -105,7 +114,21 @@ This compatibility mode was restored after the repository-owned deployment scrip
 
 ## Edge Device Bootstrap
 
-On Debian 11 edge devices, run `scripts/deploy/edge_bootstrap.sh` to check `ssh`, check `vnc`, and create a minimal `frpc` registration tunnel. After the device is registered in the platform, use the generated frpc config from the device sync endpoint.
+`scripts/deploy/edge_bootstrap.sh` 是早期固定端口示例，不再用于新设备。当前流程为:
+
+1. 管理员在平台创建设备，填写期望硬件规格、SSH/VNC 远程端口和通用 SSH 账号。
+2. 在设备列表点击“初始化”，确认草稿校验无误后生成并下载单设备 ZIP。
+3. 通过局域网或 U 盘把整个 ZIP 解压目录复制到对应设备。
+4. 在 Debian 11 设备上以 root 执行 `bash install.sh`。
+5. 脚本安装白名单软件、FRPC、SSH、x0vncserver、`edge-deploy` 和性能 governor 服务，然后主动通过 HTTPS 注册。
+
+初始化包携带平台 CA 公钥及 SHA-256 指纹，不允许关闭 TLS 校验。平台证书必须包含实际访问 IP 的 SAN。脚本不会更换 APT 软件源、不会执行系统全量升级，也不会自动重启。输出状态:
+
+- `ready`: SSH 注册成功；VNC 可以是 ready 或待修复。
+- `reboot_required`: 退出码 20，现场人员重启后再次执行相同脚本；令牌尚未消费。
+- `failed`: 修复错误后幂等重试；只有 SSH 成功的 `ready` 注册会消费一次性令牌。
+
+设备端敏感文件写入 `/etc/edge-platform` 和 `/etc/frp`，权限为 `0600`。关键端口、SSH 账号、密码或期望硬件规格变化后，旧包立即失效，必须显式重新生成。
 
 ## Operational Notes
 

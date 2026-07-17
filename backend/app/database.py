@@ -141,6 +141,7 @@ def init_db(settings: Settings | None = None) -> None:
     from app.migrations import upgrade_to_head
     from app.models.alert import Alert, AlertRule
     from app.models.alert_notification import AlertNotificationChannel, AlertNotificationDelivery, AlertNotificationPolicy
+    from app.models.bootstrap import DeviceBootstrapPackage
     from app.models.device import Device
     from app.models.group import Group
     from app.models.log import OperationLog
@@ -213,6 +214,7 @@ def init_db(settings: Settings | None = None) -> None:
         AlertNotificationChannel,
         AlertNotificationDelivery,
         AlertNotificationPolicy,
+        DeviceBootstrapPackage,
         Device,
         Project,
         HardwareProfile,

@@ -8,6 +8,7 @@ from app.config import Settings
 from app.models.device import Device
 from app.models.lifecycle import Project
 from app.schemas.frps import FrpsDiscoveredDevice, FrpsImportRequest, FrpsImportResponse
+from app.services.bootstrap_service import BootstrapPackageService
 from app.services.encryption import EncryptionService
 from app.services.port_pool import PortPoolExhaustedError, PortPoolService
 
@@ -78,6 +79,7 @@ class FrpsImportService:
                 item.import_status = "conflict"
                 item.detail = str(exc)
                 continue
+            BootstrapPackageService(self.settings).ensure_initial_draft(session, device)
             item.import_status = "created"
             item.existing_device_id = device.id
             item.detail = f"已导入设备 {device.id}"

@@ -10,6 +10,10 @@ export interface DeviceRead {
   actual_profile_id: number | null;
   device_role: string | null;
   is_test_device: boolean;
+  initialization_status: string;
+  vnc_status: string;
+  bootstrap_generation: number;
+  initialized_at: string | null;
   location: string | null;
   hardware_model: string | null;
   ssh_port: number | null;
@@ -60,6 +64,21 @@ export interface DeviceStatusResponse {
   last_seen: string | null;
 }
 
+export interface DeviceBootstrapPackageRead {
+  id: number;
+  device_id: number;
+  generation: number;
+  status: string;
+  validation_errors: string[] | null;
+  config_hash: string | null;
+  ca_sha256: string | null;
+  downloaded_at: string | null;
+  invalidated_at: string | null;
+  claimed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export async function listDevices(): Promise<DeviceListResponse> {
   const response = await api.get<DeviceListResponse>("/devices");
   return response.data;
@@ -81,5 +100,22 @@ export async function deleteDevice(deviceId: number): Promise<void> {
 
 export async function getDeviceStatus(deviceId: number): Promise<DeviceStatusResponse> {
   const response = await api.get<DeviceStatusResponse>(`/devices/${deviceId}/status`);
+  return response.data;
+}
+
+export async function getDeviceBootstrapPackage(deviceId: number): Promise<DeviceBootstrapPackageRead> {
+  const response = await api.get<DeviceBootstrapPackageRead>(`/devices/${deviceId}/bootstrap-package`);
+  return response.data;
+}
+
+export async function prepareDeviceBootstrapPackage(deviceId: number): Promise<DeviceBootstrapPackageRead> {
+  const response = await api.post<DeviceBootstrapPackageRead>(`/devices/${deviceId}/bootstrap-package`);
+  return response.data;
+}
+
+export async function downloadDeviceBootstrapPackage(deviceId: number, packageId: number): Promise<Blob> {
+  const response = await api.get<Blob>(`/devices/${deviceId}/bootstrap-package/${packageId}/download`, {
+    responseType: "blob",
+  });
   return response.data;
 }

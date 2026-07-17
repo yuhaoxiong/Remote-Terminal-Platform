@@ -2812,3 +2812,51 @@ GET  /api/hardware-profiles
 ```
 
 单个设备只归属一个项目，一个项目可以启用多个独立功能。项目功能移除先进入 `pending_uninstall`，为后续经人工确认的卸载计划保留状态。
+
+## 单设备初始化闭环（第二阶段）
+
+创建设备后，平台自动建立第 1 代初始化包草稿。管理员需要配置平台 HTTPS 地址、CA、FRP 服务端和固定 FRPC 制品哈希后才能生成可下载包。
+
+### 初始化包管理
+
+```http
+GET  /api/devices/{device_id}/bootstrap-package
+POST /api/devices/{device_id}/bootstrap-package
+GET  /api/devices/{device_id}/bootstrap-package/{package_id}/download
+```
+
+- `GET`：已认证用户查看最新草稿或包状态，不返回注册令牌、SSH/VNC 密码或加密字段。
+- `POST`：仅管理员生成或重新生成；配置不完整时保持 `draft` 并返回 `validation_errors`。
+- `download`：仅管理员下载 `ready` 状态的单设备 ZIP。
+
+设备的 SSH/VNC 端口、SSH 账号、SSH 密码或期望硬件规格变化时，当前包会变为 `invalidated`，并自动建立下一代草稿。已失效、已认领或配置快照变化的包不能下载。
+
+ZIP 包包含 `install.sh`、CA 公钥、FRPC 配置、硬件采集脚本、`edge-deploy`、FRPC/x0vncserver/governor systemd 单元。脚本只面向 Debian 11，不更换软件源、不执行系统全量升级、不自动重启。
+
+### 设备一次性认领
+
+```http
+POST /api/device-registration/claim
+```
+
+该接口由设备携带一次性令牌调用，不使用管理员 JWT。请求示例:
+
+```json
+{
+  "token": "<one-time-token>",
+  "device_uuid": "<platform-device-uuid>",
+  "device_sn": "SN-001",
+  "machine_id": "<machine-id>",
+  "mac_addresses": ["02:00:00:00:00:01"],
+  "hardware": {
+    "soc": "rk3588",
+    "memory_mb": 7800,
+    "os_version": "debian11"
+  },
+  "ssh_ready": true,
+  "vnc_ready": false,
+  "bootstrap_status": "ready"
+}
+```
+
+只有 `bootstrap_status=ready` 且 `ssh_ready=true` 才完成认领并永久消费令牌。失败或 `reboot_required` 上报只更新初始化状态，允许修复后幂等重试。VNC 失败不阻止认领，设备进入 `ready_vnc_pending`。实际规格与期望规格不一致时进入 `hardware_mismatch`，后续业务部署必须阻断。

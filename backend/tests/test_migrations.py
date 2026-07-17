@@ -43,6 +43,7 @@ def test_alembic_upgrade_head_creates_wave1_schema(tmp_path: Path) -> None:
         "deployment_plan_items",
         "deployment_executions",
         "deployment_execution_items",
+        "device_bootstrap_packages",
     }
     user_columns = {column["name"] for column in inspector.get_columns("users")}
     assert {"role", "is_active", "last_login_at", "last_login_ip", "password_changed_at"}.issubset(user_columns)
@@ -54,6 +55,13 @@ def test_alembic_upgrade_head_creates_wave1_schema(tmp_path: Path) -> None:
         "actual_profile_id",
         "device_role",
         "is_test_device",
+        "initialization_status",
+        "vnc_status",
+        "bootstrap_generation",
+        "machine_id_hash",
+        "mac_fingerprint_hash",
+        "initialized_at",
+        "vnc_password_encrypted",
     }.issubset(device_columns)
     with engine.connect() as connection:
         profile_codes = set(connection.execute(text("SELECT code FROM hardware_profiles")).scalars())

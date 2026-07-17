@@ -1,11 +1,13 @@
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models.device import Device
+from app.models.bootstrap import DeviceBootstrapPackage
 from app.models.lifecycle import HardwareProfile, Project
 from app.schemas.device import DeviceCreate, DeviceUpdate
 from app.services.alert_service import AlertService
+from app.services.bootstrap_service import BootstrapPackageService
 from app.services.encryption import EncryptionService
 from app.services.port_pool import PortPoolService
 
@@ -57,6 +59,7 @@ class DeviceService:
                 self.port_pool.reserve(session, service_type, requested_port, device.id)
                 assigned_port = requested_port
             setattr(device, f"{service_type}_port", assigned_port)
+        BootstrapPackageService(self.settings).ensure_initial_draft(session, device)
         session.flush()
         AlertService(self.settings).evaluate_device_status(session, device)
         session.refresh(device)
@@ -106,6 +109,7 @@ class DeviceService:
     def update(self, session: Session, device_id: int, payload: DeviceUpdate) -> Device:
         device = self.get(session, device_id)
         changes = payload.model_dump(exclude_unset=True)
+        connection_changed = bool(BootstrapPackageService.CONNECTION_FIELDS.intersection(changes))
         self._validate_references(
             session,
             project_id=changes.get("project_id") if "project_id" in changes else device.project_id,
@@ -114,11 +118,7 @@ class DeviceService:
                 if "expected_profile_id" in changes
                 else device.expected_profile_id
             ),
-            actual_profile_id=(
-                changes.get("actual_profile_id")
-                if "actual_profile_id" in changes
-                else device.actual_profile_id
-            ),
+            actual_profile_id=device.actual_profile_id,
         )
         for service_type in ("ssh", "vnc"):
             field = f"{service_type}_port"
@@ -132,6 +132,8 @@ class DeviceService:
                 continue
             setattr(device, field, value)
         session.flush()
+        if connection_changed:
+            BootstrapPackageService(self.settings).invalidate_for_device_change(session, device)
         AlertService(self.settings).evaluate_device_status(session, device)
         session.refresh(device)
         return device
@@ -183,5 +185,6 @@ class DeviceService:
             self.port_pool.release(session, "ssh", device.ssh_port)
         if device.vnc_port is not None:
             self.port_pool.release(session, "vnc", device.vnc_port)
+        session.execute(delete(DeviceBootstrapPackage).where(DeviceBootstrapPackage.device_id == device.id))
         session.delete(device)
         session.flush()

@@ -39,6 +39,14 @@ class Settings(BaseModel):
     webhook_timeout_seconds: int = 5
     webhook_max_retries: int = 3
     notification_retention_days: int = 90
+    bootstrap_platform_url: str | None = None
+    bootstrap_ca_certificate: str | None = None
+    bootstrap_ca_cert_path: str | None = None
+    bootstrap_frp_server_addr: str | None = None
+    bootstrap_frp_server_port: int = 7000
+    bootstrap_frp_auth_token: str | None = None
+    bootstrap_frpc_download_url: str | None = None
+    bootstrap_frpc_sha256: str | None = None
 
 
 @lru_cache
@@ -70,4 +78,12 @@ def get_settings() -> Settings:
         webhook_timeout_seconds=int(os.getenv("WEBHOOK_TIMEOUT_SECONDS", "5")),
         webhook_max_retries=int(os.getenv("WEBHOOK_MAX_RETRIES", "3")),
         notification_retention_days=int(os.getenv("NOTIFICATION_RETENTION_DAYS", "90")),
+        bootstrap_platform_url=os.getenv("BOOTSTRAP_PLATFORM_URL"),
+        bootstrap_ca_certificate=(os.getenv("BOOTSTRAP_CA_CERTIFICATE") or "").replace("\\n", "\n") or None,
+        bootstrap_ca_cert_path=os.getenv("BOOTSTRAP_CA_CERT_PATH"),
+        bootstrap_frp_server_addr=os.getenv("BOOTSTRAP_FRP_SERVER_ADDR"),
+        bootstrap_frp_server_port=int(os.getenv("BOOTSTRAP_FRP_SERVER_PORT", "7000")),
+        bootstrap_frp_auth_token=os.getenv("BOOTSTRAP_FRP_AUTH_TOKEN"),
+        bootstrap_frpc_download_url=os.getenv("BOOTSTRAP_FRPC_DOWNLOAD_URL"),
+        bootstrap_frpc_sha256=os.getenv("BOOTSTRAP_FRPC_SHA256"),
     )

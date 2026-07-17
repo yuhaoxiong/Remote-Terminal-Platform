@@ -1,5 +1,6 @@
 from app.config import Settings
 from app.models.device import Device
+from app.services.encryption import EncryptionService
 
 
 class RemoteAccessService:
@@ -23,6 +24,9 @@ class RemoteAccessService:
     def build_vnc_session(self, device: Device) -> dict[str, object]:
         if device.vnc_port is None:
             raise ValueError("设备没有分配 VNC 端口")
+        device_password = None
+        if self.settings and device.vnc_password_encrypted:
+            device_password = EncryptionService(self.settings).decrypt_optional(device.vnc_password_encrypted)
         return {
             "device_id": device.id,
             "session_type": "vnc",
@@ -30,5 +34,5 @@ class RemoteAccessService:
             "remote_port": device.vnc_port,
             "websocket_url": f"/api/ws/devices/{device.id}/vnc",
             "proxy_url": f"/novnc/vnc.html?device_id={device.id}&port={device.vnc_port}",
-            "vnc_password": self.settings.default_vnc_password if self.settings else None,
+            "vnc_password": device_password or (self.settings.default_vnc_password if self.settings else None),
         }

@@ -113,6 +113,7 @@ vi.mock("../api/platform", () => ({
   createUpdateTask: vi.fn(),
   deleteGroup: vi.fn(),
   deleteDevice: vi.fn(),
+  downloadDeviceBootstrapPackage: vi.fn(),
   executeUpdateTask: vi.fn(),
   exportLogs: vi.fn(),
   exportUpdateTaskResults: vi.fn(),
@@ -151,6 +152,7 @@ vi.mock("../api/platform", () => ({
   getAccessToken: vi.fn(() => "access-token"),
   getCurrentUser: vi.fn(),
   getDeviceStatus: vi.fn(),
+  getDeviceBootstrapPackage: vi.fn(),
   getDiagnosticsConfig: vi.fn(),
   getSystemSettingSchema: vi.fn(),
   getEffectiveSystemSettings: vi.fn(),
@@ -167,6 +169,7 @@ vi.mock("../api/platform", () => ({
   listUpdateTasks: vi.fn(),
   listUsers: vi.fn(),
   previewUpdateTaskTargets: vi.fn(),
+  prepareDeviceBootstrapPackage: vi.fn(),
   listUpdateTaskTemplates: vi.fn(),
   createUpdateTaskTemplate: vi.fn(),
   updateUpdateTaskTemplate: vi.fn(),
@@ -433,6 +436,10 @@ it("creates a device through the backend API and exposes SSH/VNC entry points", 
     actual_profile_id: null,
     device_role: null,
     is_test_device: false,
+    initialization_status: "draft",
+    vnc_status: "unconfigured",
+    bootstrap_generation: 1,
+    initialized_at: null,
     location: null,
     hardware_model: null,
     ssh_port: 10001,
@@ -505,6 +512,10 @@ it("imports existing frps proxies into devices", async () => {
         actual_profile_id: null,
         device_role: null,
         is_test_device: false,
+        initialization_status: "draft",
+        vnc_status: "unconfigured",
+        bootstrap_generation: 1,
+        initialized_at: null,
         location: "frps",
         hardware_model: null,
         ssh_port: 12008,
@@ -703,6 +714,10 @@ it("edits, refreshes, and deletes a device from the device table", async () => {
     actual_profile_id: null,
     device_role: null,
     is_test_device: false,
+    initialization_status: "package_ready",
+    vnc_status: "unconfigured",
+    bootstrap_generation: 1,
+    initialized_at: null,
     location: "上海",
     hardware_model: null,
     ssh_port: 10010,
@@ -775,6 +790,47 @@ it("shows a local error when saving device ports fails", async () => {
   await flushAsync();
 
   expect(wrapper.text()).toContain("保存设备失败，请检查后端返回。");
+});
+
+it("loads and prepares a per-device bootstrap package", async () => {
+  const draft = {
+    id: 1,
+    device_id: 1,
+    generation: 1,
+    status: "draft",
+    validation_errors: ["尚未生成初始化包"],
+    config_hash: null,
+    ca_sha256: null,
+    downloaded_at: null,
+    invalidated_at: null,
+    claimed_at: null,
+    created_at: "2026-07-17T00:00:00Z",
+    updated_at: "2026-07-17T00:00:00Z",
+  };
+  api.getDeviceBootstrapPackage.mockResolvedValueOnce(draft);
+  api.prepareDeviceBootstrapPackage.mockResolvedValueOnce({
+    ...draft,
+    status: "ready",
+    validation_errors: null,
+    config_hash: "a".repeat(64),
+    ca_sha256: "b".repeat(64),
+  });
+  const { wrapper, router } = await mountApp();
+
+  await wrapper.find('[data-testid="login-password"] input').setValue("admin-pass");
+  await wrapper.find('[data-testid="login-submit"]').trigger("click");
+  await flushAsync();
+  await navigateTo(router, "devices");
+  await wrapper.find('[data-testid="bootstrap-device-1"]').trigger("click");
+  await flushAsync();
+
+  expect(api.getDeviceBootstrapPackage).toHaveBeenCalledWith(1);
+  expect(wrapper.text()).toContain("尚未生成初始化包");
+  await wrapper.find('[data-testid="prepare-bootstrap"]').trigger("click");
+  await flushAsync();
+  expect(api.prepareDeviceBootstrapPackage).toHaveBeenCalledWith(1);
+  expect(wrapper.text()).toContain("ready");
+  expect(wrapper.find('[data-testid="download-bootstrap"]').attributes("disabled")).toBeUndefined();
 });
 
 it("shows sync config, filters logs, exports csv, and loads diagnostics", async () => {

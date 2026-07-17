@@ -46,6 +46,10 @@ export function mapDevice(
     actual_profile_id: device.actual_profile_id,
     device_role: device.device_role,
     is_test_device: device.is_test_device,
+    initialization_status: device.initialization_status,
+    vnc_status: device.vnc_status,
+    bootstrap_generation: device.bootstrap_generation,
+    initialized_at: device.initialized_at,
     group: groupNameFor(device.group_id, sourceGroups),
     group_id: device.group_id,
     location: device.location || "未分配",
@@ -79,6 +83,10 @@ export interface Device {
   actual_profile_id: number | null;
   device_role: string | null;
   is_test_device: boolean;
+  initialization_status: string;
+  vnc_status: string;
+  bootstrap_generation: number;
+  initialized_at: string | null;
   group: string;
   group_id: number | null;
   location: string;

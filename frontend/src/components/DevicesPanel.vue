@@ -7,11 +7,14 @@ import { storeToRefs } from "pinia";
 import {
   createDevice,
   deleteDevice,
+  downloadDeviceBootstrapPackage,
   getApiErrorMessage,
+  getDeviceBootstrapPackage,
   getDeviceStatus,
   importFrpsDevices,
   listHardwareProfiles,
   listProjects,
+  prepareDeviceBootstrapPackage,
   syncDeviceConfig,
   updateDevice,
   type DeviceCreateRequest,
@@ -19,6 +22,7 @@ import {
   type FrpsDiscoveredDevice,
   type FrpsImportRequest,
   type HardwareProfileRead,
+  type DeviceBootstrapPackageRead,
   type ProjectRead,
 } from "../api/platform";
 import { mapDevice, normalizeDeviceStatus, useDevicesStore, type Device, type DeviceStatus } from "../stores/devices";
@@ -84,6 +88,10 @@ const frpsForm = reactive({
 const syncConfigOpen = ref(false);
 const syncConfigTitle = ref("");
 const syncConfigText = ref("");
+const bootstrapOpen = ref(false);
+const bootstrapDevice = ref<Device | null>(null);
+const bootstrapPackage = ref<DeviceBootstrapPackageRead | null>(null);
+const bootstrapBusy = ref(false);
 
 function openDeviceCreate() {
   deviceEditId.value = null;
@@ -126,6 +134,31 @@ async function showSyncConfig(device: Device) {
   catch { syncConfigText.value = "生成同步配置失败，请检查设备远程端口配置。"; }
 }
 async function copySyncConfig() { if (!syncConfigText.value || syncConfigText.value.startsWith("正在")) return; try { await navigator.clipboard?.writeText(syncConfigText.value); prependLocalLog("复制同步配置", "frpc", "success", "已复制到剪贴板"); } catch { prependLocalLog("复制同步配置", "frpc", "blocked", "当前浏览器不支持自动复制，请手动选择配置内容"); } }
+async function openBootstrap(device: Device) {
+  bootstrapOpen.value = true; bootstrapDevice.value = device; bootstrapPackage.value = null; bootstrapBusy.value = true;
+  try { bootstrapPackage.value = await getDeviceBootstrapPackage(device.id); }
+  catch (error) { prependLocalLog("加载初始化包", `设备：${device.id}`, "blocked", getApiErrorMessage(error, "加载初始化包失败")); }
+  bootstrapBusy.value = false;
+}
+async function prepareBootstrap() {
+  if (!bootstrapDevice.value) return;
+  bootstrapBusy.value = true;
+  try {
+    bootstrapPackage.value = await prepareDeviceBootstrapPackage(bootstrapDevice.value.id);
+    prependLocalLog("生成初始化包", `设备：${bootstrapDevice.value.id}`, bootstrapPackage.value.status === "ready" ? "success" : "blocked", bootstrapPackage.value.status === "ready" ? "初始化包已就绪" : "初始化包仍有配置错误");
+  } catch (error) { prependLocalLog("生成初始化包", `设备：${bootstrapDevice.value.id}`, "blocked", getApiErrorMessage(error, "生成初始化包失败")); }
+  bootstrapBusy.value = false;
+}
+async function downloadBootstrap() {
+  if (!bootstrapDevice.value || !bootstrapPackage.value || bootstrapPackage.value.status !== "ready") return;
+  bootstrapBusy.value = true;
+  try {
+    const blob = await downloadDeviceBootstrapPackage(bootstrapDevice.value.id, bootstrapPackage.value.id);
+    const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `edge-bootstrap-${bootstrapDevice.value.device_sn}-g${bootstrapPackage.value.generation}.zip`; anchor.click(); URL.revokeObjectURL(url);
+    prependLocalLog("下载初始化包", `设备：${bootstrapDevice.value.id}`, "success", "初始化包已下载");
+  } catch (error) { prependLocalLog("下载初始化包", `设备：${bootstrapDevice.value.id}`, "blocked", getApiErrorMessage(error, "下载初始化包失败")); }
+  bootstrapBusy.value = false;
+}
 async function importFromFrps() {
   frpsImporting.value = true; frpsImportResult.value = ""; frpsImportItems.value = [];
   try { const r = await importFrpsDevices({ dashboard_url: frpsForm.dashboard_url, username: frpsForm.username, password: frpsForm.password, ssh_port_start: Number(frpsForm.ssh_port_start), ssh_port_end: Number(frpsForm.ssh_port_end), vnc_port_start: Number(frpsForm.vnc_port_start), vnc_port_end: Number(frpsForm.vnc_port_end), project_id: frpsForm.project_id, location: frpsForm.location || "frps", overwrite_project_location: frpsForm.overwrite_project_location }); frpsImportItems.value = r.items; frpsImportResult.value = `发现 ${r.total} 台，新增 ${r.created} 台，同步 ${r.synced} 台，跳过 ${r.skipped} 台，冲突 ${r.conflicts} 台`; await platformDataStore.loadPlatformData(); emit("changed"); }
@@ -209,15 +242,17 @@ onMounted(async () => {
         <el-table-column prop="location" label="部署位置" min-width="130" />
         <el-table-column prop="ssh_port" label="SSH 端口" width="100" />
         <el-table-column prop="vnc_port" label="VNC 端口" width="100" />
+        <el-table-column label="初始化" width="135"><template #default="{row}"><el-tag size="small" :type="row.initialization_status === 'ready' ? 'success' : row.initialization_status === 'hardware_mismatch' || row.initialization_status === 'failed' ? 'danger' : 'warning'">{{ row.initialization_status }}</el-tag></template></el-table-column>
         <el-table-column label="最近指标" min-width="150"><template #default="{row}"><span>{{ row.metricRecordedAt ? formatTime(row.metricRecordedAt) : "未上报" }}</span></template></el-table-column>
         <el-table-column label="标签" min-width="150"><template #default="{row}"><el-tag v-for="tag in row.tags" :key="tag" size="small" class="tag-chip">{{ tag }}</el-tag></template></el-table-column>
-        <el-table-column label="操作" width="360" fixed="right">
+        <el-table-column label="操作" width="430" fixed="right">
           <template #default="{row}">
             <el-button size="small" type="primary" text @click="openDeviceDetail(row)">详情</el-button>
             <el-tooltip :content="remoteUnavailableReason(row,'ssh')||'SSH 连接'" placement="top"><el-button size="small" :disabled="Boolean(remoteUnavailableReason(row,'ssh'))" @click="$emit('ssh',row)">SSH</el-button></el-tooltip>
             <el-tooltip :content="remoteUnavailableReason(row,'vnc')||'VNC 连接'" placement="top"><el-button size="small" :disabled="Boolean(remoteUnavailableReason(row,'vnc'))" @click="$emit('vnc',row)">VNC</el-button></el-tooltip>
             <el-button :data-testid="`open-files-${row.id}`" size="small" @click="devicesStore.openFilePanel(row);$emit('open-files',row)">文件</el-button>
             <el-button :data-testid="`sync-device-${row.id}`" size="small" @click="showSyncConfig(row)">同步</el-button>
+            <el-button :data-testid="`bootstrap-device-${row.id}`" size="small" @click="openBootstrap(row)">初始化</el-button>
             <el-button :data-testid="`refresh-device-${row.id}`" size="small" :icon="Refresh" @click="refreshDeviceStatus(row)">刷新</el-button>
             <el-button :data-testid="`edit-device-${row.id}`" size="small" @click="openDeviceEdit(row)">编辑</el-button>
             <el-button :data-testid="`delete-device-${row.id}`" size="small" type="danger" text @click="removeDevice(row)">删除</el-button>
@@ -260,6 +295,25 @@ onMounted(async () => {
       <template #footer>
         <el-button data-testid="copy-sync-config" type="primary" @click="copySyncConfig">复制配置</el-button>
         <el-button @click="syncConfigOpen=false">关闭</el-button>
+      </template>
+    </CommonDialog>
+
+    <CommonDialog v-model:visible="bootstrapOpen" :title="`${bootstrapDevice?.name || '设备'} 初始化包`" width="720px">
+      <div v-loading="bootstrapBusy">
+        <el-descriptions v-if="bootstrapPackage" :column="2" border>
+          <el-descriptions-item label="代次">{{ bootstrapPackage.generation }}</el-descriptions-item>
+          <el-descriptions-item label="状态"><el-tag :type="bootstrapPackage.status === 'ready' ? 'success' : 'warning'">{{ bootstrapPackage.status }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="CA 指纹" :span="2"><code>{{ bootstrapPackage.ca_sha256 || '待生成' }}</code></el-descriptions-item>
+        </el-descriptions>
+        <el-alert v-if="bootstrapPackage?.validation_errors?.length" class="bootstrap-errors" type="warning" show-icon :closable="false" title="初始化包尚不可下载">
+          <template #default><ul><li v-for="error in bootstrapPackage.validation_errors" :key="error">{{ error }}</li></ul></template>
+        </el-alert>
+        <p class="muted">该 ZIP 仅用于当前设备。复制到 Debian 11 设备后，以 root 执行 <code>bash install.sh</code>；脚本不会自动重启。</p>
+      </div>
+      <template #footer>
+        <el-button @click="bootstrapOpen=false">关闭</el-button>
+        <el-button data-testid="prepare-bootstrap" :loading="bootstrapBusy" @click="prepareBootstrap">生成/重新生成</el-button>
+        <el-button data-testid="download-bootstrap" type="primary" :loading="bootstrapBusy" :disabled="bootstrapPackage?.status !== 'ready'" @click="downloadBootstrap">下载 ZIP</el-button>
       </template>
     </CommonDialog>
 

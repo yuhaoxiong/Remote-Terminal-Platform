@@ -30,7 +30,6 @@ class DeviceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     project_id: int | None = Field(default=None, ge=1)
     expected_profile_id: int | None = Field(default=None, ge=1)
-    actual_profile_id: int | None = Field(default=None, ge=1)
     device_role: str | None = Field(default=None, max_length=64)
     is_test_device: bool | None = None
     location: str | None = Field(default=None, max_length=255)
@@ -60,6 +59,10 @@ class DeviceRead(BaseModel):
     actual_profile_id: int | None
     device_role: str | None
     is_test_device: bool
+    initialization_status: str
+    vnc_status: str
+    bootstrap_generation: int
+    initialized_at: datetime | None
     location: str | None
     hardware_model: str | None
     ssh_port: int | None

@@ -14,6 +14,7 @@
 
 - 管理员和运维人员登录认证,支持 JWT access/refresh token、角色权限和认证审计。
 - 设备 CRUD,自动分配 SSH/VNC 代理端口。
+- 为每台设备独立生成可经局域网或 U 盘转交的 Debian 11 初始化包，支持一次性 HTTPS 认领和硬件规格核验。
 - 支持从 frps Dashboard 自动发现并导入已有 TCP 代理设备。
 - 生成设备 `frpc` 配置片段,并提供配置同步接口。
 - 设备分组、标签、项目号、状态筛选。
@@ -147,9 +148,18 @@ $env:FILE_BACKEND='sftp'
 $env:CREDENTIAL_ENCRYPTION_KEY='<Fernet 密钥>'
 $env:SCHEDULER_ENABLED='true'
 $env:SCHEDULER_POLL_INTERVAL_SECONDS='30'
+$env:BOOTSTRAP_PLATFORM_URL='https://192.0.2.10'
+$env:BOOTSTRAP_CA_CERT_PATH='C:\path\to\platform-ca.crt'
+$env:BOOTSTRAP_FRP_SERVER_ADDR='192.0.2.10'
+$env:BOOTSTRAP_FRP_SERVER_PORT='7000'
+$env:BOOTSTRAP_FRP_AUTH_TOKEN='<frps token>'
+$env:BOOTSTRAP_FRPC_DOWNLOAD_URL='https://example.test/frp_linux_arm64.tar.gz'
+$env:BOOTSTRAP_FRPC_SHA256='<64 位小写 SHA-256>'
 ```
 
 `FILE_BACKEND` 默认是 `sftp`,文件列表、上传、下载和删除会通过设备 frp SSH 端口访问真实设备。没有真实设备的本地开发可显式设置为 `local`。远程 SSH/VNC 连接依赖设备记录中的代理端口、设备级 SSH 凭据、frpc/frps 可达性和 Nginx WebSocket 代理。
+
+初始化包要求平台使用 HTTPS；过渡期自建 CA 证书必须包含实际平台 IP 的 SAN。管理员在设备列表生成 ZIP 后，通过局域网或 U 盘复制到对应设备，以 root 执行 `bash install.sh`。每个包的注册令牌和 VNC 密码均独立，禁止跨设备复用。
 
 告警 Webhook 通道的 URL 和请求头会作为敏感配置保存。创建或更新 Webhook 地址、请求头前必须配置 `CREDENTIAL_ENCRYPTION_KEY`;未配置时后端会拒绝保存敏感通知配置。
 
